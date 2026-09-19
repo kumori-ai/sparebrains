@@ -378,13 +378,18 @@ def main():
     per_lane = {l["backend"]: {"tier": l["tier"], "attempts": 0, "accepts": 0, "errors": 0} for l in order}
     planned_per_target = len(order) * args.attempts
     provider_lock = defaultdict(threading.Lock)          # never two workers on one provider at once
-    bench = {"t": 0.0, "state": {}}
+    bench = {"t": 0.0, "state": {}, "told": {}}          # told: backend → monotonic time the router said to come back
     exhausted = {}                                       # provider → why it is parked for the rest of the run
 
     def benched(backend):
-        """Router bench state, refreshed at most every 30 s. True = the router would 503 this lane now."""
+        """Router bench state, refreshed at most every 30 s. True = the router would 503 this lane now.
+        A refusal's own Retry-After wins over the snapshot: /backoff-state reads one worker's memory
+        and omits disabled / lifetime / RPM gates, so on 2026-09-17..18 the snapshot said 'answerable'
+        while the router refused 10,770 times, 10,293 of them with a 1-60 minute Retry-After."""
         now = time.monotonic()
         with lock:
+            if bench["told"].get(backend, 0) > now:
+                return True
             if now - bench["t"] > 30:
                 try:
                     bench["state"] = llm_backoff_state() or {}
@@ -463,8 +468,10 @@ def main():
                         with lock:                        # the router's fair-share or pool gate: done for today
                             exhausted[lane["provider"]] = msg.split(" : ", 1)[-1][:120]
                         return "exhausted"
-                    if "is benched" in msg:
-                        return "defer"                   # the router's breaker tripped since the pre-check
+                    if "is benched" in msg:              # the router's gate refused: wait as long as it says
+                        with lock:
+                            bench["told"][lane["backend"]] = time.monotonic() + max(5, e.retry_after or 60)
+                        return "defer"
                     limited = e.status_code == 429 or "rate limit" in msg.lower() or "RPM spacing" in msg
                     if tries == 1 and limited and e.retry_after and e.retry_after <= 90:
                         with lock:
