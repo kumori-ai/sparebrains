@@ -1,0 +1,11 @@
+import Mathlib
+
+open scoped Nat
+open scoped Real
+
+/--
+In a rectangular coordinate system, the line $3y = x$ intersects the line $2x + 5y = 11$ at point $A$. What is the sum of the coordinates of point $A$? -/
+theorem mathd_algebra_329 (x y : ℝ) (h₀ : 3 * y = x) (h₁ : 2 * x + 5 * y = 11) : x + y = 4 := by
+  have hy : y = 1 := by nlinarith
+  have hx : x = 3 := by nlinarith
+  nlinarith
