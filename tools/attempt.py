@@ -18,7 +18,7 @@ every target. Each attempt writes one compact line to the git ledger and posts i
 transcript to kumori's sparebrains_attempts table. Accepted proofs are saved whole under
 verified/.
 """
-import argparse, hashlib, json, os, random, re, sys, threading, time
+import argparse, hashlib, json, os, random, re, sys, threading, time, uuid
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -459,7 +459,8 @@ def main():
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
                                         max_tokens=args.max_tokens, temperature=0.2, system=SYSTEM,
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
-                                        timeout_s=60, include_metadata=True)
+                                        timeout_s=60, include_metadata=True,
+                                        request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
                     err = None
                     break
                 except KumoriAPIError as e:
