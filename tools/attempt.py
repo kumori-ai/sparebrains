@@ -68,6 +68,12 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
        "```lean\n" + EXAMPLE + "```\n\nNow the file to complete:\n\n")
 
 
+def bench_delay(retry_after, consecutive):
+    """Repeated refusals park a lane longer, never less than the router asks."""
+    minimum = max(5, retry_after or 60)
+    return max(minimum, min(1800, minimum * 2 ** min(max(0, consecutive - 1), 9)))
+
+
 def public_record_ok(lane):
     """DECISIONS.md 2026-09-02: two provider groups may not appear in a public, Apache-2.0 record.
     Cohere's Terms of Use bar benchmarking and distributing anything the API returns; NVIDIA's API
@@ -378,14 +384,13 @@ def main():
     per_lane = {l["backend"]: {"tier": l["tier"], "attempts": 0, "accepts": 0, "errors": 0} for l in order}
     planned_per_target = len(order) * args.attempts
     provider_lock = defaultdict(threading.Lock)          # never two workers on one provider at once
-    bench = {"t": 0.0, "state": {}, "told": {}}          # told: backend → monotonic time the router said to come back
+    bench = {"t": 0.0, "state": {}, "told": {}, "streak": {}}          # told: backend → monotonic time the router said to come back
     exhausted = {}                                       # provider → why it is parked for the rest of the run
 
     def benched(backend):
         """Router bench state, refreshed at most every 30 s. True = the router would 503 this lane now.
-        A refusal's own Retry-After wins over the snapshot: /backoff-state reads one worker's memory
-        and omits disabled / lifetime / RPM gates, so on 2026-09-17..18 the snapshot said 'answerable'
-        while the router refused 10,770 times, 10,293 of them with a 1-60 minute Retry-After."""
+        A refusal's own Retry-After is a minimum. Repeated refusals extend the local
+        wait so permanently rate-limited providers are not retried every two minutes."""
         now = time.monotonic()
         with lock:
             if bench["told"].get(backend, 0) > now:
@@ -454,6 +459,9 @@ def main():
         reply, err = "", None
         returned_backend, inference = None, {}
         with provider_lock[lane["provider"]]:
+            # Another worker may have benched this lane while we waited for the provider.
+            if benched(lane["backend"]):
+                return "defer"
             for tries in (1, 2):
                 try:
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
@@ -461,6 +469,9 @@ def main():
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
                                         timeout_s=60, include_metadata=True,
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
+                    with lock:
+                        bench["streak"].pop(lane["backend"], None)
+                        bench["told"].pop(lane["backend"], None)
                     err = None
                     break
                 except KumoriAPIError as e:
@@ -471,7 +482,11 @@ def main():
                         return "exhausted"
                     if "is benched" in msg:              # the router's gate refused: wait as long as it says
                         with lock:
-                            bench["told"][lane["backend"]] = time.monotonic() + max(5, e.retry_after or 60)
+                            count = bench["streak"].get(lane["backend"], 0) + 1
+                            bench["streak"][lane["backend"]] = count
+                            wait = bench_delay(e.retry_after, count)
+                            bench["told"][lane["backend"]] = time.monotonic() + wait
+                        print(f"{lane['backend']}: refusal {count}; parked for {wait:.0f}s", flush=True)
                         return "defer"
                     limited = e.status_code == 429 or "rate limit" in msg.lower() or "RPM spacing" in msg
                     if tries == 1 and limited and e.retry_after and e.retry_after <= 90:
