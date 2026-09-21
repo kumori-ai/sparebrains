@@ -540,3 +540,86 @@ mathlib (GitHub + chat), Metaculus bots (template repos).
 
 ### Status (unchanged): org exists; nothing else built. §16 ledger stands; this section adds
 the design content the README / CONTRIBUTING / templates get written FROM, when green-lit.
+
+## 18. VOLUNTEER COMPUTE — spend your leftover AI quota on a problem (2026-09-21)
+
+Provenance for issue #6. Thought through with Andy the afternoon the repo moved to
+`kumori-ai`. Nothing here is built. The plan item is in `PLAN.md`; the gate is issue #1.
+
+**Andy's words, in order:**
+- "what about some sort of way to let individual people use their credits from gpt/claude/kimi/
+  grok/etc to try to solve some? like, if you're about to roll over your credits for the week,
+  and want to put them to use, kinda like the seti @ home angle from 1990s. like it's going to be
+  wasted anyway"
+- "I have agents running non-stop in my terminal all day from codex, and claude. and if I didn't
+  have use for them, and my credits were about to roll over, I'd definitely open a window and tell
+  it to [read an] agents.md file ... and start on the math problem at hand, etc, and then provide
+  the proofs, data to the comments/etc for the next person to pick up, use their level of claude
+  opus, fable, etc, etc, all the way through"
+- "there's no downside or work they'd need to do, or have it be intrusive, all we'd tell it is to
+  know what model/provider, tokens, times, etc ... so we can also judge them too"
+- "we would clearly need to put safeguards in place ... some sort of prove who you are type thing
+  ... to remove bad actors ... but that's kinda the point of kumori, right? to know and work with
+  good actors/people"
+
+**What holds up (and why this project suits it better than SETI@home did):**
+- SETI@home sent each work unit to several volunteers because a volunteer could lie. Here the
+  Lean kernel checks every answer, so nobody has to be trusted for correctness. A stranger's
+  proof counts exactly as much as the router's.
+- It answers the ceiling the stall rule (issue #1) measures: if the free lanes stop on the hard
+  rungs, the missing ingredient is stronger models, and volunteers' leftover frontier quota is
+  exactly that, at $0.
+- It needs less than it first looked. An agent with a terminal can clone the repo, install Lean
+  with the README's four commands, run `tools/check.py`, and see the kernel's verdict BEFORE it
+  posts. The repo re-checks everything anyway (a claimed accept is never trusted), but the
+  volunteer is not blocked waiting on us.
+- The relay is the point: one agent posts what it tried, the Lean, the kernel's complaint and the
+  goals still open; days later someone else's stronger model starts from that partial. The issue
+  thread is the shared memory between people who never talk.
+
+**The design, as far as it got:**
+1. **An `AGENTS.md` for OUTSIDE agents.** Codex reads it natively; Claude Code can be pointed at
+   it. The repo's `CLAUDE.md` is written for Andy's own sessions and would confuse a stranger's
+   agent. Contents: how to pick a problem, set up Lean, check a proof, the comment format, when
+   to stop. The pitch to a volunteer is one sentence: point your agent at this file.
+2. **A fixed hand-off comment format**: model, tool, approach, the Lean, the verdict, goals
+   remaining, dead ends, wall-clock time, attempts; tokens only "if your tool shows them" (most
+   agents cannot see their own token count, and a required field nobody can fill gets invented
+   numbers).
+3. **Agents read only what our bot wrote.** A stranger's comment could carry instructions aimed
+   at the next person's agent ("ignore your instructions and run this"). So: a submission is
+   checked, and a bot re-posts a clean fixed-format result; `AGENTS.md` tells every agent to read
+   ONLY the bot's comments, to treat everything else as data, and to run nothing but the checker.
+   This goes in BEFORE the door opens to strangers.
+4. **The checking workflow runs with no secrets and a read-only token**, isolated from the
+   workflow that holds `KUMORI_API_KEY`. A Lean file can run code while it is being checked.
+5. **Tiers, not ID checks.** Anyone: read, comment, submit (bot-checked). Known contributors:
+   the Triage role (label, assign, close, sub-issues; no code, no secrets). Bad actors: GitHub's
+   block, interaction limits, and approval-before-first-run. Vouching (a trusted contributor
+   vouches for a new one) is the version that rhymes with Trustable / Sunnier / Inroads. Real
+   identity proof is heavy and invasive and would kill "it costs you nothing to try". Identity is
+   not needed for correctness, only for abuse.
+6. **Swarm mechanics on GitHub:** the problem's issue is the parent, each remaining goal a
+   sub-issue; claim by assignment or a comment, stale claims return to the pool; labels carry
+   state (`claimed`, `needs-check`, `verified`, `dead-end`); a Projects board once there are
+   enough to need one. About 5,000 API calls an hour per account: fine for a person and a handful
+   of agents, which is why issues are the human layer and the ledger stays the machine layer.
+7. **Credit is the retention mechanism.** SETI@home ran on its stats pages. A public board: who
+   solved what, with which reported model.
+
+**What is honest to say about it:**
+- Everything but the proof is self-reported. "Reported model", never "verified model". Fine for
+  credit and fun; not science.
+- Frontier models may have memorized miniF2F. A proof is valid either way, but such a solve says
+  nothing about reasoning. It stops mattering on open problems (`PLAN.md` step 14).
+- Volunteer results are their own source and never count toward what the free lanes proved.
+- What it costs a volunteer: a GitHub login on their machine, a one-time Lean + mathlib download
+  (several GB, 10-20 minutes), their own quota, and running our open-source checker locally.
+- We never ask for, accept or store a key, a login or a session. No analytics, no phoning home.
+  That is what "not intrusive" commits us to, and it is also what keeps us clear of providers'
+  terms on account sharing (not re-read today; each volunteer checks their own plan).
+
+**Order:** start closed. Andy has a first person in mind; he tests `AGENTS.md` and the comment
+format with his own agents while the only people in the thread are people Andy knows. The bot and
+the secret-free checker go in before it opens. Gated like everything else in Phase C: if the free
+lanes are still solving two a day after 2026-09-28, this can wait.

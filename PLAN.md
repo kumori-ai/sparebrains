@@ -47,6 +47,14 @@ run this GCP cleanup.
       measurement remains honest; every final artifact still requires byte-identical kernel
       verification. This is an orchestration experiment, not permission to feed a target's known
       proof back into its own cold arm.
+- [ ] **Volunteer compute: leftover paid-AI quota, pointed at open problems (issue #6).** The
+      SETI@home shape, made easy by the kernel: nobody has to be trusted for correctness. A
+      volunteer points their own agent at an `AGENTS.md`, it checks its own Lean locally with
+      `tools/check.py`, and posts a fixed-format result for the next person's stronger model to
+      build on. Before strangers: agents read only bot-written comments, the checking workflow
+      holds no secrets, tiers instead of ID checks. Starts closed, with one tester Andy knows.
+      Volunteer results are their own source and never count as free-lane results. Full thinking:
+      `BRAINSTORMS.md` §18. Gate: after cross-lane repair (#2), if the stall rule (#1) trips.
 - [ ] **Measure reasoning lanes as a separate cohort before swarm routing.** Include every live
       lane marked reasoning/thinking in the same target sets, with capability metadata and (where
       the provider exposes it) explicit low/medium/high reasoning effort recorded per attempt.
