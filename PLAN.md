@@ -407,7 +407,7 @@ problems is zero after 13. The human-in-the-loop submission paths (vibemathed.co
 forum) apply from 14 on; never an automated mathlib PR (§5).
 
 **Phase D: the public product**
-12. Transfer the repo to kumori-ai (history intact).
+12. ~~Transfer the repo to kumori-ai (history intact)~~ done 2026-09-21 (`DECISIONS.md`).
 13. Nightly README scoreboard, CONTRIBUTING (allowed + disclosure + human in loop), issue
     forms, restrict-issue-creation kill switch — the mr_beast_puzzle shape, copied.
 14. gh-aw intake triage against code.kumori.ai at $0, once strangers file targets.

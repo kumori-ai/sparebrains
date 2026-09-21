@@ -66,7 +66,7 @@ No proof is graded by eye, and no model grades another model. Unsolved means not
   `sparebrains-bot`), its job log under Actions (kept 90 days), its page on the site.
 - A proof: the file under `verified/<set>/<target>/<lane>.lean`. Re-check it yourself:
   ```
-  git clone https://github.com/tillo13/sparebrains && cd sparebrains
+  git clone https://github.com/kumori-ai/sparebrains && cd sparebrains
   curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
   lake exe cache get && lake build
   python3 tools/check.py --expect accept verified/minif2f/test/amc12_2000_p12/mistral-devstral.lean

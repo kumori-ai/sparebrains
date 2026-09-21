@@ -5,6 +5,16 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-09-21
 
+- **The repository moved to `github.com/kumori-ai/sparebrains` (Phase D step 12, done early).**
+  Andy: "I want to have as much as I can be in that kumori-ai repo." The gate in `PLAN.md` was a
+  verified result, and the ledger holds 253 of 378. Transferred by API after pausing the attempt
+  chain and letting run 35620604994 publish. Verified after the move: the `KUMORI_API_KEY` secret,
+  all three workflows, the run history and the old-URL redirects all survived (GitHub's transfer
+  doc promises secrets and redirects; it is silent on run history, which held). **Never create a
+  repository named `tillo13/sparebrains`:** that permanently deletes the redirects. Same day:
+  `CONTRIBUTING.md`, the Contributor Covenant and three issue forms (community profile 42% to
+  71%), Discussions on, and the org profile README at `kumori-ai/.github`. Dated mentions of the
+  old path in this file and `BRAINSTORMS.md` are left as written.
 - **A router failure is not an attempt, and may never close a cell.** Measured on the committed
   ledger that day: 4,813 error rows, of which 4,134 were the router's (404 unknown backend, 502
   with no body, 503 gates, network) and 679 were a lane's own (504 did not respond in time, 502
