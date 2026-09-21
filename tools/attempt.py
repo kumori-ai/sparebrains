@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 from check import judge                                              # the judge, unchanged
-from ladder import rung_of, failure_kind, sort_key, RUNGS
+from ladder import rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
 MISSING = []                                                          # client functions this checkout lacks: said out loud, never silent
@@ -66,6 +66,9 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
        "Answer with the ENTIRE file inside one ```lean fence and nothing else. "
        "This is the exact shape of a correct answer, for a different theorem:\n\n"
        "```lean\n" + EXAMPLE + "```\n\nNow the file to complete:\n\n")
+
+
+ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
 
 
 def bench_delay(retry_after, consecutive):
@@ -203,10 +206,23 @@ def load_sets(spec):
     return out
 
 
-def owed_history():
-    """(set, target, backend) → {'answered': n, 'errors': n} across every ledger ever committed."""
-    hist = defaultdict(lambda: {"answered": 0, "errors": 0})
-    for f in (ROOT / "ledger").glob("**/*.jsonl"):
+def _epoch(ts):
+    try:
+        return datetime.fromisoformat((ts or "").replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def owed_history(ledger_root=None):
+    """(set, target, backend) → {'answered': n, 'errors': n, 'router_errors': n} across every ledger
+    ever committed. 'errors' is what may close a cell, so it counts a lane error only when the same
+    lane answered SOMETHING within ALIVE_WINDOW_S of it: a lane that was dead at the time proved
+    nothing about this target. Everything else lands in 'router_errors', kept for the record and
+    never held against the cell. The ledger itself is not rewritten; this is only how it is read."""
+    import bisect
+    hist = defaultdict(lambda: {"answered": 0, "errors": 0, "router_errors": 0})
+    answered_at, lane_errors = defaultdict(list), []
+    for f in Path(ledger_root or ROOT / "ledger").glob("**/*.jsonl"):
         for line in f.read_text().splitlines():
             try:
                 r = json.loads(line)
@@ -215,8 +231,21 @@ def owed_history():
             key = (r.get("target_set"), r.get("target"), r.get("backend"))
             if r.get("verdict") in ("accept", "reject"):
                 hist[key]["answered"] += 1
+                t = _epoch(r.get("ts"))
+                if t is not None:
+                    answered_at[r.get("backend")].append(t)
             elif r.get("verdict") == "error":
-                hist[key]["errors"] += 1
+                if error_scope(r.get("reason")) == "lane":
+                    lane_errors.append((key, _epoch(r.get("ts"))))
+                else:
+                    hist[key]["router_errors"] += 1
+    for times in answered_at.values():
+        times.sort()
+    for key, t in lane_errors:
+        times = answered_at.get(key[2], [])
+        i = bisect.bisect_left(times, t - ALIVE_WINDOW_S) if t is not None else len(times)
+        alive = t is not None and i < len(times) and times[i] <= t + ALIVE_WINDOW_S
+        hist[key]["errors" if alive else "router_errors"] += 1
     return hist
 
 
@@ -224,7 +253,9 @@ def build_ladder_queue(sets, lanes_strongest_first, attempts, hist):
     """Every (set, target, lane, attempt_no) still owed, ordered so the whole ladder gets its
     first try before any cell gets a second: (attempt_no, rung, target) then lanes strongest
     first, interleaved across providers. A cell is done once it has attempt_no answers, or
-    three lane errors (a lane that cannot answer at all is not asked forever)."""
+    three lane errors (a lane that cannot answer this target is not asked forever). Only the
+    lane's own errors count, and only from a time the lane was answering others: see
+    owed_history. A router failure never closes a cell."""
     lanes_rr = interleave_by_provider(lanes_strongest_first)
     targets = sorted(((rung_of(s, n) + (s, n, d)) for s, d, names in sets for n in names),
                      key=lambda t: (t[1], sort_key(t[2], t[3])))        # rank, then the rung's own order
@@ -384,7 +415,8 @@ def main():
     per_lane = {l["backend"]: {"tier": l["tier"], "attempts": 0, "accepts": 0, "errors": 0} for l in order}
     planned_per_target = len(order) * args.attempts
     provider_lock = defaultdict(threading.Lock)          # never two workers on one provider at once
-    bench = {"t": 0.0, "state": {}, "told": {}, "streak": {}}          # told: backend → monotonic time the router said to come back
+    bench = {"t": 0.0, "state": {}, "told": {}, "streak": {}, "gone": set()}   # told: backend → monotonic time the router said to come back
+                                                         # gone: lanes the router 404s, not asked again this job
     exhausted = {}                                       # provider → why it is parked for the rest of the run
 
     def benched(backend):
@@ -499,6 +531,22 @@ def main():
                 except Exception as e:
                     err = f"{type(e).__name__}: {str(e)[:200]}"
                     break
+            if err:
+                # A lane that keeps failing is parked like a refused one, and a lane the router no
+                # longer routes is dropped for the job. Without this, run 35481806786 asked one dead
+                # lane 1,702 times in under two hours (2026-09-20).
+                with lock:
+                    if lane_is_gone(err):
+                        if lane["backend"] not in bench["gone"]:
+                            print(f"{lane['backend']}: the router does not route this lane now; dropped for this job", flush=True)
+                        bench["gone"].add(lane["backend"])
+                    else:
+                        count = bench["streak"].get(lane["backend"], 0) + 1
+                        bench["streak"][lane["backend"]] = count
+                        if count >= ERROR_STREAK_TO_PARK:
+                            wait = bench_delay(60, count - ERROR_STREAK_TO_PARK + 1)
+                            bench["told"][lane["backend"]] = time.monotonic() + wait
+                            print(f"{lane['backend']}: {count} failures in a row; parked for {wait:.0f}s", flush=True)
         with lock:
             state["calls"] += 1
             n = state["calls"]
@@ -567,6 +615,8 @@ def main():
                 print(f"[tally] {n} calls · {state['accepts']} verified · {state['errors']} lane errors · "
                       f"{state['skipped']} skipped (benched) · {state['waits']} rate-limit waits · "
                       f"{len(solved)}/{len(names)} targets solved so far", flush=True)
+        if verdict == "error" and error_scope(reason) == "router":
+            return "error_router"                        # says nothing about this lane on this target
         return verdict
 
     remaining = 0
@@ -627,6 +677,9 @@ def main():
                 if lane["provider"] in exhausted:
                     parked.append(item)
                     continue
+                if lane["backend"] in bench["gone"]:
+                    parked.append(item)                  # still owed; the next job asks the router afresh
+                    continue
                 if benched(lane["backend"]):
                     with lock:
                         work.append(item)                # someone else's turn; this lane stays owed
@@ -664,6 +717,9 @@ def main():
                 elif v == "defer":
                     with lock:
                         work.append(item)
+                elif v == "error_router":
+                    with lock:                           # the router's failure, not the lane's: the cell stays
+                        work.append(item)                # owed and nothing is held against it
                 elif v == "error":
                     key = (tset, name, lane["backend"])
                     with lock:                           # a lane error is not an answer: the cell goes to the back

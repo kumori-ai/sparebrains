@@ -70,6 +70,27 @@ _KINDS = [
 ]
 
 
+# Who failed? A 'lane' error says something about this lane on this target: it was asked and
+# did not answer in time, or answered with nothing. A 'router' error says nothing about the lane's
+# ability at all: the router did not know the lane, gated it, fell over during a deploy, or was
+# unreachable. Only lane errors may close a (target, lane) cell. 2026-09-20: one run sent 1,702
+# calls at a lane whose upstream had died (458 x 502, then 1,244 x 404 once the router demoted
+# it), and the three-error rule closed 250 cells the lane had never been asked about. Anything
+# unrecognised is 'router': an unknown failure must never cost a target its try.
+_LANE_ERRORS = re.compile(r"HTTP 504|did not respond in time|returned no text|Read timed out|ReadTimeout", re.I)
+ALIVE_WINDOW_S = 30 * 60      # a lane error only counts if the same lane answered something this close to it
+
+
+def error_scope(reason):
+    """'lane' or 'router' for an attempt whose verdict is 'error'."""
+    return "lane" if _LANE_ERRORS.search(reason or "") else "router"
+
+
+def lane_is_gone(reason):
+    """The router does not route this lane right now (demoted, paused or removed). Stop asking this run."""
+    return bool(re.search(r"HTTP 404|unknown backend", reason or "", re.I))
+
+
 def failure_kind(verdict, reason):
     if verdict == "accept":
         return None

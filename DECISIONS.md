@@ -3,6 +3,27 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-09-21
+
+- **A router failure is not an attempt, and may never close a cell.** Measured on the committed
+  ledger that day: 4,813 error rows, of which 4,134 were the router's (404 unknown backend, 502
+  with no body, 503 gates, network) and 679 were a lane's own (504 did not respond in time, 502
+  returned no text). The three-error rule counted them all alike and had closed **407 cells on
+  errors alone, with zero answers**; 171 of those sit on targets nobody has solved. Reading the
+  same ledger with `ladder.error_scope` leaves 11 closed and reopens 396. The ledger was not
+  rewritten: it is the public record, and this only changes how `owed_history` reads it.
+- **A lane's own error counts only if the lane was alive.** It must have answered something
+  (accept or reject, any target) within 30 minutes of the error (`ALIVE_WINDOW_S`). A dying
+  upstream returns "no text" for every target, which says nothing about any one of them.
+- **Inside a job:** a lane the router 404s is dropped for that job (its cells stay owed); three
+  failures in a row park a lane for 60 s, doubling to 30 min, the same ladder refusals already
+  climb. Receipt: run 35481806786, 2026-09-20 03:00-06:15 UTC. One lane's upstream died at
+  04:20, the router demoted it at 05:00, and the job sent it 1,702 calls across 377 targets
+  (458 x 502, then 1,244 x 404). Days 09-19 and 09-20 PT show 0 first-time solves with 77% and
+  69% of attempts being router errors, so those two days measure the plumbing, not the lanes.
+- **Unknown errors default to 'router'.** A failure nobody has classified must never cost a
+  target its try. New lane-side failure shapes get added to `_LANE_ERRORS` when seen.
+
 ## 2026-09-02
 
 - **The record is Apache-2.0; Cohere and the NVIDIA trial endpoints leave the caller (evening; Andy: "you
