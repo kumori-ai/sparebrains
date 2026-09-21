@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and arguments
+    url: https://github.com/kumori-ai/sparebrains/discussions
+    about: Anything that is not a closable task goes in Discussions.
+  - name: What this project is, with the live numbers
+    url: https://sparebrains.kumori.ai
+    about: Every run, every attempt, every transcript.

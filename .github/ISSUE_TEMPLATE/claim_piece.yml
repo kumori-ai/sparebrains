@@ -1,0 +1,32 @@
+name: Work on a piece of an open problem
+description: Claim, or post Lean for, one remaining goal of a problem the models could not finish alone.
+labels: ["piece"]
+body:
+  - type: input
+    id: problem
+    attributes:
+      label: Problem issue
+      description: The number or link of the problem's own issue.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Which goal
+      description: Paste the remaining goal as Lean printed it on the problem's issue.
+      render: lean
+    validations:
+      required: true
+  - type: textarea
+    id: lean
+    attributes:
+      label: Your Lean, if you have it
+      description: Leave empty to claim the piece first. No sorry, admit, native_decide or new axioms.
+      render: lean
+  - type: input
+    id: ai
+    attributes:
+      label: AI assistance used
+      description: Model and how you used it, or "none".
+    validations:
+      required: true

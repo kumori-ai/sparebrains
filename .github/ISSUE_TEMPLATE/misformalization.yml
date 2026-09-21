@@ -1,0 +1,37 @@
+name: Report a misformalization
+description: A Lean statement here does not say what its source problem says.
+labels: ["misformalization"]
+body:
+  - type: input
+    id: target
+    attributes:
+      label: Target
+      description: The file under targets/, for example targets/minif2f/test/mathd_algebra_184.lean
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source of the original problem
+      description: A link or citation to the informal statement.
+    validations:
+      required: true
+  - type: textarea
+    id: difference
+    attributes:
+      label: What differs
+      description: What the Lean statement says, what the source says, and why they are not the same claim.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: A corrected statement, if you have one
+      render: lean
+  - type: input
+    id: ai
+    attributes:
+      label: AI assistance used
+      description: Model and how you used it, or "none".
+    validations:
+      required: true

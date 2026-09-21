@@ -1,0 +1,50 @@
+name: Propose a target
+description: A problem with a real answer key that the engine could attempt.
+labels: ["target"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Where the problem comes from. A link.
+    validations:
+      required: true
+  - type: textarea
+    id: statement
+    attributes:
+      label: Statement
+      description: In Lean 4 against our mathlib pin if you can, otherwise stated precisely enough to formalize.
+    validations:
+      required: true
+  - type: dropdown
+    id: judge
+    attributes:
+      label: What holds the answer key
+      options:
+        - The Lean kernel (a proof)
+        - A short program (a counterexample or a finite check)
+        - Something else (explain below)
+    validations:
+      required: true
+  - type: dropdown
+    id: status
+    attributes:
+      label: Is it already solved somewhere?
+      options:
+        - Open, as far as I know
+        - Solved informally, not formalized
+        - Formalized elsewhere (link it below)
+        - I do not know
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and links
+  - type: input
+    id: ai
+    attributes:
+      label: AI assistance used
+      description: Model and how you used it, or "none".
+    validations:
+      required: true
