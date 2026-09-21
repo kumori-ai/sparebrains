@@ -21,6 +21,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   04:20, the router demoted it at 05:00, and the job sent it 1,702 calls across 377 targets
   (458 x 502, then 1,244 x 404). Days 09-19 and 09-20 PT show 0 first-time solves with 77% and
   69% of attempts being router errors, so those two days measure the plumbing, not the lanes.
+- **The stall rule, written before the week it judges (Andy: let them try on their own for a week).**
+  From 2026-09-22 to 2026-09-28, fewer than **7** first-time solves on `minif2f/test` means cold
+  solving has hit its ceiling and the build-on-work steps start (`PLAN.md`: the measured swarm,
+  §11 try modes, §12 the per-problem folder, §14 one issue per problem). Why 7: the clean days
+  2026-09-05..09-18 (PT) produced 30 first-time solves on `minif2f/test`, 30 ÷ 14 = 2.1 a day, so
+  under one a day for a week is less than half the measured rate and not noise. Order when it trips: cross-lane repair first (a lane
+  repairs any lane's near miss, its own try mode), then a fixer pass for form, then proofs in
+  blocks (kernel-checked skeletons, each open part its own small target), then the per-problem
+  issue for people. Inputs the day this was written: 122 of 123 unsolved tried targets have a
+  near miss; 52 of 253 first-time solves came from a repair try (21%); 5,629 of 9,207 rejects on
+  unsolved targets were no-proof, invented-name or Lean 3 syntax (61%). The site prints the same
+  figures live at `/about#stall`. GitHub issues are the surface for people, never the machine
+  queue: the ledger and `sparebrains_attempts` stay the queue.
 - **Unknown errors default to 'router'.** A failure nobody has classified must never cost a
   target its try. New lane-side failure shapes get added to `_LANE_ERRORS` when seen.
 
