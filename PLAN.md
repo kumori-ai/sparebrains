@@ -34,51 +34,10 @@ run this GCP cleanup.
       sibling names; same-run ledger overlaps append only new rows. The next job chains only after
       successful publication. Offline git tests cover stale checkouts, concurrent pushes,
       idempotence, and exhausted retries preserving the source outputs.
-- [ ] **Verify the first deployed publication and next daily digest.** Local tests are evidence of
-      implementation, not proof of a completed production run. Confirm the recovery artifact, commit,
-      successful chain, new inference metadata, and endpoint-based digest labels. Already-running
-      jobs retain their old workflow; the new publisher cannot repair a past run automatically.
-- [ ] **Design a measured proof-search swarm (after the lane baseline).** Once enough data exists
-      to know which lanes are strong on which rungs or failure kinds, let a coordinator hand a
-      target or partial proof to the lane best suited to the next step (for example: one lane
-      proposes, another repairs a Lean error, a fast lane checks routine subgoals, and a reasoning
-      lane handles the hard step). Record the full hand-off graph, lane/configuration, prompt mode,
-      and cost/latency. Keep cold single-lane results separate from swarm results so the yield
-      measurement remains honest; every final artifact still requires byte-identical kernel
-      verification. This is an orchestration experiment, not permission to feed a target's known
-      proof back into its own cold arm.
-- [ ] **Volunteer compute: leftover paid-AI quota, pointed at open problems (issue #6).** The
-      SETI@home shape, made easy by the kernel: nobody has to be trusted for correctness. A
-      volunteer points their own agent at an `AGENTS.md`, it checks its own Lean locally with
-      `tools/check.py`, and posts a fixed-format result for the next person's stronger model to
-      build on. Before strangers: agents read only bot-written comments, the checking workflow
-      holds no secrets, tiers instead of ID checks. Starts closed, with one tester Andy knows.
-      Volunteer results are their own source and never count as free-lane results. Full thinking:
-      `BRAINSTORMS.md` §18. Gate: after cross-lane repair (#2), if the stall rule (#1) trips.
-- [ ] **Measure reasoning lanes as a separate cohort before swarm routing.** Include every live
-      lane marked reasoning/thinking in the same target sets, with capability metadata and (where
-      the provider exposes it) explicit low/medium/high reasoning effort recorded per attempt.
-      Corrected inventory: the Kumori registry returned **21 flagged endpoint definitions**
-      with enabled=true and lifecycle active/probationary/revived (2026-09-04), using
-      `e.is_reasoning OR m.is_reasoning_model OR m.supports_thinking`. The initial count of 12
-      omitted nine runtime-detected lanes. These are endpoints, not 21 distinct model weights,
-      proven effort controls, or 21 currently available/public-record-eligible lanes:
-      `groq-gptoss`, `groq-gptoss-20b`, `mistral-magistral`, `mistral-magistral-medium-2509`,
-      `mistral-magistral-medium-latest`, `mistral-magistral-small-2509`,
-      `opencode_zen-mimo-v2.5-free`, `opencode_zen-nemotron-3-ultra-free`,
-      `openrouter-nvidia-nemotron-3-nano-omni-30b-a3-48e0`, `vercel-laguna-s-2-1-free`,
-      `vercel-ling-3-0-flash-fin-free`, `vercel-minimax-m2-7-free`,
-      `groq-gpt-oss-safeguard-20b`, `openrouter-dots-3-note`, `openrouter-laguna-xs-2-1`,
-      `openrouter-ling-3-0-flash-fin`, `openrouter-minimax-m2-7`,
-      `openrouter-nemotron-3-5-content-safety`, `openrouter-north-mini-code`,
-      `openrouter-openrouter-free`, and `vercel-minimax-m3-free`.
-      Two `magistral-*-2509` endpoints have persistent upstream invalid-model errors; automatic
-      pausing keeps their history and nightly revival checks. `openrouter/free` chooses a model
-      per request; `*-latest` names are aliases. Existing Cohere/NVIDIA public-record restrictions
-      in `DECISIONS.md` still apply, and explicit lane selection cannot bypass the live roster.
-      Report reasoning-only
-      yield and compare it with non-reasoning lanes at the same rungs; do not infer a reasoning
-      effect from the broad `frontier` tier, which mixes model size and capability.
+- [x] ~~Verify the first deployed publication and next daily digest~~ done as of 2026-09-23: chained publication confirmed on main (kumori task #187).
+- [ ] Design a measured proof-search swarm (after the lane baseline): moved to the kumori task queue as #198 (project `sparebrains`, merged from #188), 2026-09-23.
+- [ ] Volunteer compute: leftover paid-AI quota, pointed at open problems (issue #6): moved to the kumori task queue as #189 (project `sparebrains`), 2026-09-23.
+- [ ] Measure reasoning lanes as a separate cohort before swarm routing: moved to the kumori task queue as #190 (project `sparebrains`), 2026-09-23.
 
 ## 0. Root
 
@@ -336,23 +295,21 @@ there is no row where the pool is its own judge.
 - [x] ~~**Provider output-use terms, then a license on `ledger/` and `verified/`.**~~ Done 2026-09-02:
       Apache-2.0 at the root (`LICENSE`); Cohere and the NVIDIA trial endpoints left the caller; rows they
       already produced are carved out in `README.md`. The clause-by-clause read is the `DECISIONS.md` entry.
-- [ ] Success metric v2: verified count, upstreamed count, scoreboard entries.
-- [ ] mathlib AI-contribution policy; Metaculus season rules. Both unverified.
+- [ ] Success metric v2: verified, upstreamed, scoreboard entries: moved to the kumori task queue as #191 (project `sparebrains`), 2026-09-23.
+- [ ] mathlib AI-contribution policy; Metaculus season rules: moved to the kumori task queue as #201 (project `sparebrains`, merged from #192), 2026-09-23.
 - [x] ~~Copilot budget → $0 on the org (Andy click).~~ Retired 2026-09-02: GitHub removed $0 Copilot
       premium-request budgets for team and enterprise accounts on 2025-12-02 (changelog 2025-09-17). The
       rule is simpler: never subscribe the org to Copilot Business; a free org with public repos has no
       billable surface. Deep-search receipt in the session; Copilot adds nothing this project lacks.
-- [ ] The 09-01 mistral spike (§1): what drove 1,723 calls against a 52/day norm.
+- [ ] Explain the 09-01 mistral spike: 1,723 calls vs a 52/day norm: moved to the kumori task queue as #193 (project `sparebrains`, parked), 2026-09-23.
 - [x] kumori Tier-0 daily pacing labels/reset hints fixed in code (2026-09-04): the actual gate
       supplies its reason, so daily pacing reports UTC midnight and exhausted monthly budgets report
       month reset. Existing limits and caller shares stay as configured. Deployment verification pending.
-- [ ] kumori cleanup, not this repo: `mistral-mistral-large-latest` and `-large-2512` 403 on the
-      primary key on every call (paid models in the free pool?); the breaker rotates keys each time.
-- [ ] kumori cleanup, not this repo: GitHub Models retired 2026-07-30; four router lanes still
-      point at it (`kumori_free_llm/config.yaml` 247–262). §1 pool numbers exclude them already.
+- [x] ~~Router: mistral-large-latest and -large-2512 403 on every call~~ done: both lanes idle in the ledger since 09-03 (kumori task #194).
+- [ ] Router: four lanes still point at retired GitHub Models: moved to the kumori task queue as #195 (project `kumori`), 2026-09-23.
 - [x] ~~Which Lean 4 port of miniF2F~~ google-deepmind/miniF2F (Apache-2.0, corrected, the
       AlphaProof eval set); yangky11's port is unmaintained and carries the original errors.
-- [ ] Subdomain: `sparebrains.` vs `spare.` vs `good.kumori.ai`. Storefront item, after the gate.
+- [x] ~~Pick the subdomain: sparebrains. vs spare. vs good.kumori.ai~~ done: sparebrains.kumori.ai is live (DECISIONS.md) (kumori task #196).
 
 ## 7. The plan from here (2026-09-02; mirrored on sparebrains.kumori.ai/about)
 
