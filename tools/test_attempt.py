@@ -60,7 +60,9 @@ class RetryPacingTests(unittest.TestCase):
                    planned_per_target=1, previous_id=Mock(return_value=None),
                    benched=Mock(return_value=False), llm_chat=Mock(),
                    args=SimpleNamespace(max_tokens=256, call_timeout=60, max_calls=99, stop_on_accept=False),
-                   state={'calls': 0, 'errors': 0, 'accepts': 0},
+                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={},
+                   order=[{'backend': 'test-lane', 'provider': 'test'}, {'backend': 'test-sibling', 'provider': 'test'},
+                          {'backend': 'other-lane', 'provider': 'other'}],
                    extract_proof=Mock(side_effect=RuntimeError('verifier boundary')))
         exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
         return env, {'backend': 'test-lane', 'provider': 'test', 'tier': 'high'}
@@ -109,6 +111,27 @@ class DeadLaneTests(RetryPacingTests):
             for n, parked_until in [(1, None), (2, None), (3, 1060), (4, 1120), (5, 1240)]:
                 self.assertEqual(env['run_one']('demo', lane, 1), 'error_router')
                 self.assertEqual(env['bench']['told'].get('test-lane'), parked_until, f'after failure {n}')
+
+    def share_refusal(self, reason, retry_after):
+        return attempt.KumoriAPIError(
+            f"kumori /api/v1/llm/chat HTTP 503 : test-lane is gated: the 'sparebrains' share of the test pool "
+            f"is spent for now ({reason})", status_code=503, retry_after=retry_after,
+            payload={'ok': False, 'reason': reason, 'tenant': 'sparebrains', 'retry_after_s': retry_after})
+
+    def test_share_held_for_others_parks_the_provider_briefly_not_for_the_job(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = self.share_refusal('held_for_others', 900)
+        with patch.object(attempt.time, 'monotonic', return_value=1000):
+            self.assertEqual(env['run_one']('demo', lane, 1), 'defer')
+        self.assertEqual(env['exhausted'], {})
+        self.assertEqual(env['bench']['told'], {'test-lane': 1900, 'test-sibling': 1900})
+        self.assertEqual(env['state']['calls'], 0)
+
+    def test_share_borrow_cap_parks_the_provider_for_the_job(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = self.share_refusal('borrow_cap', 40000)
+        self.assertEqual(env['run_one']('demo', lane, 1), 'exhausted')
+        self.assertIn('test', env['exhausted'])
 
     def test_a_timeout_on_this_target_is_the_lanes_own_error(self):
         env, lane = self.runner()
