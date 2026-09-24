@@ -69,7 +69,6 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
 
 
 ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
-REFUSAL_LOG_UNTIL = "2026-09-24"   # UTC date: print every OpenRouter refusal's status and body until then (kumori asked, 09-24)
 
 
 def bench_delay(retry_after, consecutive):
@@ -509,8 +508,6 @@ def main():
                     break
                 except KumoriAPIError as e:
                     msg = str(e)
-                    if lane["provider"] == "openrouter" and datetime.now(timezone.utc).date().isoformat() <= REFUSAL_LOG_UNTIL:
-                        print(f"{lane['backend']}: HTTP {e.status_code} body {json.dumps(e.payload)[:600]}", flush=True)
                     if (e.payload or {}).get("reason") == "held_for_others":
                         # kumori 9dfd540: the pool's rest is held for tenants still owed their share, and the
                         # hold shrinks through the day, so park this provider's lanes only as long as it says
