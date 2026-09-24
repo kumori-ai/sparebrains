@@ -35,8 +35,8 @@ run this GCP cleanup.
       successful publication. Offline git tests cover stale checkouts, concurrent pushes,
       idempotence, and exhausted retries preserving the source outputs.
 - [x] ~~Verify the first deployed publication and next daily digest~~ done as of 2026-09-23: chained publication confirmed on main (kumori task #187).
-- [ ] Design a measured proof-search swarm (after the lane baseline): moved to the kumori task queue as #198 (project `sparebrains`, merged from #188), 2026-09-23.
-- [ ] Volunteer compute: leftover paid-AI quota, pointed at open problems (issue #6): moved to the kumori task queue as #189 (project `sparebrains`), 2026-09-23.
+- [ ] Design a measured proof-search swarm (after the lane baseline): tracked publicly as [#2](https://github.com/kumori-ai/sparebrains/issues/2), cross-lane repair being its first measured form (2026-09-24).
+- [ ] Volunteer compute: leftover paid-AI quota, pointed at open problems (issue #6): tracked publicly as [#6](https://github.com/kumori-ai/sparebrains/issues/6) (2026-09-24).
 - [ ] Measure reasoning lanes as a separate cohort before swarm routing: moved to the kumori task queue as #190 (project `sparebrains`), 2026-09-23.
 
 ## 0. Root
@@ -296,7 +296,7 @@ there is no row where the pool is its own judge.
       Apache-2.0 at the root (`LICENSE`); Cohere and the NVIDIA trial endpoints left the caller; rows they
       already produced are carved out in `README.md`. The clause-by-clause read is the `DECISIONS.md` entry.
 - [ ] Success metric v2: verified, upstreamed, scoreboard entries: moved to the kumori task queue as #191 (project `sparebrains`), 2026-09-23.
-- [ ] mathlib AI-contribution policy; Metaculus season rules: moved to the kumori task queue as #201 (project `sparebrains`, merged from #192), 2026-09-23.
+- [ ] mathlib AI-contribution policy: read it before any public issue or PR flow starts ([#5](https://github.com/kumori-ai/sparebrains/issues/5)); formal-conjectures requires it. Metaculus season rules are covered in TARGETS.md (2026-09-24).
 - [x] ~~Copilot budget → $0 on the org (Andy click).~~ Retired 2026-09-02: GitHub removed $0 Copilot
       premium-request budgets for team and enterprise accounts on 2025-12-02 (changelog 2025-09-17). The
       rule is simpler: never subscribe the org to Copilot Business; a free org with public repos has no
