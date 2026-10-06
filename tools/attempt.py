@@ -658,6 +658,24 @@ def main():
             return "error_router"                        # says nothing about this lane on this target
         return verdict
 
+    def relay_ask(name, lane, attempt_no, ctx):
+        """One relay try, waiting out the router's pacing. After every reply the router parks a lane
+        for a few seconds to a couple of minutes; run 37522262314 lost each lane's 2nd and 3rd try
+        to that. A park is waited for (up to relay.PARK_WAIT_S) and a mid-ask defer is retried."""
+        for _ in range(relay.DEFERS):
+            waited = 0
+            while benched(lane["backend"]) and waited < relay.PARK_WAIT_S and lane["provider"] not in exhausted:
+                time.sleep(5)
+                waited += 5
+            if lane["provider"] in exhausted or benched(lane["backend"]):
+                skip(name, lane, attempt_no, f"lane still parked after {waited}s at the time of the relay ask")
+                return "gave_up"
+            v = run_one(name, lane, attempt_no, relay_ctx=ctx)
+            if v != "defer":
+                return v
+        skip(name, lane, attempt_no, f"router deferred the relay ask {relay.DEFERS} times")
+        return "gave_up"
+
     remaining = 0
     if args.ladder:                                      # 24/7: owed cells across every set, in rung order
         hist = owed_history()
@@ -792,15 +810,8 @@ def main():
                 for attempt_no in range(h["answered"] + 1, relay.RELAY_TRIES + 1):
                     if h["errors"] >= 3 or state["calls"] >= args.max_calls:
                         break
-                    waited = 0
-                    while benched(lane["backend"]) and waited < relay.PARK_WAIT_S and lane["provider"] not in exhausted:
-                        time.sleep(5)                    # a short park is the router pacing, not a dead lane
-                        waited += 5
-                    if lane["provider"] in exhausted or benched(lane["backend"]):
-                        skip(name, lane, attempt_no, "lane benched or provider parked at the time of the relay ask")
-                        break
-                    v = run_one(name, lane, attempt_no, relay_ctx=ctx)
-                    if v in ("accept", "defer", "exhausted"):
+                    v = relay_ask(name, lane, attempt_no, ctx)
+                    if v in ("accept", "exhausted", "gave_up"):
                         break
         if state["calls"] >= args.max_calls:
             print(f"cap reached: {args.max_calls} calls")

@@ -18,7 +18,8 @@ RELAY_TRIES = 3                    # per (target, lane), like the ladder's three
 # Reasoning lanes think before they answer. At the ladder's 4,000 the router logged "ran out of tokens
 # mid-thought (4000 max)" for 4 of the first relay run's 5 calls (37521229581, 2026-10-06).
 MAX_TOKENS = 16_000
-PARK_WAIT_S = 60                   # a lane the router parks briefly is waited for, not dropped
+PARK_WAIT_S = 180                  # a parked lane is waited for, not dropped (groq parked 119 s, run 37522262314)
+DEFERS = 4                         # a mid-ask defer is retried this many times before the lane is left
 PROMPT_CAP = 24_000                # free-model context windows; the full dossier stays at its URL
 NEAR_SHOWN, PROOF_CAP, LEAN_CAP, COMMENT_CAP = 3, 2_000, 1_500, 1_500
 RUNNER_PATH = re.compile(r"\S*/\.lake/attempts/\S+?\.lean:")    # keep "line:col: error", drop the runner path
