@@ -10,13 +10,14 @@ never reach it), and this module refuses a solved one anyway.
 Try modes: `relay` (the dossier) and `relay+thread` (the dossier plus at least one comment), each
 recorded beside `cold` and `repair` so the clean numbers stay clean.
 """
-import hashlib, json, urllib.request
+import hashlib, json, re, urllib.request
 from collections import Counter
 
 SITE = "https://sparebrains.kumori.ai"
 RELAY_TRIES = 3                    # per (target, lane), like the ladder's three tries per cell
 PROMPT_CAP = 24_000                # free-model context windows; the full dossier stays at its URL
 NEAR_SHOWN, PROOF_CAP, LEAN_CAP, COMMENT_CAP = 3, 2_000, 1_500, 1_500
+RUNNER_PATH = re.compile(r"\S*/\.lake/attempts/\S+?\.lean:")    # keep "line:col: error", drop the runner path
 
 RELAY = ("Other models, and possibly people, have already tried to prove the Lean 4 theorem at the end of this "
          "message, and every attempt so far was rejected by the Lean kernel. Below is what they tried and exactly "
@@ -30,9 +31,15 @@ def is_relay(row):
     return str(row.get("try_mode") or "").startswith("relay")
 
 
+# Cloudflare in front of kumori.ai answers the default "Python-urllib/x.y" agent with error 1010
+# (403); run 37520440995's first relay fetch died on it, 2026-10-06. Say who is asking instead.
+USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
+
+
 def fetch_dossier(target_set, target, timeout=30):
     url = f"{SITE}/problems/{target_set}/{target}.json"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 
@@ -65,17 +72,17 @@ def relay_prompt(target_text, dossier, this_job=()):
     fails = ", ".join(f"{f['kind']} {f['n']} (by {f['lanes']} lanes)" for f in dossier.get("failures", []))
     parts.append(f"## Earlier tries\n{dossier.get('answered', 0)} answered tries by {dossier.get('lanes_tried', 0)} "
                  f"models, all rejected. How they failed: {fails or 'unknown'}.\n\n")
-    names = dossier.get("unknown_names") or []
+    names = [n for n, _ in dossier.get("unknown_names") or [] if "." in n]   # library names; `h`, `k` are out-of-scope locals
     if names:
         parts.append("## Names that do not exist in this mathlib (models used them anyway)\n"
-                     + ", ".join(n for n, _ in names) + "\n\n")
+                     + ", ".join(names) + "\n\n")
     near = [{"backend": b, "failure_kind": k, "proof": p, "lean_output": o, "id": None} for b, k, p, o in this_job][::-1]
     near += dossier.get("near_misses") or []
     if near:
         parts.append("## The closest attempts, best first, each with what Lean said\n")
         for i, m in enumerate(near[:NEAR_SHOWN], 1):
             parts.append(f"### Attempt {i} ({m['failure_kind']})\n```lean\n{_clip(m['proof'], PROOF_CAP)}\n```\n"
-                         f"Lean said:\n```\n{_clip(m['lean_output'], LEAN_CAP)}\n```\n\n")
+                         f"Lean said:\n```\n{_clip(RUNNER_PATH.sub('', m['lean_output'] or ''), LEAN_CAP)}\n```\n\n")
     thread = dossier.get("thread") or []
     if thread:
         parts.append("## What people said on the problem's public thread (ideas, not checked)\n")

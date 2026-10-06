@@ -17,7 +17,7 @@ TARGET = "import Mathlib\n\ntheorem t (n : ℕ) : n = n := by\n  sorry\n"
 def dossier(**kw):
     d = dict(target_set="mil", target="t", solved=False, answered=94, lanes_tried=36,
              failures=[dict(kind="unknown_name", n=48, lanes=21), dict(kind="unsolved_goals", n=11, lanes=7)],
-             unknown_names=[["Nat.fake", 3]],
+             unknown_names=[["Nat.fake", 3], ["h", 9]],
              near_misses=[dict(id=101, backend="lane-a", failure_kind="unsolved_goals", proof="  intro x", lean_output="unsolved goals"),
                           dict(id=102, backend="lane-b", failure_kind="tactic_failed", proof="  simp", lean_output="simp failed")],
              thread=[])
@@ -35,6 +35,7 @@ class RelayPromptTests(unittest.TestCase):
         self.assertEqual(meta["try_mode"], "relay")
         self.assertEqual(meta["prev_id"], 101)
         self.assertIn("Nat.fake", prompt)
+        self.assertNotIn(", h\n", prompt + "\n")                       # a local name is not a missing library name
         self.assertLess(prompt.index("intro x"), prompt.index("simp"))
         self.assertTrue(prompt.endswith(TARGET))
 
@@ -55,6 +56,25 @@ class RelayPromptTests(unittest.TestCase):
         prompt, _ = relay.relay_prompt(TARGET, dossier(near_misses=huge, thread=[dict(body="z" * 90_000)] * 20))
         self.assertLessEqual(len(prompt), relay.PROMPT_CAP + len(TARGET))
         self.assertTrue(prompt.endswith(TARGET))
+
+
+class DossierFetchTests(unittest.TestCase):
+    def test_the_fetch_names_itself(self):
+        seen = {}
+        class Reply:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b'{"target": "t"}'
+        def fake_urlopen(req, timeout):
+            seen["ua"] = req.get_header("User-agent")
+            return Reply()
+        orig = relay.urllib.request.urlopen
+        relay.urllib.request.urlopen = fake_urlopen
+        try:
+            self.assertEqual(relay.fetch_dossier("mil", "t"), {"target": "t"})
+        finally:
+            relay.urllib.request.urlopen = orig
+        self.assertEqual(seen["ua"], relay.USER_AGENT)       # Cloudflare 403s the default Python-urllib agent
 
 
 class RelayLedgerTests(unittest.TestCase):
