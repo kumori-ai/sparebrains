@@ -642,6 +642,17 @@ def sparebrains_heartbeat(row):
         return None
 
 
+def sparebrains_thread(payload):
+    """Upsert one problem's GitHub comments into sparebrains_threads: {target_set, target,
+    issue_number, comments: [{id, author, author_type, created_at, updated_at, body, url}]}.
+    Returns {ok, comments} or None; the dossier simply shows the last sync on failure."""
+    try:
+        return _request('POST', '/api/v1/sparebrains/thread', payload, timeout=(5, 30), retry_on_5xx=False)
+    except Exception as e:
+        logger.warning(f"sparebrains_thread failed for {payload.get('target')}: {e}")
+        return None
+
+
 def sparebrains_summary(run_id):
     """Per-backend and per-target rollup of one run, straight from the table."""
     return _request('GET', f'/api/v1/sparebrains/summary?run_id={run_id}', None)

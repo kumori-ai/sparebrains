@@ -325,7 +325,7 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
 2. **The relay, now.** Each open problem gets a dossier (every attempt by every lane, the best near
    misses with the kernel's complaint, the dead ends) and a public thread anyone can add to. The
    strongest live lanes try from the dossier (`relay`), and from the dossier plus the thread
-   (`relay+thread`), each its own try mode. One problem first (`mil/mil_c05_s02_ex02`) to prove the
+   (`relay+thread`), each its own try mode. One problem first (the top of the open list at `/targets#open`) to prove the
    harness, then the open problems in difficulty order. Issues #2, #3 and #5; cold continues as
    intake for new lanes.
 3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked

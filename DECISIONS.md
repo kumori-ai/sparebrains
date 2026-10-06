@@ -23,9 +23,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   written 2026-09-21 (cross-lane repair, fixer pass, blocks, per-problem issues), merged into one
   try mode family: `relay` (the dossier of every prior attempt) and `relay+thread` (the dossier
   plus human comments from the problem's issue), each beside `cold` and `repair` on the site.
-  **Harness first, on one problem:** `mil/mil_c05_s02_ex02`, the lowest open rung, whose statement
-  is proved provable by a kernel-accepted reference (`targets/mil/reference/`), which never enters
-  a prompt. Then the stage-2 order: rung, has-reference, near-miss quality, fewest lanes tried.
+  **Harness first, on one problem: the top of the stage-2 order**, which is computed, not picked:
+  rung, has a kernel-accepted reference (`targets/<set>/reference/`, never in a prompt, so the
+  statement is known provable), share of rejects that are near misses, fewest lanes tried. As of
+  2026-10-06 that is `mil/mil_c05_s01_ex03` (103 tries, 38 lanes, 46 near misses = 45%). Corrected
+  the same day: this entry first named `mil_c05_s02_ex02`, a hand pick by unsolved-goals count
+  that the written order ranks third (24 near misses = 25%); the live order is `/targets#open`.
   miniF2F statements are checked against miniF2F-v2's corrections before entering the relay.
 - **Cold solving stays on as intake, not paused (Andy).** Each job runs the ladder for newly live
   lanes first, then the relay. Every new lane keeps a clean cold baseline, which the relay's
