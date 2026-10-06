@@ -9,6 +9,7 @@ name: attempt
 on:
   schedule:
     - cron: "0 */2 * * *"
+    - cron: "30 */2 * * *"      # stage 2: the relay takes the next open problem (DECISIONS.md 2026-10-06)
   workflow_dispatch:
     inputs:
       fixer_target:
@@ -70,7 +71,7 @@ permissions:
 concurrency:
   # a stage-2 relay dispatch runs beside the ladder instead of queuing hours behind it;
   # publish.py already retries a push on a fresh fetch when the other job lands first
-  group: ${{ ((inputs.relay_target != '' && inputs.relay_target != null) || (inputs.fixer_target != '' && inputs.fixer_target != null)) && 'relay' || 'attempt' }}
+  group: ${{ (github.event.schedule == '30 */2 * * *' || (inputs.relay_target != '' && inputs.relay_target != null) || (inputs.fixer_target != '' && inputs.fixer_target != null)) && 'relay' || 'attempt' }}
   cancel-in-progress: false
 
 jobs:
@@ -105,8 +106,12 @@ jobs:
           SCHEDULED: ${{ github.event_name == 'schedule' }}
           RELAY_TARGET: ${{ inputs.relay_target }}
           FIXER_TARGET: ${{ inputs.fixer_target }}
+          CRON: ${{ github.event.schedule }}
         run: |
-          if [ -n "$FIXER_TARGET" ]; then
+          if [ "$CRON" = "30 */2 * * *" ]; then
+            # stage 2 on its own: the fixer, then the relay, on the next open problem with tries left
+            python3 tools/attempt.py --relay --relay-next --skip-benched --max-calls 15
+          elif [ -n "$FIXER_TARGET" ]; then
             python3 tools/attempt.py --fixer --targets "targets/${FIXER_TARGET%/*}" --only "${FIXER_TARGET##*/}"
           elif [ -n "$RELAY_TARGET" ]; then
             # stage 2, the relay: the strongest live lanes try one open problem from its dossier

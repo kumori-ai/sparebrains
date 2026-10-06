@@ -88,6 +88,19 @@ class DossierFetchTests(unittest.TestCase):
         self.assertEqual(seen["ua"], relay.USER_AGENT)       # Cloudflare 403s the default Python-urllib agent
 
 
+class NextProblemTests(unittest.TestCase):
+    def test_walks_the_order_past_problems_whose_tries_are_spent(self):
+        from collections import defaultdict
+        tried = defaultdict(lambda: {"answered": 0, "errors": 0})
+        tried[("mil", "a", "x")] = {"answered": 3, "errors": 0}
+        tried[("mil", "a", "y")] = {"answered": 1, "errors": 3}
+        open_list = [dict(target_set="mil", target="b", order=2), dict(target_set="mil", target="a", order=1)]
+        lanes = [dict(backend="x"), dict(backend="y")]
+        self.assertEqual(relay.next_problem(open_list, lanes, tried), ("mil", "b"))
+        tried[("mil", "b", "x")] = tried[("mil", "b", "y")] = {"answered": 3, "errors": 0}
+        self.assertIsNone(relay.next_problem(open_list, lanes, tried))
+
+
 class LayoutTests(unittest.TestCase):
     def test_the_first_line_shallower_than_the_rest_is_aligned(self):
         # #47356's shape (2026-10-06): Lean stopped at "unexpected token 'have'" before any math
@@ -112,7 +125,7 @@ class RelayLedgerTests(unittest.TestCase):
 
     def test_relay_rows_never_close_a_ladder_cell(self):
         rows = [dict(target_set="mil", target="t", backend="b", verdict="reject", try_mode=m, ts="2026-10-06T00:00:00+00:00")
-                for m in ("cold", "relay", "relay+thread", "relay")]
+                for m in ("cold", "relay", "relay+thread", "relay", "fixer")]
         root = self.ledger(rows)
         self.assertEqual(owed_history(root)[("mil", "t", "b")]["answered"], 1)
         self.assertEqual(owed_history(root, relay_rows=True)[("mil", "t", "b")]["answered"], 3)

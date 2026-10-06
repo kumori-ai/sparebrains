@@ -73,6 +73,17 @@ def library_names(dossier):
     return [n for n, _ in dossier.get("unknown_names") or [] if "." in n and n[0].isupper()]
 
 
+def next_problem(open_list, lanes, tried):
+    """(set, target) of the first open problem, in the stage-2 order, that some relay lane still has
+    tries left on (fewer than RELAY_TRIES answers and fewer than 3 lane errors), or None."""
+    for t in sorted(open_list, key=lambda t: t["order"]):
+        for l in lanes:
+            h = tried[(t["target_set"], t["target"], l["backend"])]
+            if h["answered"] < RELAY_TRIES and h["errors"] < 3:
+                return t["target_set"], t["target"]
+    return None
+
+
 def _clip(text, cap):
     text = (text or "").rstrip()
     return text if len(text) <= cap else text[:cap] + "\n…"

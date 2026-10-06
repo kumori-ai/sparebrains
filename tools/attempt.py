@@ -200,8 +200,8 @@ def owed_history(ledger_root=None, relay_rows=False):
                 r = json.loads(line)
             except ValueError:
                 continue
-            if relay.is_relay(r) != relay_rows:
-                continue
+            if r.get("try_mode") == "fixer" or relay.is_relay(r) != relay_rows:
+                continue                                 # a fixer row re-judges an old answer; it is nobody's try
             key = (r.get("target_set"), r.get("target"), r.get("backend"))
             if r.get("verdict") in ("accept", "reject"):
                 hist[key]["answered"] += 1
@@ -254,6 +254,8 @@ def main():
     ap.add_argument("--relay", action="store_true",
                     help="stage 2: the strongest live lanes try --only targets (in --targets) from each problem's dossier")
     ap.add_argument("--relay-lanes", type=int, default=5, help="relay mode: how many of the strongest live lanes")
+    ap.add_argument("--relay-next", action="store_true",
+                    help="relay mode: take the first open problem in the stage-2 order that still has relay tries left")
     ap.add_argument("--fixer", action="store_true",
                     help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
     ap.add_argument("--targets", default="targets/minif2f/test")
@@ -338,8 +340,8 @@ def main():
             sys.exit("--fixer needs --only")
         order, mode = [], "fixer"
     if args.relay:
-        if not args.only:
-            sys.exit("--relay needs --only: stage 2 takes one problem at a time until the harness is proved")
+        if not (args.only or args.relay_next):
+            sys.exit("--relay needs --only or --relay-next")
         ledger_rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl")
                        for l in f.read_text().splitlines() if l.strip()]
         strength = relay.lane_strength(ledger_rows, RUNGS)
@@ -352,6 +354,15 @@ def main():
         mode = "relay"
         for l in order:
             print(f"  relay lane {l['backend']}: {strength[l['backend']]} targets proved above MATH level 2")
+        fixed_ids = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer"}
+        if args.relay_next:
+            pick = relay.next_problem(relay.fetch_json("/targets.json")["open"], order, owed_history(relay_rows=True))
+            names = [pick[1]] if pick else []
+            if pick:
+                target_set, tdir = pick[0], ROOT / "targets" / pick[0]
+                print(f"relay: next open problem with tries left is {target_set}/{pick[1]}")
+            else:
+                print("relay: every open problem has used its relay tries on today's live lanes")
     lane_manifest = [{k: l[k] for k in ("backend", "provider", "model", "tier", "rank")} for l in order]
     lane_roster_sha = hashlib.sha256(json.dumps(lane_manifest, sort_keys=True).encode()).hexdigest()[:12]
     t_start = time.time()
@@ -819,6 +830,10 @@ def main():
             if ctx["dossier"].get("solved"):
                 print(f"relay: {name} is already solved; nothing to relay", flush=True)
                 continue
+            if args.relay_next:                          # the fixer first: free, and it may already solve it
+                for near in ctx["dossier"].get("near_misses") or []:
+                    if near.get("proof") and near["id"] not in fixed_ids and name not in solved:
+                        fix_one(name, near)
             for lane in order:
                 if name in solved or state["calls"] >= args.max_calls:
                     break
