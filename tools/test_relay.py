@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import relay
-from attempt import owed_history
+from attempt import owed_history, extract_proof
 from ladder import RUNGS
 
 TARGET = "import Mathlib\n\ntheorem t (n : ℕ) : n = n := by\n  sorry\n"
@@ -38,6 +38,11 @@ class RelayPromptTests(unittest.TestCase):
         self.assertNotIn(", h\n", prompt + "\n")                       # a local name is not a missing library name
         self.assertLess(prompt.index("intro x"), prompt.index("simp"))
         self.assertTrue(prompt.endswith(TARGET))
+
+    def test_the_proof_only_answer_it_asks_for_is_one_the_extractor_takes(self):
+        prompt, _ = relay.relay_prompt(TARGET, dossier())
+        self.assertIn("only the proof that replaces `sorry`", prompt)
+        self.assertEqual(extract_proof("```lean\nintro x\nsimp\n```", "t"), "  intro x\n  simp\n")
 
     def test_a_comment_makes_it_relay_plus_thread(self):
         c = dict(comment_id=7, author="someone", body="try induction on n")

@@ -371,6 +371,8 @@ def main():
         if not order:
             sys.exit("relay: no live lane has a solve above MATH level 2 in the ledger")
         args.attempts = relay.RELAY_TRIES
+        if args.max_tokens == 4000:                      # the ladder's default; reasoning lanes need room
+            args.max_tokens = relay.MAX_TOKENS
         mode = "relay"
         for l in order:
             print(f"  relay lane {l['backend']}: {strength[l['backend']]} targets proved above MATH level 2")
@@ -790,6 +792,10 @@ def main():
                 for attempt_no in range(h["answered"] + 1, relay.RELAY_TRIES + 1):
                     if h["errors"] >= 3 or state["calls"] >= args.max_calls:
                         break
+                    waited = 0
+                    while benched(lane["backend"]) and waited < relay.PARK_WAIT_S and lane["provider"] not in exhausted:
+                        time.sleep(5)                    # a short park is the router pacing, not a dead lane
+                        waited += 5
                     if lane["provider"] in exhausted or benched(lane["backend"]):
                         skip(name, lane, attempt_no, "lane benched or provider parked at the time of the relay ask")
                         break

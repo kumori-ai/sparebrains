@@ -15,6 +15,10 @@ from collections import Counter
 
 SITE = "https://sparebrains.kumori.ai"
 RELAY_TRIES = 3                    # per (target, lane), like the ladder's three tries per cell
+# Reasoning lanes think before they answer. At the ladder's 4,000 the router logged "ran out of tokens
+# mid-thought (4000 max)" for 4 of the first relay run's 5 calls (37521229581, 2026-10-06).
+MAX_TOKENS = 16_000
+PARK_WAIT_S = 60                   # a lane the router parks briefly is waited for, not dropped
 PROMPT_CAP = 24_000                # free-model context windows; the full dossier stays at its URL
 NEAR_SHOWN, PROOF_CAP, LEAN_CAP, COMMENT_CAP = 3, 2_000, 1_500, 1_500
 RUNNER_PATH = re.compile(r"\S*/\.lake/attempts/\S+?\.lean:")    # keep "line:col: error", drop the runner path
@@ -24,7 +28,8 @@ RELAY = ("Other models, and possibly people, have already tried to prove the Lea
          "why it failed. Learn from it, then write a complete proof.\n\n"
          "Rules: Lean v4.33.1 and mathlib v4.33.1, and `import Mathlib` is already in the file. Replace only the "
          "`sorry`; keep the theorem statement byte-for-byte; no `sorry`, `admit`, or `native_decide`; no new "
-         "axioms; Lean 4 syntax, not Lean 3. Answer with the complete file in one ```lean code block.\n\n")
+         "axioms; Lean 4 syntax, not Lean 3. Answer with only the proof that replaces `sorry` (the tactic lines "
+         "after `:= by`), in one ```lean code block, and nothing else.\n\n")
 
 
 def is_relay(row):
