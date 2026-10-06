@@ -50,6 +50,12 @@ class RelayPromptTests(unittest.TestCase):
         self.assertEqual((meta["try_mode"], meta["comment_ids"]), ("relay+thread", [7]))
         self.assertIn("try induction on n", prompt)
 
+    def test_the_bots_own_digests_are_not_the_thread(self):
+        bot = dict(comment_id=8, author="kumori-ai[bot]", author_type="Bot", body="Relay run 1: 5 calls")
+        prompt, meta = relay.relay_prompt(TARGET, dossier(thread=[bot]))
+        self.assertEqual(meta["try_mode"], "relay")
+        self.assertNotIn("Relay run 1", prompt)
+
     def test_this_jobs_rejects_come_first(self):
         prompt, meta = relay.relay_prompt(TARGET, dossier(), [("lane-z", "type_mismatch", "  exact rfl_new", "mismatch")])
         self.assertLess(prompt.index("exact rfl_new"), prompt.index("intro x"))

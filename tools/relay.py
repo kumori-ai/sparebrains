@@ -42,11 +42,14 @@ def is_relay(row):
 USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
 
 
-def fetch_dossier(target_set, target, timeout=30):
-    url = f"{SITE}/problems/{target_set}/{target}.json"
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+def fetch_json(path, timeout=30):
+    req = urllib.request.Request(SITE + path, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def fetch_dossier(target_set, target, timeout=30):
+    return fetch_json(f"/problems/{target_set}/{target}.json", timeout)
 
 
 def lane_strength(rows, rungs):
@@ -64,6 +67,12 @@ def strongest(live_lanes, strength, k):
     return ranked[:k]
 
 
+def library_names(dossier):
+    """Invented names that look like library names (`Nat.foo`, `Finset.bar`). `h`, `k` and `x.val` are
+    the model's own out-of-scope locals, not missing lemmas."""
+    return [n for n, _ in dossier.get("unknown_names") or [] if "." in n and n[0].isupper()]
+
+
 def _clip(text, cap):
     text = (text or "").rstrip()
     return text if len(text) <= cap else text[:cap] + "\n…"
@@ -78,7 +87,7 @@ def relay_prompt(target_text, dossier, this_job=()):
     fails = ", ".join(f"{f['kind']} {f['n']} (by {f['lanes']} lanes)" for f in dossier.get("failures", []))
     parts.append(f"## Earlier tries\n{dossier.get('answered', 0)} answered tries by {dossier.get('lanes_tried', 0)} "
                  f"models, all rejected. How they failed: {fails or 'unknown'}.\n\n")
-    names = [n for n, _ in dossier.get("unknown_names") or [] if "." in n]   # library names; `h`, `k` are out-of-scope locals
+    names = library_names(dossier)
     if names:
         parts.append("## Names that do not exist in this mathlib (models used them anyway)\n"
                      + ", ".join(names) + "\n\n")
@@ -89,7 +98,7 @@ def relay_prompt(target_text, dossier, this_job=()):
         for i, m in enumerate(near[:NEAR_SHOWN], 1):
             parts.append(f"### Attempt {i} ({m['failure_kind']})\n```lean\n{_clip(m['proof'], PROOF_CAP)}\n```\n"
                          f"Lean said:\n```\n{_clip(RUNNER_PATH.sub('', m['lean_output'] or ''), LEAN_CAP)}\n```\n\n")
-    thread = dossier.get("thread") or []
+    thread = [c for c in dossier.get("thread") or [] if c.get("author_type") != "Bot"]   # people, not our digests
     if thread:
         parts.append("## What people said on the problem's public thread (ideas, not checked)\n")
         for c in thread:

@@ -1,0 +1,51 @@
+# Stage 2's public threads (DECISIONS.md 2026-10-06), posted as kumori-ai[bot]. After every attempt
+# run: a digest on each problem a relay run touched, the first post refreshed, and every comment
+# copied into the problem's dossier so the next model reads it. By hand: open or refresh threads.
+# Comments are only ever read as text here; nothing from an issue is executed.
+name: issues
+
+on:
+  workflow_run:
+    workflows: [attempt]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      post:
+        description: "<set>/<target> keys to open or refresh, comma-separated"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issues
+  cancel-in-progress: false
+
+jobs:
+  threads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main                      # the attempt run's ledger commit has landed by now
+          persist-credentials: false
+
+      - name: kumori-ai[bot] token (one hour, issues on this repo only)
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SPAREBRAINS_APP_ID }}
+          private-key: ${{ secrets.SPAREBRAINS_APP_KEY }}
+
+      - name: threads
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+          POST: ${{ inputs.post }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python3 -m pip install -q requests
+          if [ -n "$POST" ]; then python3 tools/problem_issues.py --post --only "$POST"; fi
+          if [ -n "$RUN_ID" ]; then python3 tools/problem_issues.py --digest "$RUN_ID"; fi
+          python3 tools/problem_issues.py --sync

@@ -39,7 +39,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   needs his yes. The identity is a GitHub App on the kumori-ai org (posts as `<app>[bot]`,
   issues-only permission on this repo, one-hour tokens), not Andy's account and not a machine
   user. Issues stay the surface for people, never the machine queue. The mathlib AI-contribution
-  policy (`PLAN.md` §6) is read before the pilot opens.
+  policy (`PLAN.md` §6) was read before the pilot opened (leanprover-community.github.io,
+  `contribute/index.md`, "Use of AI", read 2026-10-06): it governs pull requests to mathlib and
+  comments in mathlib's own GitHub and Zulip ("Using an LLM when writing comments on GitHub or Zulip
+  is not allowed"; AI use disclosed with an `LLM-generated` label; code needs a Lean expert who
+  understands it). So the bot writes only on this repository, nothing of ours is ever posted to
+  mathlib's spaces by a model, and an upstream pull request stays a human's (`AGENTS.md`).
 - **The judge runs candidates with no secret in reach.** Found while planning stage 2: Lean runs
   IO while it elaborates (`#eval`), `tools/check.py` ran it inside the attempt step that holds
   `KUMORI_API_KEY`, and `lean_output` is public at `/attempts/<id>`. Clearing Lean's environment is
