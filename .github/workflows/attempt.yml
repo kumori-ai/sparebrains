@@ -11,6 +11,9 @@ on:
     - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
+      relay_target:
+        description: "stage 2: <set>/<target> to relay from its dossier (e.g. mil/mil_c05_s01_ex03); set = relay run, ladder ignored"
+        default: ""
       ladder:
         description: "run the 24/7 ladder (every lane × every target, owed cells only); off = the knobs below"
         type: boolean
@@ -95,8 +98,13 @@ jobs:
         env:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
           SCHEDULED: ${{ github.event_name == 'schedule' }}
+          RELAY_TARGET: ${{ inputs.relay_target }}
         run: |
-          if [ "$SCHEDULED" = "true" ] || [ "${{ inputs.ladder }}" = "true" ]; then
+          if [ -n "$RELAY_TARGET" ]; then
+            # stage 2, the relay: the strongest live lanes try one open problem from its dossier
+            python3 tools/attempt.py --relay --targets "targets/${RELAY_TARGET%/*}" --only "${RELAY_TARGET##*/}" \
+              --skip-benched --max-calls "${{ inputs.max_calls }}"
+          elif [ "$SCHEDULED" = "true" ] || [ "${{ inputs.ladder }}" = "true" ]; then
             # the ladder: every lane, every set, 3 tries per cell, until the wall-clock budget
             # every set: primer and mil statements + reference proofs kernel-checked by the targets workflow (2026-09-02)
             python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 320

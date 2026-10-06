@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 from check import judge                                              # the judge, unchanged
 from ladder import rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S
+import relay                                                         # stage 2: tries from a problem's dossier
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
 MISSING = []                                                          # client functions this checkout lacks: said out loud, never silent
@@ -213,12 +214,13 @@ def _epoch(ts):
         return None
 
 
-def owed_history(ledger_root=None):
+def owed_history(ledger_root=None, relay_rows=False):
     """(set, target, backend) → {'answered': n, 'errors': n, 'router_errors': n} across every ledger
     ever committed. 'errors' is what may close a cell, so it counts a lane error only when the same
     lane answered SOMETHING within ALIVE_WINDOW_S of it: a lane that was dead at the time proved
     nothing about this target. Everything else lands in 'router_errors', kept for the record and
-    never held against the cell. The ledger itself is not rewritten; this is only how it is read."""
+    never held against the cell. The ledger itself is not rewritten; this is only how it is read.
+    Stage-2 relay rows are a separate count (relay_rows=True), so a relay try never closes a ladder cell."""
     import bisect
     hist = defaultdict(lambda: {"answered": 0, "errors": 0, "router_errors": 0})
     answered_at, lane_errors = defaultdict(list), []
@@ -227,6 +229,8 @@ def owed_history(ledger_root=None):
             try:
                 r = json.loads(line)
             except ValueError:
+                continue
+            if relay.is_relay(r) != relay_rows:
                 continue
             key = (r.get("target_set"), r.get("target"), r.get("backend"))
             if r.get("verdict") in ("accept", "reject"):
@@ -277,6 +281,9 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=0, help="ladder mode: stop taking new cells after this wall clock (0 = no limit)")
     ap.add_argument("--idle-minutes", type=float, default=20, help="ladder mode: give up after this long with nothing answerable")
     ap.add_argument("--plan", action="store_true", help="ladder mode: print the queue and exit without a call")
+    ap.add_argument("--relay", action="store_true",
+                    help="stage 2: the strongest live lanes try --only targets (in --targets) from each problem's dossier")
+    ap.add_argument("--relay-lanes", type=int, default=5, help="relay mode: how many of the strongest live lanes")
     ap.add_argument("--targets", default="targets/minif2f/test")
     ap.add_argument("--only", default="", help="comma-separated target names (overrides --sample)")
     ap.add_argument("--unattempted", action="store_true",
@@ -354,6 +361,19 @@ def main():
     if args.ladder:
         order = sorted(known, key=lambda l: (-l["rank"], l["backend"])) + unknown     # strongest first, untiered last
         mode = f"ladder-x{args.attempts}"
+    if args.relay:
+        if not args.only:
+            sys.exit("--relay needs --only: stage 2 takes one problem at a time until the harness is proved")
+        ledger_rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl")
+                       for l in f.read_text().splitlines() if l.strip()]
+        strength = relay.lane_strength(ledger_rows, RUNGS)
+        order = relay.strongest(known + unknown, strength, args.relay_lanes)
+        if not order:
+            sys.exit("relay: no live lane has a solve above MATH level 2 in the ledger")
+        args.attempts = relay.RELAY_TRIES
+        mode = "relay"
+        for l in order:
+            print(f"  relay lane {l['backend']}: {strength[l['backend']]} targets proved above MATH level 2")
     lane_manifest = [{k: l[k] for k in ("backend", "provider", "model", "tier", "rank")} for l in order]
     lane_roster_sha = hashlib.sha256(json.dumps(lane_manifest, sort_keys=True).encode()).hexdigest()[:12]
     t_start = time.time()
@@ -477,7 +497,7 @@ def main():
 
     memory = {}                                          # (set, target, backend) → what this job learned, for repair tries
 
-    def run_one(name, lane, attempt_no, tset=None, tdir_=None, prev=None):
+    def run_one(name, lane, attempt_no, tset=None, tdir_=None, prev=None, relay_ctx=None):
         """One attempt: ask (honoring retry-after once), splice, judge, record. Returns the verdict,
         or 'defer' when the router benched the lane between the pre-check and the call.
         With `prev` (the cell's last rejected attempt) the ask is a repair try."""
@@ -487,6 +507,9 @@ def main():
         statement_sha = hashlib.sha256(prefix.encode()).hexdigest()
         repair = bool(prev) and prev.get("verdict") == "reject"
         prompt = repair_prompt(target_text, prev) if repair else ASK + target_text
+        meta = None
+        if relay_ctx:                                    # stage 2: the dossier, never a known proof
+            prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"])
         t0 = time.monotonic()
         reply, err = "", None
         returned_backend, inference = None, {}
@@ -581,6 +604,7 @@ def main():
                "returned_backend": returned_backend, "inference": inference,
                "failure_kind": failure_kind(verdict, reason),
                "try_mode": "repair" if repair else "cold", "prev_id": previous_id(prev) if repair else None,
+               **({k: meta[k] for k in ("try_mode", "prev_id", "comment_ids", "dossier_sha")} if meta else {}),
                "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
@@ -600,6 +624,8 @@ def main():
                 pl["errors"] += 1
             target_done = (not args.stop_on_accept) and t["done"] >= planned_per_target
         telemetry_future = record(row, prompt, reply, proof, candidate, lean_out)
+        if relay_ctx and verdict == "reject" and proof:
+            relay_ctx["this_job"].append((lane["backend"], row["failure_kind"], proof, RUNNER_PATH.sub("", lean_out or reason)))
         if verdict in ("accept", "reject"):
             with lock:
                 memory[(tset, name, lane["backend"])] = {"id": None, "verdict": verdict, "failure_kind": row["failure_kind"],
@@ -607,7 +633,7 @@ def main():
                                                          "response_head": (reply or "")[:800],
                                                          "telemetry_future": telemetry_future}
         print(f"[{n}/{args.max_calls}] {name} ← {lane['backend']} ({lane['tier']}) → {verdict}"
-              f"{' (repair)' if repair else ''}  call {call_s:.0f}s lean {lean_s:.1f}s  {reason[:110]}", flush=True)
+              f"{' (repair)' if repair else ''}{' (' + meta['try_mode'] + ')' if meta else ''}  call {call_s:.0f}s lean {lean_s:.1f}s  {reason[:110]}", flush=True)
         if verdict == "accept":
             vpath = ROOT / "verified" / tset / name / f"{lane['backend']}.lean"
             vpath.parent.mkdir(parents=True, exist_ok=True)
@@ -746,6 +772,32 @@ def main():
         remaining = len(work) + len(parked)
         heartbeat("done", force=True)
         print(f"ladder: {remaining} cells left for the next job ({len(parked)} behind a parked provider)")
+    elif args.relay:                                     # stage 2: one problem, the strongest lanes in turn
+        tried = owed_history(relay_rows=True)
+        for name in names:
+            try:
+                ctx = {"dossier": relay.fetch_dossier(target_set, name), "this_job": []}
+            except Exception as e:
+                print(f"relay: no dossier for {target_set}/{name} ({type(e).__name__}: {e}); skipped", flush=True)
+                continue
+            if ctx["dossier"].get("solved"):
+                print(f"relay: {name} is already solved; nothing to relay", flush=True)
+                continue
+            for lane in order:
+                if name in solved or state["calls"] >= args.max_calls:
+                    break
+                h = tried[(target_set, name, lane["backend"])]
+                for attempt_no in range(h["answered"] + 1, relay.RELAY_TRIES + 1):
+                    if h["errors"] >= 3 or state["calls"] >= args.max_calls:
+                        break
+                    if lane["provider"] in exhausted or benched(lane["backend"]):
+                        skip(name, lane, attempt_no, "lane benched or provider parked at the time of the relay ask")
+                        break
+                    v = run_one(name, lane, attempt_no, relay_ctx=ctx)
+                    if v in ("accept", "defer", "exhausted"):
+                        break
+        if state["calls"] >= args.max_calls:
+            print(f"cap reached: {args.max_calls} calls")
     elif args.stop_on_accept:                            # ladder-asc/desc by hand: order matters, so sequential
         for name in names:
             for lane in order:
