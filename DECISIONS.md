@@ -3,6 +3,52 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-06
+
+- **The stall rule tripped: 5 first-time solves on `minif2f/test` in 2026-09-22..09-28, floor 7.**
+  Graded eight days late (issue #1 sat open). Two independent counts agree on 5: the committed
+  ledger (first `accept` per target by `ts`, the same in UTC and PT) and the site's Postgres
+  figure at `/about#stall`. All five landed on 09-27, all from `openrouter-space-bunny`, two cold
+  and three repair (`mathd_numbertheory_99`, `mathd_algebra_452`, `_175`, `_541`, `_314`). The
+  baseline recounted from the ledger is 31 first-time solves in 2026-09-05..09-18 PT, not the 30
+  written on 09-21; the one-row gap was not chased because no baseline from 30 to 33 moves the
+  verdict. After the window: 2 on 09-29, 3 on 09-30, 0 in October to date.
+- **Context the rule did not measure: lanes ran out of work as well as out of ideas.** Weekly
+  live lanes went 57, 32, 23, 16, 5, 2 (weeks of 08-31 to 10-05) and answered calls 16,278 to 201.
+  About 20 lanes finished every cell (1,134 answers = 378 targets x 3 tries); others stopped
+  answering mid-pass. Correction to a same-day reading: `attempt_no == 1` does not mark a cell's
+  first try in the ledger (`dots-3-note` has 1,134 answers but 266 rows tagged 1), so "first
+  tries owed" cannot be counted from that field.
+- **Stage 2 starts: the relay.** Models and people build on each other's work. Order is the one
+  written 2026-09-21 (cross-lane repair, fixer pass, blocks, per-problem issues), merged into one
+  try mode family: `relay` (the dossier of every prior attempt) and `relay+thread` (the dossier
+  plus human comments from the problem's issue), each beside `cold` and `repair` on the site.
+  **Harness first, on one problem:** `mil/mil_c05_s02_ex02`, the lowest open rung, whose statement
+  is proved provable by a kernel-accepted reference (`targets/mil/reference/`), which never enters
+  a prompt. Then the stage-2 order: rung, has-reference, near-miss quality, fewest lanes tried.
+  miniF2F statements are checked against miniF2F-v2's corrections before entering the relay.
+- **Cold solving stays on as intake, not paused (Andy).** Each job runs the ladder for newly live
+  lanes first, then the relay. Every new lane keeps a clean cold baseline, which the relay's
+  numbers are compared against.
+- **Per-problem GitHub issues: a pilot of 5, posted by a GitHub App, then Andy decides the rest.**
+  Standing exception to "Andy says yes to each public issue", scoped to bot-generated problem
+  issues on this repo only: the bot opens, edits and closes those; anything else public still
+  needs his yes. The identity is a GitHub App on the kumori-ai org (posts as `<app>[bot]`,
+  issues-only permission on this repo, one-hour tokens), not Andy's account and not a machine
+  user. Issues stay the surface for people, never the machine queue. The mathlib AI-contribution
+  policy (`PLAN.md` §6) is read before the pilot opens.
+- **The judge runs candidates with no secret in reach.** Found while planning stage 2: Lean runs
+  IO while it elaborates (`#eval`), `tools/check.py` ran it inside the attempt step that holds
+  `KUMORI_API_KEY`, and `lean_output` is public at `/attempts/<id>`. Clearing Lean's environment is
+  not enough on Linux: a process can read `/proc/<pid>/environ` of any process of its own user.
+  So in Actions Lean now runs as a separate user (`tools/judge_sandbox.sh`, `SB_JUDGE_USER`) with
+  an allowlisted environment, and the attempt checkout no longer leaves a push token in
+  `.git/config` (publish writes it after the loop). Proved by a canary in `check.yml`
+  (`tools/judge_isolation_canary.py`): the probe must find a planted secret when Lean runs as the
+  job's user, and must not as the judge user. As of 2026-10-06 none of the 7,522 accepted proofs
+  in `verified/` contain `#eval`, `getEnv`, `/proc` or `IO.Process`; rejected candidates live only
+  in Postgres and have not been searched. It became urgent once human text could reach a prompt.
+
 ## 2026-09-21
 
 - **The repository moved to `github.com/kumori-ai/sparebrains` (Phase D step 12, done early).**

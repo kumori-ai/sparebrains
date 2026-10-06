@@ -19,6 +19,21 @@ LEAN_FLAGS = ["-DautoImplicit=false", "-DrelaxedAutoImplicit=false"]
 DECL_RE = re.compile(r"^\s*(?:theorem|lemma)\s+([^\s:({\[]+)", re.M)
 AXIOMS_RE = re.compile(r"'([^']+)' depends on axioms: \[([^\]]*)\]")
 NO_AXIOMS_RE = re.compile(r"'([^']+)' does not depend on any axioms")
+# A candidate is untrusted code: `#eval` runs IO while Lean elaborates, and Lean's output is
+# published. So Lean gets only what it needs to find lake and mathlib, never a key. In Actions,
+# SB_JUDGE_USER (tools/judge_sandbox.sh) also runs it as another user, because a process of the
+# same user can read its parent's secrets from /proc/<pid>/environ.
+ENV_KEEP = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "ELAN_HOME", "ELAN_TOOLCHAIN"}
+
+
+def lean_cmd(file):
+    env = {k: v for k, v in os.environ.items() if k in ENV_KEEP or k.startswith(("LAKE", "LEAN"))}
+    cmd = ["lake", "env", "lean", *LEAN_FLAGS, file]
+    user = os.environ.get("SB_JUDGE_USER")
+    if not user:
+        return cmd, env
+    env["HOME"] = f"/tmp/{user}"
+    return ["sudo", "-n", "-u", user, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd], env
 
 
 def judge(path, timeout):
@@ -29,10 +44,11 @@ def judge(path, timeout):
     probe = src.rstrip("\n") + "\n\n" + "\n".join(f"#print axioms {n}" for n in names) + "\n"
     with tempfile.NamedTemporaryFile("w", suffix=".lean", delete=False) as tmp:
         tmp.write(probe)
+    os.chmod(tmp.name, 0o644)                    # the judge user must read it
+    cmd, env = lean_cmd(tmp.name)
     t0 = time.monotonic()
     try:
-        run = subprocess.run(["lake", "env", "lean", *LEAN_FLAGS, tmp.name], capture_output=True,
-                             text=True, timeout=timeout)
+        run = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         os.unlink(tmp.name)
         return "reject", f"timeout after {timeout}s", time.monotonic() - t0, ""

@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: runner before
         run: |
@@ -38,6 +40,14 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge isolation canary
+        env:
+          SB_CANARY: sbcanary-${{ github.run_id }}-planted
+        run: python3 tools/judge_isolation_canary.py
 
       - name: runner after
         run: |

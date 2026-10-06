@@ -316,6 +316,27 @@ there is no row where the pool is its own judge.
 Four phases, in order. Each step names what it produces and what decides the next one.
 Nothing is promised on a date; everything is gated on a measured number.
 
+**The stages (2026-10-06).** Phases A to D below are kept as the record, but their step numbers
+overlap (C and D both run 12 to 15), so the plan is now named by stage. Each stage starts on a
+measured number, never a date (`DECISIONS.md` 2026-10-06).
+1. **Cold and self-repair, done.** Every lane, every target, three tries, a lane only ever seeing its
+   own failure (Phases A and B). 263 of 378 targets proved; the stall rule tripped (5 first-time
+   solves in 2026-09-22..09-28, floor 7).
+2. **The relay, now.** Each open problem gets a dossier (every attempt by every lane, the best near
+   misses with the kernel's complaint, the dead ends) and a public thread anyone can add to. The
+   strongest live lanes try from the dossier (`relay`), and from the dossier plus the thread
+   (`relay+thread`), each its own try mode. One problem first (`mil/mil_c05_s02_ex02`) to prove the
+   harness, then the open problems in difficulty order. Issues #2, #3 and #5; cold continues as
+   intake for new lanes.
+3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
+   automatically with no secret in reach (#6); proofs in blocks, open parts as their own targets (#4).
+4. **Ready for real problems.** Sources and references (step 10), the per-problem folder (12), the
+   scout (13).
+5. **Unsolved mathematics.** formal-conjectures, Erdős subset first, humans in the loop for every
+   submission (14); the counterexample hunt as the fallback.
+6. **The record as the gift.** The licensed dataset of every attempt, failure and repair pair (15,
+   licensing done 2026-09-02; the dataset itself still open).
+
 **Phase A: finish the measurement** — superseded 2026-09-02 by the ladder (every set, every lane,
 three tries, 24/7); kept for the record.
 1. Close the first ladder run (33582595117) → verified-per-lane on the 5-target sample, here in §2.
@@ -364,7 +385,7 @@ three tries, 24/7); kept for the record.
 14. **Second target set: google-deepmind/formal-conjectures**, Erdős subset first, because
     erdosproblems.com already runs an AI-contributions wiki to plug the folders into. One GitHub
     issue per open problem, claimable, with misformalization reports as the first kind of ticket.
-15. **License the record.** Read each provider's output-use terms (§6), then Apache-2.0 on
+15. **License the record.** ~~Read each provider's output-use terms (§6), then Apache-2.0 on~~ licensing done 2026-09-02 (`DECISIONS.md`); the dataset remains. Read each provider's output-use terms (§6), then Apache-2.0 on
     `ledger/` and `verified/`, and the dataset (model, problem, try, mode, verdict, failure kind,
     transcript, repair pairs) becomes the "for good" artifact others can work off.
 The counterexample hunt with plain checkers (§3 lane 3) stays the fallback if Lean yield on open
