@@ -11,6 +11,9 @@ on:
     - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
+      fixer_target:
+        description: "issue #3: <set>/<target> whose closest misses get their layout repaired and re-judged (no model call)"
+        default: ""
       relay_target:
         description: "stage 2: <set>/<target> to relay from its dossier (e.g. mil/mil_c05_s01_ex03); set = relay run, ladder ignored"
         default: ""
@@ -67,7 +70,7 @@ permissions:
 concurrency:
   # a stage-2 relay dispatch runs beside the ladder instead of queuing hours behind it;
   # publish.py already retries a push on a fresh fetch when the other job lands first
-  group: ${{ inputs.relay_target != '' && inputs.relay_target != null && 'relay' || 'attempt' }}
+  group: ${{ ((inputs.relay_target != '' && inputs.relay_target != null) || (inputs.fixer_target != '' && inputs.fixer_target != null)) && 'relay' || 'attempt' }}
   cancel-in-progress: false
 
 jobs:
@@ -101,8 +104,11 @@ jobs:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
           SCHEDULED: ${{ github.event_name == 'schedule' }}
           RELAY_TARGET: ${{ inputs.relay_target }}
+          FIXER_TARGET: ${{ inputs.fixer_target }}
         run: |
-          if [ -n "$RELAY_TARGET" ]; then
+          if [ -n "$FIXER_TARGET" ]; then
+            python3 tools/attempt.py --fixer --targets "targets/${FIXER_TARGET%/*}" --only "${FIXER_TARGET##*/}"
+          elif [ -n "$RELAY_TARGET" ]; then
             # stage 2, the relay: the strongest live lanes try one open problem from its dossier
             python3 tools/attempt.py --relay --targets "targets/${RELAY_TARGET%/*}" --only "${RELAY_TARGET##*/}" \
               --skip-benched --max-calls "${{ inputs.max_calls }}"

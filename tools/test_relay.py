@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import relay
-from attempt import owed_history, extract_proof
+from attempt import owed_history, extract_proof, align_tactics
 from ladder import RUNGS
 
 TARGET = "import Mathlib\n\ntheorem t (n : ℕ) : n = n := by\n  sorry\n"
@@ -86,6 +86,21 @@ class DossierFetchTests(unittest.TestCase):
         finally:
             relay.urllib.request.urlopen = orig
         self.assertEqual(seen["ua"], relay.USER_AGENT)       # Cloudflare 403s the default Python-urllib agent
+
+
+class LayoutTests(unittest.TestCase):
+    def test_the_first_line_shallower_than_the_rest_is_aligned(self):
+        # #47356's shape (2026-10-06): Lean stopped at "unexpected token 'have'" before any math
+        broken = ["  intro h", "    have hp : p ∣ m := by", "      exact x", "    exact y"]
+        self.assertEqual(align_tactics(broken), ["  intro h", "  have hp : p ∣ m := by", "    exact x", "  exact y"])
+
+    def test_a_block_opener_keeps_its_body_nested(self):
+        lines = ["  have a : 1 = 1 := by", "    rfl"]
+        self.assertEqual(align_tactics(lines), lines)
+        self.assertEqual(align_tactics(["  refine ⟨_, ?_⟩ <;>", "    simp"]), ["  refine ⟨_, ?_⟩ <;>", "    simp"])
+
+    def test_extraction_applies_it(self):
+        self.assertEqual(extract_proof("```lean\nintro h\n  exact h\n```", "t"), "  intro h\n  exact h\n")
 
 
 class RelayLedgerTests(unittest.TestCase):

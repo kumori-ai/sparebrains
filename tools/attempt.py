@@ -29,6 +29,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 from check import judge                                              # the judge, unchanged
 from ladder import rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S
 import relay                                                         # stage 2: tries from a problem's dossier
+from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
 MISSING = []                                                          # client functions this checkout lacks: said out loud, never silent
@@ -46,12 +47,9 @@ except ImportError:
         return None
 
 TIER_RANK = {"tiny": 0, "low": 1, "medium": 2, "high": 3, "frontier": 4}
-PROOF_SEP = re.compile(r":=\s*by\b")
 RUNNER_PATH = re.compile(r"\S*/\.lake/attempts/\S+?\.lean:")     # keep "line:col: error: …", drop the path
 MIN_ANSWERED_TO_COUNT_SWEPT = 8   # a target is "swept" only once this many lanes actually answered it
 SITE = "https://sparebrains.kumori.ai"
-FENCE = re.compile(r"```(?:lean4?)?\s*\n(.*?)```", re.S)
-BARE_BY = re.compile(r"^by\b(.*)$", re.S)
 SYSTEM = ("You are an expert in Lean 4 and Mathlib. You complete formal proofs. "
           "You answer with code only.")
 EXAMPLE = ("import Mathlib\n\n/-- A demonstration, not a target. -/\n"
@@ -150,34 +148,6 @@ def interleave_by_provider(lanes_in_order):
             if not queues[prov]:
                 del queues[prov]
     return out
-
-
-def extract_proof(reply, name):
-    blocks = FENCE.findall(reply)
-    text = max(blocks, key=len) if blocks else reply
-    i = text.find(f"theorem {name}")
-    if i >= 0:
-        sep = PROOF_SEP.search(text, i)
-        if not sep:
-            return None
-        proof = text[sep.end():]
-    elif not blocks or "theorem " in text or "import " in text:
-        # A common otherwise-valid answer is a bare `by ...` tactic block without a Markdown
-        # fence. It is safe to recover this narrow shape: Lean still receives the exact original
-        # statement and remains the only judge. Do not try to mine a `by` from prose.
-        bare = BARE_BY.match(text.strip())
-        if not bare:
-            return None                              # prose, a different theorem, or an echoed preamble
-        proof = bare.group(1)
-    else:
-        proof = text                                 # a fenced bare tactic block
-    lines = proof.strip("\n").splitlines()
-    if not any(l.strip() for l in lines):
-        return None
-    indent = min(len(l) - len(l.lstrip()) for l in lines if l.strip())
-    if indent == 0:
-        lines = ["  " + l if l.strip() else l for l in lines]
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def repair_prompt(target_text, prev):
@@ -284,6 +254,8 @@ def main():
     ap.add_argument("--relay", action="store_true",
                     help="stage 2: the strongest live lanes try --only targets (in --targets) from each problem's dossier")
     ap.add_argument("--relay-lanes", type=int, default=5, help="relay mode: how many of the strongest live lanes")
+    ap.add_argument("--fixer", action="store_true",
+                    help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
     ap.add_argument("--targets", default="targets/minif2f/test")
     ap.add_argument("--only", default="", help="comma-separated target names (overrides --sample)")
     ap.add_argument("--unattempted", action="store_true",
@@ -361,6 +333,10 @@ def main():
     if args.ladder:
         order = sorted(known, key=lambda l: (-l["rank"], l["backend"])) + unknown     # strongest first, untiered last
         mode = f"ladder-x{args.attempts}"
+    if args.fixer:
+        if not args.only:
+            sys.exit("--fixer needs --only")
+        order, mode = [], "fixer"
     if args.relay:
         if not args.only:
             sys.exit("--relay needs --only: stage 2 takes one problem at a time until the harness is proved")
@@ -676,6 +652,40 @@ def main():
         skip(name, lane, attempt_no, f"router deferred the relay ask {relay.DEFERS} times")
         return "gave_up"
 
+    def fix_one(name, near):
+        """Issue #3, the deterministic part: a stored near miss with its layout repaired, judged
+        unchanged otherwise. Credited to the lane that wrote it; try_mode 'fixer', prev_id its row."""
+        fixed = "\n".join(align_tactics(near["proof"].rstrip("\n").splitlines())) + "\n"
+        if fixed == near["proof"].rstrip("\n") + "\n":
+            return None
+        target_text = (tdir / f"{name}.lean").read_text()
+        prefix = target_text[:PROOF_SEP.search(target_text).end()]
+        candidate = prefix + "\n" + fixed
+        cpath = tmpdir / f"{name}.fixer.{near['id']}.lean"
+        cpath.write_text(candidate)
+        verdict, reason, lean_s, lean_out = judge(str(cpath), args.lean_timeout)
+        reason = RUNNER_PATH.sub("", reason)
+        if verdict == "wellformed":
+            verdict, reason = "reject", "proof still contains sorry"
+        lane = {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
+        row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest()), "verdict": verdict,
+               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer",
+               "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
+               "proof_sha": hashlib.sha256(fixed.encode()).hexdigest()}
+        record(row, None, None, fixed, candidate, lean_out)
+        with lock:
+            state["calls"] += 1
+            if verdict == "accept":
+                state["accepts"] += 1
+                solved.setdefault(name, lane)
+        print(f"[fixer] {name} ← {near['backend']} (#{near['id']}, layout repaired) → {verdict}  {reason[:110]}", flush=True)
+        if verdict == "accept":
+            vpath = ROOT / "verified" / target_set / name / f"{near['backend']}.lean"
+            vpath.parent.mkdir(parents=True, exist_ok=True)
+            vpath.write_text(candidate)
+            print("    ┌ kernel-accepted proof, verbatim:\n" + "\n".join("    │ " + l for l in fixed.rstrip().splitlines()) + "\n    └", flush=True)
+        return verdict
+
     remaining = 0
     if args.ladder:                                      # 24/7: owed cells across every set, in rung order
         hist = owed_history()
@@ -792,6 +802,12 @@ def main():
         remaining = len(work) + len(parked)
         heartbeat("done", force=True)
         print(f"ladder: {remaining} cells left for the next job ({len(parked)} behind a parked provider)")
+    elif args.fixer:                                     # issue #3: no model call, the kernel re-judges
+        for name in names:
+            d = relay.fetch_dossier(target_set, name)
+            for near in d.get("near_misses") or []:
+                if name not in solved and near.get("proof"):
+                    fix_one(name, near)
     elif args.relay:                                     # stage 2: one problem, the strongest lanes in turn
         tried = owed_history(relay_rows=True)
         for name in names:
