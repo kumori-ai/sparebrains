@@ -499,6 +499,8 @@ def main():
         meta = None
         if relay_ctx:                                    # stage 2: the dossier, never a known proof
             prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"])
+        # a relay try may think for minutes (kumori's opt-in long_call, sparebrains keys only)
+        long_or_not = {"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx else {"timeout_s": 60}
         t0 = time.monotonic()
         reply, err = "", None
         returned_backend, inference = None, {}
@@ -511,7 +513,7 @@ def main():
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
                                         max_tokens=args.max_tokens, temperature=0.2, system=SYSTEM,
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
-                                        timeout_s=60, include_metadata=True,
+                                        include_metadata=True, **long_or_not,
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
                     with lock:
                         bench["streak"].pop(lane["backend"], None)

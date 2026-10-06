@@ -57,6 +57,37 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   in `verified/` contain `#eval`, `getEnv`, `/proc` or `IO.Process`; rejected candidates live only
   in Postgres and have not been searched. It became urgent once human text could reach a prompt.
 
+- **The relay's first day, four runs on `mil_c05_s01_ex03`, 0 accepts: what each run fixed.**
+  37520440995: 0 calls, the dossier fetch died on Cloudflare error 1010, which refuses Python's
+  default `Python-urllib` agent (requests, curl, Go and Node pass); the relay now names itself.
+  37521229581: 5 calls, 1 answer; the router logged "ran out of tokens mid-thought (4000 max)" for
+  the other four, so reasoning lanes get 16,000 output tokens in relay mode, and the relay asks for
+  only the proof instead of the whole file. 37522262314: 7 calls, 3 answers; a lane the router
+  parked for seconds after a reply lost its 2nd and 3rd try, so parks are now waited out (up to
+  180 s) and a mid-ask defer retried. 37524420987: 11 calls, 5 answers. `openrouter-dots-3-note`
+  timed out at the router's 140 s pinned-call deadline every time; the LiteLLM gateway retry that
+  deadline was sized for is gone since 2026-09-21, so it is one attempt, and at ~75 tokens/s a
+  16,000-token answer needs ~210 s. Andy approved an opt-in `long_call` (kumori 42d1df8): one
+  attempt up to 240 s for `sparebrains.write` keys only, under gunicorn's 300 s, holding at most
+  one of 32 request slots because the relay asks one call at a time; every other caller keeps 140 s.
+  Still open: `groq-gptoss-20b` runs out of tokens even at 16,000.
+- **A layout slip hid a real gap: the fixer pass (#3) starts with it.** Three of the problem's five
+  closest misses put the first tactic at one indent and the rest deeper, so Lean stopped at
+  "unexpected token" before reading the mathematics, and the site labeled them `unsolved_goals`.
+  Proof extraction now aligns that shape (`tools/proof_text.py`, never when the first line opens a
+  block), and `--fixer` re-judges stored near misses with no model call, recorded as `try_mode`
+  `fixer`, credited to the lane that wrote the proof, `prev_id` its row. Run 37528786885 repaired
+  #47356: Lean then followed it to line 14 and stopped on a type mismatch, so the gap was real,
+  and the dossier now shows the true complaint. A fixer row is nobody's ladder or relay try.
+- **Stage 2 runs on its own.** A second cron (:30 every 2 h, its own concurrency group) takes the
+  first problem in the stage-2 order (`/targets.json`) that a live relay lane still has tries on,
+  runs the fixer, then the relay, at most 15 calls; the issues workflow follows every attempt run
+  with a digest, a refreshed first post and the comment sync. The ladder keeps its :00 cron.
+- **The pilot threads are open: #7 to #11**, the top five of the order, posted by `kumori-ai[bot]`.
+  Both miniF2F statements in it were checked by hand first (`mathd_numbertheory_5`: a square and
+  a cube in ℕ is a sixth power, so ≥10 forces ≥64; `mathd_algebra_756`: a = 5, b = 3, 3^5 = 243).
+  Andy decides on threads for the rest after about a week of watching who shows up.
+
 ## 2026-09-21
 
 - **The repository moved to `github.com/kumori-ai/sparebrains` (Phase D step 12, done early).**
