@@ -94,9 +94,9 @@ def digest(run_id, rows, comments=None):
         for i in read:
             head += [quote(*comments[i]), ""]
         if read:
-            n_read = sum(1 for r in rs if r.get("try_mode") == "relay+thread")
-            head += [f"{n_read} of this run's tries read the comment above before they answered (`relay+thread`), "
-                     "and the kernel judged each one:", ""]
+            n_read = sum(1 for r in rs if r.get("try_mode") == "relay+thread" and r["verdict"] in ("accept", "reject"))
+            head += [f"{n_read} of this run's answers came from models that read the comment above (`relay+thread`); "
+                     "every try, answered or not, is below:", ""]
         kinds = ", ".join(sorted({r.get("try_mode") or "cold" for r in rs}))
         lines = head + [f"**Run [{run_id}]({relay.SITE}/runs/{run_id})** ({kinds}): {len(rs)} tries, {len(answered)} answers, "
                  f"{len(accepted)} accepted by the kernel.", "", "| model | lane | try | verdict | what Lean said first |", "|---|---|---|---|---|"]

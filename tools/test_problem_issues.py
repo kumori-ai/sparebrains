@@ -61,7 +61,7 @@ class QuoteReplyTests(unittest.TestCase):
                      comment_ids=[77], verdict="reject", reason="unsolved goals")]
         text = dict(pi.digest("9", rows, {77: ("tillo13", "Idea: take logs\nof both sides")}))["mil/a"]
         self.assertTrue(text.startswith("> **@tillo13** wrote:\n> Idea: take logs\n> of both sides"))
-        self.assertIn("2 of this run's tries read the comment above", text)
+        self.assertIn("2 of this run's answers came from models that read the comment above", text)
 
     def test_a_run_that_read_no_comment_quotes_nothing(self):
         rows = [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1, try_mode="relay", verdict="reject", reason="r")]
