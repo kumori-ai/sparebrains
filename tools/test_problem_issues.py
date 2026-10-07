@@ -39,16 +39,33 @@ class RenderTests(unittest.TestCase):
 
 
 class DigestTests(unittest.TestCase):
-    def test_one_comment_per_problem_and_relay_rows_only(self):
+    def test_one_comment_per_problem_and_every_try_this_run(self):
         rows = [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1, try_mode="relay", verdict="reject", reason="unsolved goals"),
                 dict(run_id="9", target_set="mil", target="a", backend="y", attempt_no=1, try_mode="relay", verdict="accept", reason="ok"),
                 dict(run_id="9", target_set="mil", target="b", backend="x", attempt_no=1, try_mode="cold", verdict="reject", reason="cold row"),
                 dict(run_id="8", target_set="mil", target="a", backend="z", attempt_no=1, try_mode="relay", verdict="reject", reason="old run")]
         out = dict(pi.digest("9", rows))
-        self.assertEqual(list(out), ["mil/a"])
-        self.assertIn("2 calls, 2 answers, 1 accepted", out["mil/a"])
+        self.assertEqual(sorted(out), ["mil/a", "mil/b"])          # every try on a problem, any mode, failures too
+        self.assertIn("2 tries, 2 answers, 1 accepted", out["mil/a"])
+        self.assertIn("cold row", out["mil/b"])
+        self.assertIn("| `unknown` | `x` |", out["mil/b"])          # a row with no model says so rather than guessing
         self.assertIn("**Solved.**", out["mil/a"])
         self.assertNotIn("old run", out["mil/a"])
+
+
+class QuoteReplyTests(unittest.TestCase):
+    def test_a_thread_assisted_run_opens_by_quoting_the_comment_it_read(self):
+        rows = [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1, try_mode="relay+thread",
+                     comment_ids=[77], verdict="reject", reason="type mismatch"),
+                dict(run_id="9", target_set="mil", target="a", backend="y", attempt_no=1, try_mode="relay+thread",
+                     comment_ids=[77], verdict="reject", reason="unsolved goals")]
+        text = dict(pi.digest("9", rows, {77: ("tillo13", "Idea: take logs\nof both sides")}))["mil/a"]
+        self.assertTrue(text.startswith("> **@tillo13** wrote:\n> Idea: take logs\n> of both sides"))
+        self.assertIn("2 of this run's tries read the comment above", text)
+
+    def test_a_run_that_read_no_comment_quotes_nothing(self):
+        rows = [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1, try_mode="relay", verdict="reject", reason="r")]
+        self.assertNotIn("wrote:", dict(pi.digest("9", rows, {}))["mil/a"])
 
 
 if __name__ == "__main__":

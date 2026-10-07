@@ -71,21 +71,39 @@ def render(d, order=None):
     return title, "\n".join(parts)
 
 
-def digest(run_id, rows):
-    """(key, comment) per problem a relay run touched, from that run's ledger rows."""
+def quote(author, body, cap=400):
+    """A GitHub quote-reply of a person's comment: their words, attributed, clipped."""
+    text = relay._clip(body, cap)
+    return f"> **@{author}** wrote:\n" + "\n".join("> " + l for l in text.splitlines())
+
+
+def digest(run_id, rows, comments=None):
+    """(key, comment) per problem a relay run touched, from that run's ledger rows. When some tries
+    read people's comments (relay+thread), the reply opens by quoting them; `comments` maps a
+    comment id to (author, body)."""
     by = defaultdict(list)
     for r in rows:
-        if str(r.get("run_id")) == str(run_id) and relay.is_relay(r):
+        if str(r.get("run_id")) == str(run_id) and r.get("verdict") in ("accept", "reject", "error"):
             by[key_of(r["target_set"], r["target"])].append(r)
     out = []
     for key, rs in by.items():
         answered = [r for r in rs if r["verdict"] in ("accept", "reject")]
         accepted = [r for r in rs if r["verdict"] == "accept"]
-        lines = [f"**Relay run [{run_id}]({relay.SITE}/runs/{run_id})**: {len(rs)} calls, {len(answered)} answers, "
-                 f"{len(accepted)} accepted by the kernel.", "", "| model | try | verdict | what Lean said first |", "|---|---|---|---|"]
+        read = sorted({i for r in rs for i in r.get("comment_ids") or [] if (comments or {}).get(i)})
+        head = []
+        for i in read:
+            head += [quote(*comments[i]), ""]
+        if read:
+            n_read = sum(1 for r in rs if r.get("try_mode") == "relay+thread")
+            head += [f"{n_read} of this run's tries read the comment above before they answered (`relay+thread`), "
+                     "and the kernel judged each one:", ""]
+        kinds = ", ".join(sorted({r.get("try_mode") or "cold" for r in rs}))
+        lines = head + [f"**Run [{run_id}]({relay.SITE}/runs/{run_id})** ({kinds}): {len(rs)} tries, {len(answered)} answers, "
+                 f"{len(accepted)} accepted by the kernel.", "", "| model | lane | try | verdict | what Lean said first |", "|---|---|---|---|---|"]
         for r in rs:
             reason = (r.get("reason") or "").replace("|", "\\|").replace("\n", " ")[:140]
-            lines.append(f"| `{r['backend']}` | {r.get('attempt_no')} ({r.get('try_mode')}) | {r['verdict']} | {reason} |")
+            lines.append(f"| `{r.get('model') or 'unknown'}` | `{r['backend']}` | {r.get('attempt_no')} "
+                         f"({r.get('try_mode') or 'cold'}) | {r['verdict']} | {reason} |")
         if accepted:
             a = accepted[0]
             lines += ["", f"**Solved.** The kernel accepted `{a['backend']}`'s proof: "
@@ -163,7 +181,14 @@ def main():
     if args.digest:
         rows = [json.loads(l) for f in (ROOT / "ledger").glob(f"**/{args.digest}.jsonl")
                 for l in f.read_text().splitlines() if l.strip()]
-        for k, text in digest(args.digest, rows):
+        comments = {}
+        for i in {i for r in rows for i in r.get("comment_ids") or []}:
+            try:
+                c = gh.call("GET", f"/issues/comments/{i}")
+                comments[i] = (c["user"]["login"], c["body"])
+            except Exception as e:                       # a deleted comment is just not quoted
+                print(f"comment {i} unavailable ({type(e).__name__}); not quoted")
+        for k, text in digest(args.digest, rows, comments):
             if k not in issues:
                 print(f"{k}: no thread yet; digest not posted")
                 continue
