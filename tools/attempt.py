@@ -846,8 +846,8 @@ def main():
                 if name in solved or state["calls"] >= args.max_calls:
                     break
                 h = tried[(target_set, name, lane["backend"])]
-                for attempt_no in range(h["answered"] + 1, relay.RELAY_TRIES + 1):
-                    if h["errors"] >= 3 or state["calls"] >= args.max_calls:
+                for attempt_no in range(relay.spent(h) + 1, relay.RELAY_TRIES + 1):
+                    if state["calls"] >= args.max_calls:
                         break
                     v = relay_ask(name, lane, attempt_no, ctx)
                     if v in ("accept", "exhausted", "gave_up"):

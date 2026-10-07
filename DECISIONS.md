@@ -14,6 +14,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   read: those calls did not close cells. The client reports them as `HTTP 502 : unknown`, without
   the router's "returned no text", so `error_scope` calls them router failures, which never close a
   cell; the cost was the same cells re-asked every job, not cells lost.
+- **Every relay call counts toward a lane's three tries, an empty one included.** Overnight the
+  relay asked `mil_c05_s01_ex03` in all 6 runs (29 calls, 3 answers): `dots-3-note` and
+  `gptoss-20b` came back empty almost every time (the router: "ran out of tokens mid-thought" at
+  16,000, after up to 185 s), those calls are router-scoped, and the old rule counted only answers
+  and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
+  counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
+  (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
 - **The site shows answers, not empty calls (Andy: "error" read as the site being broken).** The
   live box and the last-30 table list accepted and rejected answers only; an empty call reads "no
   answer" with a plain reason wherever it still appears (run pages, transcripts), and the ledger

@@ -93,7 +93,7 @@ class NextProblemTests(unittest.TestCase):
         from collections import defaultdict
         tried = defaultdict(lambda: {"answered": 0, "errors": 0})
         tried[("mil", "a", "x")] = {"answered": 3, "errors": 0}
-        tried[("mil", "a", "y")] = {"answered": 1, "errors": 3}
+        tried[("mil", "a", "y")] = {"answered": 0, "errors": 0, "router_errors": 3}   # three empty calls spend it
         open_list = [dict(target_set="mil", target="b", order=2), dict(target_set="mil", target="a", order=1)]
         lanes = [dict(backend="x"), dict(backend="y")]
         self.assertEqual(relay.next_problem(open_list, lanes, tried), ("mil", "b"))
