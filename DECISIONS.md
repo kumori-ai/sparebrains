@@ -88,6 +88,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   a cube in ℕ is a sixth power, so ≥10 forces ≥64; `mathd_algebra_756`: a = 5, b = 3, 3^5 = 243).
   Andy decides on threads for the rest after about a week of watching who shows up.
 
+- **The first stage-2 solve: `mathd_algebra_756`, person-assisted (`relay+thread`).** Andy posted a
+  hint on its thread (#11): take logs instead of the injectivity lemmas 35 earlier tries invented,
+  using `Real.log_rpow`, `Real.log_pos` and `Real.rpow_natCast`. The issues workflow synced it into
+  the dossier, and in run 37551253071 all four relay tries read it. `openrouter-dots-3-note`
+  (dots-studio/dots-3-note) was accepted on its third try in 148 s of model time, a proof that
+  follows the hint step for step (`verified/minif2f/test/mathd_algebra_756/`). Before it: 92 answered
+  tries by 34 models, all rejected. kumori-ai[bot] replied on #11 quoting the hint, with every try's
+  model and verdict, and closed the issue. What it shows: the whole chain (comment, dossier, relay,
+  kernel, thread) works. What it does not: a better rate. It is n = 1, a MATH level 1 problem with a
+  known solution, and the hint laid out the proof; it is labeled person-assisted, never "the models
+  learned". The model that solved it needed the 240 s long call approved the same evening.
+
 ## 2026-09-21
 
 - **The repository moved to `github.com/kumori-ai/sparebrains` (Phase D step 12, done early).**
