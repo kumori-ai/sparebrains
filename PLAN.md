@@ -338,6 +338,14 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
    list: about 19 days from 2026-10-07 at its measured pace (114 problems ÷ ~6 relay runs a day over
    its first 48 hours; an earlier 6 to 10 days used the ladder's job rate, not the relay's). The live
    figure is in the home page's Next column.
+   *Hint experiments (2026-10-07).* One measured question: how much help does a free model need?
+   Each hint goes on a problem's thread at one of three strengths, never more than one per problem
+   at a time: **idea** (the mathematical idea only, no Lean), **idea + names** (plus lemma names that
+   exist in the pinned mathlib), **outline** (the proof's steps). Every hint names its drafter (a
+   person, or "drafted with <model>") in the comment itself. The relay then runs on that problem and
+   the result is logged by strength and drafter. So far: outline, Claude-drafted, #11, solved in one
+   run; idea, Claude-drafted, #8, not solved in one run (11 calls, 3 answers). Small numbers; the
+   point is to collect enough to say which strength turns near misses into proofs.
 3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
    automatically with no secret in reach (#6); proofs in blocks, open parts as their own targets (#4).
    Design, not built (2026-10-07): [`STAGE3.md`](STAGE3.md), a check job holding nothing and a separate
