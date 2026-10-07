@@ -30,6 +30,22 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
   counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
   (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
+- **Models are classed by what they prove here, not by the router's label (Andy).** The router's
+  tier is a size prior (kumori `rebander._capability_tier`: 100B+ frontier, 30B+ high, 13B+ medium,
+  6B+ low, one step up for thinking models, weekly on Sunday) because its six-question canary is too
+  easy to separate models; a model with no public size stays unrated (16 of 81 lanes, apodex among
+  them while it led the board). kumori `utilities/sparebrains_class.py` now measures a class from
+  **cold tries only**: the highest rung cleared (at least 50% over at least 3 cold tries) mapped
+  AMC 12 and up to frontier, MATH L4 and up to high, L2 and up to medium, mil or L1 to low, primer
+  to tiny; unproven under 30 cold answers across 3 rungs. Cold only, because counting repair tries
+  (accepted ~6% of the time) read gpt-oss-120b as "medium"; on cold tries it clears MATH L4.
+  The sparebrains site shows the measured class everywhere and lists, at `/lanes#disagree`, lanes
+  two or more steps from the router's label, for a person. The Sunday rebander fills a blank tier
+  from it (a model of unknown size with no tier at all) and never re-tiers anything else: the first
+  preview would also have pushed `free` and two `ministral-14b` lanes from low to tiny, out of
+  Kumori Chat's low-and-up pool, so the rule is blanks only. Preview of the next Sunday: one move,
+  `apodex-1-1-mini` none -> frontier; nine disagreements listed. Math is one skill, and the
+  router's tier also steers ordinary chat, so nothing writes the ladder over a size tier.
 - **Statements checked by hand before the relay reaches them: every miniF2F problem through
   position 10 of the stage-2 order is true as written.** `mathd_algebra_276` (ab = 10 and
   3a - 8b = -1 force a = 5, b = 2, so ab + b = 12); `mathd_numbertheory_353` (2,009 terms summing
