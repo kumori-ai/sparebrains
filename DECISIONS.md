@@ -30,6 +30,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
   counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
   (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
+- **Lanes that keep coming back empty get less thinking, and a relay bench (Andy).** Medium effort
+  reached the providers (rows record `groq_reasoning_effort` / `openrouter_reasoning_object`) but on
+  hard problems most thinking-model calls still came back empty: in relay run 37637898616,
+  `dots-3-note` 3 of 3 (211-234 s each), `apodex-1-1-mini` and `openrouter-free` 2 of 3, and
+  `gptoss-20b` every time. Two rules, measured from the ledger at the start of each job, so they
+  adjust themselves: a thinking model whose last 10 calls were at least 60% empty is asked for `low`
+  effort (`relay.running_dry`); a lane whose last 6 relay calls were all empty sits out the relay
+  for 3 days after the latest, then is measured again (`relay.relay_benched`). On 2026-10-07 that
+  benches `dots-3-note` from the relay and asks it, `gptoss-20b` and `apodex-1-1-mini` for low.
 - **Models are classed by what they prove here, not by the router's label (Andy).** The router's
   tier is a size prior (kumori `rebander._capability_tier`: 100B+ frontier, 30B+ high, 13B+ medium,
   6B+ low, one step up for thinking models, weekly on Sunday) because its six-question canary is too

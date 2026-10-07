@@ -44,6 +44,38 @@ def is_relay(row):
 USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
 
 
+EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
+DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
+BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty: out of the relay for 3 days
+
+
+def _calls(rows, backend, relay_only=False):
+    rs = [r for r in rows if r.get("backend") == backend and r.get("verdict") in ("accept", "reject", "error")
+          and (is_relay(r) or not relay_only)]
+    return sorted(rs, key=lambda r: r.get("ts") or "")
+
+
+def is_empty(r):
+    return r.get("verdict") == "error" and bool(EMPTY.search(r.get("reason") or ""))
+
+
+def running_dry(rows, backend):
+    """A thinking model that mostly comes back with nothing: asked for low effort (DECISIONS.md 2026-10-07)."""
+    last = _calls(rows, backend)[-DRY_LAST:]
+    return len(last) == DRY_LAST and sum(map(is_empty, last)) >= DRY_SHARE * DRY_LAST
+
+
+def relay_benched(rows, backend, now_iso):
+    """Every one of the lane's last BENCH_LAST relay calls came back empty, the latest within BENCH_DAYS:
+    skip it in the relay until then. A bench that expires lets the lane back in to be measured again."""
+    from datetime import datetime, timedelta
+    last = _calls(rows, backend, relay_only=True)[-BENCH_LAST:]
+    if len(last) < BENCH_LAST or not all(map(is_empty, last)):
+        return False
+    latest = datetime.fromisoformat(last[-1]["ts"].replace("Z", "+00:00"))
+    return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)
+
+
 def fetch_json(path, timeout=30):
     req = urllib.request.Request(SITE + path, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:

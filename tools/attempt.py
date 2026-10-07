@@ -71,10 +71,15 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
 ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
 
 
+RUNNING_DRY = set()   # lanes whose recent calls mostly came back empty, from the ledger at job start
+
+
 def lane_effort(lane):
-    """Thinking models are asked for medium reasoning effort (DECISIONS.md 2026-10-07): at 16,000 output
-    tokens apodex and dots-3-note still ran out mid-thought on hard problems."""
-    return relay.REASONING_EFFORT if (lane.get("capability") or {}).get("is_reasoning_model") else None
+    """Thinking models are asked for medium reasoning effort, and for low when they keep coming back
+    empty (DECISIONS.md 2026-10-07): at 16,000 tokens and medium they still ran out mid-thought."""
+    if not (lane.get("capability") or {}).get("is_reasoning_model"):
+        return None
+    return "low" if lane.get("backend") in RUNNING_DRY else relay.REASONING_EFFORT
 
 
 def lane_max_tokens(lane, default):
@@ -252,6 +257,11 @@ def main():
     else:
         names = random.Random(args.seed).sample(names, min(args.sample, len(names)))
     known, unknown = lanes(args.lanes, args.min_tier, args.skip_benched)
+    ledger_rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl")
+                   for l in f.read_text().splitlines() if l.strip()]
+    RUNNING_DRY.update(l["backend"] for l in known + unknown if relay.running_dry(ledger_rows, l["backend"]))
+    for b in sorted(RUNNING_DRY):
+        print(f"  {b}: most recent calls came back empty; asked for low reasoning effort")
     if args.max_per_provider:
         kept, seen = [], defaultdict(int)
         for l in sorted(known, key=lambda l: (-l["rank"], l["backend"])):   # strongest first within a provider
@@ -273,10 +283,12 @@ def main():
     if args.relay:
         if not (args.only or args.relay_next):
             sys.exit("--relay needs --only or --relay-next")
-        ledger_rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl")
-                       for l in f.read_text().splitlines() if l.strip()]
         strength = relay.lane_strength(ledger_rows, RUNGS)
-        order = relay.strongest(known + unknown, strength, args.relay_lanes)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        benched_out = [l["backend"] for l in known + unknown if relay.relay_benched(ledger_rows, l["backend"], now_iso)]
+        for b in benched_out:
+            print(f"  {b}: its last {relay.BENCH_LAST} relay calls all came back empty; out of the relay for {relay.BENCH_DAYS} days")
+        order = relay.strongest([l for l in known + unknown if l["backend"] not in benched_out], strength, args.relay_lanes)
         if not order:
             sys.exit("relay: no live lane has a solve above MATH level 2 in the ledger")
         args.attempts = relay.RELAY_TRIES

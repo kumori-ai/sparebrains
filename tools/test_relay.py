@@ -115,6 +115,35 @@ class TokenBudgetTests(unittest.TestCase):
         self.assertIsNone(lane_effort({"capability": {}}))
 
 
+class EmptyLaneTests(unittest.TestCase):
+    EMPTY = "KumoriAPIError: kumori /api/v1/llm/chat HTTP 502 : unknown"
+
+    def rows(self, b, verdicts, mode="relay", day="2026-10-07"):
+        return [dict(backend=b, verdict=v, try_mode=mode, ts=f"{day}T{10 + i:02d}:00:00+00:00",
+                     reason=self.EMPTY if v == "error" else "lean exit 1") for i, v in enumerate(verdicts)]
+
+    def test_running_dry_needs_ten_calls_mostly_empty(self):
+        self.assertTrue(relay.running_dry(self.rows("d", ["error"] * 6 + ["reject"] * 4), "d"))
+        self.assertFalse(relay.running_dry(self.rows("d", ["error"] * 5 + ["reject"] * 5), "d"))
+        self.assertFalse(relay.running_dry(self.rows("d", ["error"] * 9), "d"))          # not enough calls to judge
+
+    def test_relay_bench_needs_six_empty_relay_calls_and_expires(self):
+        rows = self.rows("d", ["error"] * 6)
+        self.assertTrue(relay.relay_benched(rows, "d", "2026-10-08T00:00:00+00:00"))
+        self.assertFalse(relay.relay_benched(rows, "d", "2026-10-11T00:00:00+00:00"))   # three days on, back in
+        self.assertFalse(relay.relay_benched(self.rows("d", ["error"] * 5 + ["reject"]), "d", "2026-10-08T00:00:00+00:00"))
+        self.assertFalse(relay.relay_benched(self.rows("d", ["error"] * 6, mode="cold"), "d", "2026-10-08T00:00:00+00:00"))
+
+    def test_a_dry_thinking_model_is_asked_for_low_effort(self):
+        import attempt
+        attempt.RUNNING_DRY.add("dry-lane")
+        try:
+            self.assertEqual(attempt.lane_effort({"backend": "dry-lane", "capability": {"is_reasoning_model": True}}), "low")
+            self.assertEqual(attempt.lane_effort({"backend": "ok-lane", "capability": {"is_reasoning_model": True}}), "medium")
+        finally:
+            attempt.RUNNING_DRY.discard("dry-lane")
+
+
 class LayoutTests(unittest.TestCase):
     def test_the_first_line_shallower_than_the_rest_is_aligned(self):
         # #47356's shape (2026-10-06): Lean stopped at "unexpected token 'have'" before any math
