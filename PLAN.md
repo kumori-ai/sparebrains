@@ -340,6 +340,8 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
    figure is in the home page's Next column.
 3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
    automatically with no secret in reach (#6); proofs in blocks, open parts as their own targets (#4).
+   Design, not built (2026-10-07): [`STAGE3.md`](STAGE3.md), a check job holding nothing and a separate
+   poster job that never runs a stranger's Lean.
 4. **Ready for real problems.** Sources and references (step 10), the per-problem folder (12), the
    scout (13).
 5. **Unsolved mathematics.** formal-conjectures, Erdős subset first, humans in the loop for every
