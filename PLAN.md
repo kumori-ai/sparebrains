@@ -334,7 +334,9 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
    `mathd_algebra_756` (#11), person-assisted (`relay+thread`), 2026-10-07. Next decisions: threads
    for the rest of the open list after about a week of the pilot (about 2026-10-13), and publishing
    the kumori.ai article (admin-only draft) at the same time. The relay's first pass over the open
-   list is estimated at 6 to 10 days from 2026-10-07 (115 problems at 12 to 20 relay runs a day).
+   list: about 19 days from 2026-10-07 at its measured pace (114 problems ÷ ~6 relay runs a day over
+   its first 48 hours; an earlier 6 to 10 days used the ladder's job rate, not the relay's). The live
+   figure is in the home page's Next column.
 3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
    automatically with no secret in reach (#6); proofs in blocks, open parts as their own targets (#4).
 4. **Ready for real problems.** Sources and references (step 10), the per-problem folder (12), the
