@@ -70,6 +70,12 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
 ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
 
 
+def lane_max_tokens(lane, default):
+    """A thinking model gets relay.MAX_TOKENS in every mode (DECISIONS.md 2026-10-07): at the ladder's
+    4,000 apodex-1-1-mini ran out of thought before writing a word on 120 calls in one day."""
+    return max(default, relay.MAX_TOKENS) if (lane.get("capability") or {}).get("is_reasoning_model") else default
+
+
 def bench_delay(retry_after, consecutive):
     """Repeated refusals park a lane longer, never less than the router asks."""
     minimum = max(5, retry_after or 60)
@@ -460,7 +466,7 @@ def main():
                 "backend": lane["backend"], "provider": lane["provider"], "model": lane["model"],
                 "quality_tier": lane["tier"], "tier_rank": lane["rank"], "attempt_no": attempt_no, "mode": mode,
                 "capability": lane.get("capability", {}),
-                "request_config": {"max_tokens": args.max_tokens, "temperature": 0.2,
+                "request_config": {"max_tokens": lane_max_tokens(lane, args.max_tokens), "temperature": 0.2,
                                    "reasoning_effort": None, "router_timeout_s": 60,
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
@@ -511,7 +517,7 @@ def main():
             for tries in (1, 2):
                 try:
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
-                                        max_tokens=args.max_tokens, temperature=0.2, system=SYSTEM,
+                                        max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2, system=SYSTEM,
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
                                         include_metadata=True, **long_or_not,
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost

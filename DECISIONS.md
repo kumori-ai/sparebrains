@@ -3,6 +3,22 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-07
+
+- **Thinking models get 16,000 output tokens in every mode, the ladder included (Andy).** On
+  2026-10-06/07 `openrouter-apodex-1-1-mini`, the one live lane still owed ladder cells, hit 120
+  empty calls in 24 hours on MATH L4/L5 cells, each logged by the router as "ran out of tokens
+  mid-thought (4000 max)". Lanes the router flags `is_reasoning_model` now get `relay.MAX_TOKENS`
+  (`attempt.lane_max_tokens`); every row's `request_config.max_tokens` records the budget it
+  actually had, so stage-1 results can still be split by budget. Correction to the same evening's
+  read: those calls did not close cells. The client reports them as `HTTP 502 : unknown`, without
+  the router's "returned no text", so `error_scope` calls them router failures, which never close a
+  cell; the cost was the same cells re-asked every job, not cells lost.
+- **The site shows answers, not empty calls (Andy: "error" read as the site being broken).** The
+  live box and the last-30 table list accepted and rejected answers only; an empty call reads "no
+  answer" with a plain reason wherever it still appears (run pages, transcripts), and the ledger
+  keeps every row as before.
+
 ## 2026-10-06
 
 - **The stall rule tripped: 5 first-time solves on `minif2f/test` in 2026-09-22..09-28, floor 7.**

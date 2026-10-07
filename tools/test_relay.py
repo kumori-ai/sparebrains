@@ -101,6 +101,15 @@ class NextProblemTests(unittest.TestCase):
         self.assertIsNone(relay.next_problem(open_list, lanes, tried))
 
 
+class TokenBudgetTests(unittest.TestCase):
+    def test_thinking_models_get_room_in_every_mode(self):
+        from attempt import lane_max_tokens
+        self.assertEqual(lane_max_tokens({"capability": {"is_reasoning_model": True}}, 4000), relay.MAX_TOKENS)
+        self.assertEqual(lane_max_tokens({"capability": {"is_reasoning_model": False}}, 4000), 4000)
+        self.assertEqual(lane_max_tokens({}, 4000), 4000)
+        self.assertEqual(lane_max_tokens({"capability": {"is_reasoning_model": True}}, 20000), 20000)
+
+
 class LayoutTests(unittest.TestCase):
     def test_the_first_line_shallower_than_the_rest_is_aligned(self):
         # #47356's shape (2026-10-06): Lean stopped at "unexpected token 'have'" before any math
