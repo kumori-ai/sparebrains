@@ -331,7 +331,8 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
    *Status 2026-10-07:* built and running on its own. The relay rides every ladder job (cron as
    backup), the fixer runs first, thinking models get 16,000 tokens and medium reasoning effort, and
    five pilot threads (#7 to #11) are open, posted and kept current by `kumori-ai[bot]`. First solve:
-   `mathd_algebra_756` (#11), person-assisted (`relay+thread`), 2026-10-07. Next decisions: threads
+   `mathd_algebra_756` (#11), thread-assisted (`relay+thread`; the hint was drafted with Claude Opus
+   and posted by Andy), 2026-10-07. Next decisions: threads
    for the rest of the open list after about a week of the pilot (about 2026-10-13), and publishing
    the kumori.ai article (admin-only draft) at the same time. The relay's first pass over the open
    list: about 19 days from 2026-10-07 at its measured pace (114 problems ÷ ~6 relay runs a day over

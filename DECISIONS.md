@@ -30,6 +30,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
   counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
   (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
+- **Correction: the #11 hint was drafted with Claude Opus, so the solve is thread-assisted, not
+  person-assisted.** Andy posted both thread hints (#11 and #8), but Claude drafted their text, and
+  the record called #11 "a person's hint". CONTRIBUTING asks every contributor to disclose AI help;
+  the project holds itself to the same line. Everywhere it was called person-assisted it is now
+  thread-assisted (`relay+thread`, the label the data always carried), the site has a correcting field
+  note (old notes are never edited), and the comments themselves get the disclosure. From here on a
+  hint's drafter is recorded with it, so thread help can later be split into person-written and
+  AI-drafted. The entry below keeps its words; this one corrects them.
 - **Lanes that keep coming back empty get less thinking, and a relay bench (Andy).** Medium effort
   reached the providers (rows record `groq_reasoning_effort` / `openrouter_reasoning_object`) but on
   hard problems most thinking-model calls still came back empty: in relay run 37637898616,

@@ -16,7 +16,8 @@ only what the Lean kernel accepts. The same standard applies to anything a perso
    problem reads them**, and its try is recorded as `relay+thread`, apart from the models working
    alone, so the help is counted honestly. After every run the bot replies with each model that
    tried, its model name and the kernel's verdict. The first problem solved this way was #11
-   (2026-10-07), from a person's hint. What helps: an idea in your own words, a lemma name that
+   (2026-10-07), from a hint on its thread (drafted with Claude Opus and posted by the maintainer; say
+   so when an AI helped write your comment, too). What helps: an idea in your own words, a lemma name that
    really exists, a partial proof, a link to your own branch or write-up. To try with your own
    model or agent, start from [AGENTS.md](AGENTS.md); check your Lean with `tools/check.py`, the
    same judge and mathlib pin the engine uses (the README's "Check the work" has the commands).
