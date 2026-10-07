@@ -70,6 +70,12 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
 ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
 
 
+def lane_effort(lane):
+    """Thinking models are asked for medium reasoning effort (DECISIONS.md 2026-10-07): at 16,000 output
+    tokens apodex and dots-3-note still ran out mid-thought on hard problems."""
+    return relay.REASONING_EFFORT if (lane.get("capability") or {}).get("is_reasoning_model") else None
+
+
 def lane_max_tokens(lane, default):
     """A thinking model gets relay.MAX_TOKENS in every mode (DECISIONS.md 2026-10-07): at the ladder's
     4,000 apodex-1-1-mini ran out of thought before writing a word on 120 calls in one day."""
@@ -467,7 +473,7 @@ def main():
                 "quality_tier": lane["tier"], "tier_rank": lane["rank"], "attempt_no": attempt_no, "mode": mode,
                 "capability": lane.get("capability", {}),
                 "request_config": {"max_tokens": lane_max_tokens(lane, args.max_tokens), "temperature": 0.2,
-                                   "reasoning_effort": None, "router_timeout_s": 60,
+                                   "reasoning_effort": lane_effort(lane), "router_timeout_s": 60,
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
 
@@ -507,6 +513,8 @@ def main():
             prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"])
         # a relay try may think for minutes (kumori's opt-in long_call, sparebrains keys only)
         long_or_not = {"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx else {"timeout_s": 60}
+        if lane_effort(lane):
+            long_or_not["reasoning_effort"] = lane_effort(lane)
         t0 = time.monotonic()
         reply, err = "", None
         returned_backend, inference = None, {}

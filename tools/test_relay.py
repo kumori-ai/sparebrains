@@ -109,6 +109,11 @@ class TokenBudgetTests(unittest.TestCase):
         self.assertEqual(lane_max_tokens({}, 4000), 4000)
         self.assertEqual(lane_max_tokens({"capability": {"is_reasoning_model": True}}, 20000), 20000)
 
+    def test_thinking_models_are_asked_for_medium_effort(self):
+        from attempt import lane_effort
+        self.assertEqual(lane_effort({"capability": {"is_reasoning_model": True}}), "medium")
+        self.assertIsNone(lane_effort({"capability": {}}))
+
 
 class LayoutTests(unittest.TestCase):
     def test_the_first_line_shallower_than_the_rest_is_aligned(self):

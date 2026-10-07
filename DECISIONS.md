@@ -14,6 +14,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   read: those calls did not close cells. The client reports them as `HTTP 502 : unknown`, without
   the router's "returned no text", so `error_scope` calls them router failures, which never close a
   cell; the cost was the same cells re-asked every job, not cells lost.
+- **Thinking models are asked for medium reasoning effort, in every mode.** At 16,000 output tokens
+  `apodex-1-1-mini` still ran out mid-thought on 31 of 40 ladder calls (~60 s each) and
+  `dots-3-note` after up to 185 s. A bigger budget does not stop a model that thinks until it runs
+  out, so kumori's router gained an opt-in `reasoning_effort` (kumori e5df172), sent as each
+  provider documents it (read 2026-10-07): OpenRouter's `reasoning: {effort}` object, translated per
+  model; Groq's `reasoning_effort`, low/medium/high, on GPT-OSS 20B and 120B only; other providers
+  untouched. Lanes flagged `is_reasoning_model` ask for `medium`; each row's
+  `request_config.reasoning_effort` and `inference.reasoning_effort_mode` record what was asked and
+  what the adapter did, so results split cleanly by condition.
 - **Every relay call counts toward a lane's three tries, an empty one included.** Overnight the
   relay asked `mil_c05_s01_ex03` in all 6 runs (29 calls, 3 answers): `dots-3-note` and
   `gptoss-20b` came back empty almost every time (the router: "ran out of tokens mid-thought" at

@@ -324,7 +324,7 @@ def _chat_recoverable(body, request_id, timeout):
 
 def llm_chat(backend_name, messages, max_tokens=500, temperature=0.3, system=None,
              app_name=None, timeout=None, timeout_s=None, include_metadata=False, request_id=None,
-             substitute=False, spread_key=None, long_call=False):
+             substitute=False, spread_key=None, long_call=False, reasoning_effort=None):
     """Pinned-backend multi-turn chat. Returns (text, backend_name).
 
     request_id: for calls that may outlast Cloudflare's 100 s cutoff (long proofs); 16-64 chars of
@@ -360,6 +360,8 @@ def llm_chat(backend_name, messages, max_tokens=500, temperature=0.3, system=Non
         body['timeout_s'] = int(timeout_s)   # server-side per-attempt ceiling (default 30, max 60): proofs need it
     if long_call:
         body['long_call'] = True             # one attempt up to 240 s; honored only for sparebrains.write keys
+    if reasoning_effort:
+        body['reasoning_effort'] = reasoning_effort   # low/medium/high; OpenRouter and Groq GPT-OSS honor it
     if request_id:
         body['request_id'] = request_id
         data = _chat_recoverable(body, request_id, timeout or (5, 60))

@@ -18,6 +18,7 @@ RELAY_TRIES = 3                    # per (target, lane), like the ladder's three
 # Reasoning lanes think before they answer. At the ladder's 4,000 the router logged "ran out of tokens
 # mid-thought (4000 max)" for 4 of the first relay run's 5 calls (37521229581, 2026-10-06).
 MAX_TOKENS = 16_000
+REASONING_EFFORT = "medium"        # kumori's opt-in reasoning_effort (OpenRouter reasoning.effort, Groq GPT-OSS)
 LONG_CALL_S = 240                  # kumori's opt-in pinned long call (api_v1_llm_bp._pinned_timeouts)
 PARK_WAIT_S = 180                  # a parked lane is waited for, not dropped (groq parked 119 s, run 37522262314)
 DEFERS = 4                         # a mid-ask defer is retried this many times before the lane is left
