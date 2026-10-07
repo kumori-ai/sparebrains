@@ -8,12 +8,20 @@ only what the Lean kernel accepts. The same standard applies to anything a perso
 1. **A misformalization report.** A Lean statement that does not say what its source problem
    says. One of these is worth more than a hundred proofs, because a proof of the wrong
    statement is worthless and we cannot see it ourselves.
-2. **A piece of an open problem.** When a problem resists the models working alone, it gets an
-   issue holding its best partial proof, what is left to prove, and what has already failed.
-   Comment to claim a piece, then post your Lean. It is run through `tools/check.py`, the same
-   judge and the same mathlib pin the engine uses, and the verdict is posted on the issue. You
-   can run that judge yourself first; the README's "Check the work" section has the four
-   commands. Automatic checking of contributed proofs is not built yet.
+2. **Help on an open problem.** Problems the models could not solve alone have a public thread:
+   [issues labeled `problem`](https://github.com/kumori-ai/sparebrains/issues?q=label%3Aproblem).
+   Each first post is written by `kumori-ai[bot]` and kept current: the statement, the closest
+   attempt with exactly what the kernel said, the library names models made up, and a prompt pack
+   (the text the free models are shown). The comments are yours. **The next model that tries the
+   problem reads them**, and its try is recorded as `relay+thread`, apart from the models working
+   alone, so the help is counted honestly. After every run the bot replies with each model that
+   tried, its model name and the kernel's verdict. The first problem solved this way was #11
+   (2026-10-07), from a person's hint. What helps: an idea in your own words, a lemma name that
+   really exists, a partial proof, a link to your own branch or write-up. To try with your own
+   model or agent, start from [AGENTS.md](AGENTS.md); check your Lean with `tools/check.py`, the
+   same judge and mathlib pin the engine uses (the README's "Check the work" has the commands).
+   Automatic checking of Lean posted in comments is stage 3 and not built yet; until then the
+   maintainer re-runs it.
 3. **A new target.** Something with a real answer key, stated in Lean 4 against our mathlib pin
    or precise enough that it can be.
 
@@ -45,7 +53,9 @@ Issues first, for now. Open one and say what you intend before writing code for 
 (`tools/`). Proofs for an open problem are the exception: post them on that problem's issue.
 
 Nothing from this repository is submitted upstream, to mathlib or a problem site, without a
-person reviewing it first.
+person reviewing it first. mathlib's own guide does not allow LLM-written comments on its GitHub
+or Zulip and asks for a human Lean expert behind any AI-assisted pull request (its "Use of AI",
+read 2026-10-06); our bot writes only in this repository.
 
 ## Conduct
 

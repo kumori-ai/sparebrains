@@ -30,6 +30,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
   counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
   (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
+- **Statements checked by hand before the relay reaches them: every miniF2F problem through
+  position 10 of the stage-2 order is true as written.** `mathd_algebra_276` (ab = 10 and
+  3a - 8b = -1 force a = 5, b = 2, so ab + b = 12); `mathd_numbertheory_353` (2,009 terms summing
+  to 2009 x 3014); `mathd_numbertheory_296` (a cube and a fourth power is a twelfth power, least
+  above 1 is 2^12 = 4096); `mathd_numbertheory_435` (k = 1, 2, 3 make a gcd equal to 6n + k, k = 4
+  makes gcd(6n + 4, 6n + 2) = 2); `mathd_numbertheory_150` (7 + 30n is prime for n = 0..5, and
+  187 = 11 x 17); `mathd_algebra_362` (a^3 = 8, so a = 2, b^3 = 8/27, b = 2/3; b = 0 is ruled out
+  because a / b^3 = 27/4 is not 0). Plus `mathd_numbertheory_5` and `mathd_algebra_756`, checked
+  2026-10-06. Each was read against its informal source; none needed a misformalization report.
 - **The site shows answers, not empty calls (Andy: "error" read as the site being broken).** The
   live box and the last-30 table list accepted and rejected answers only; an empty call reads "no
   answer" with a plain reason wherever it still appears (run pages, transcripts), and the ledger
