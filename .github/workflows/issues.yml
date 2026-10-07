@@ -13,6 +13,16 @@ on:
       post:
         description: "<set>/<target> keys to open or refresh, comma-separated"
         default: ""
+      note_issue:
+        description: "issue number for a status note from the maintainer, posted as the bot"
+        default: ""
+      note_body:
+        description: "the note's text (markdown)"
+        default: ""
+      note_close:
+        description: "close that issue as completed after the note"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,7 +54,15 @@ jobs:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
           POST: ${{ inputs.post }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          NOTE_ISSUE: ${{ inputs.note_issue }}
+          NOTE_BODY: ${{ inputs.note_body }}
+          NOTE_CLOSE: ${{ inputs.note_close }}
         run: |
+          if [ -n "$NOTE_ISSUE" ]; then
+            case "$NOTE_ISSUE" in *[!0-9]*) echo "note_issue must be a number"; exit 1;; esac
+            python3 tools/problem_issues.py --note "$NOTE_ISSUE" $( [ "$NOTE_CLOSE" = "true" ] && echo --close )
+            exit 0
+          fi
           python3 -m pip install -q requests
           if [ -n "$POST" ]; then python3 tools/problem_issues.py --post --only "$POST"; fi
           if [ -n "$RUN_ID" ]; then python3 tools/problem_issues.py --digest "$RUN_ID"; fi

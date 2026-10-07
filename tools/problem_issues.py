@@ -145,6 +145,8 @@ def main():
     ap.add_argument("--post", action="store_true", help="create or update each --only problem's issue")
     ap.add_argument("--digest", default="", help="post a relay run's results on each problem it touched")
     ap.add_argument("--sync", action="store_true", help="copy every problem issue's comments into the dossier")
+    ap.add_argument("--note", type=int, default=0, help="post NOTE_BODY (env) on this issue number as the bot")
+    ap.add_argument("--close", action="store_true", help="with --note: close the issue as completed")
     args = ap.parse_args()
     try:
         order = {key_of(t["target_set"], t["target"]): t["order"] for t in relay.fetch_json("/targets.json")["open"]}
@@ -164,6 +166,16 @@ def main():
         return 0
 
     gh = GitHub(os.environ["GH_TOKEN"])
+    if args.note:                                    # a status note on a plan issue, written by a person
+        body = os.environ.get("NOTE_BODY", "").strip()
+        if not body:
+            sys.exit("--note needs NOTE_BODY")
+        c = gh.call("POST", f"/issues/{args.note}/comments", {"body": body})
+        print(f"note on #{args.note}: {c['html_url']}")
+        if args.close:
+            gh.call("PATCH", f"/issues/{args.note}", {"state": "closed", "state_reason": "completed"})
+            print(f"#{args.note} closed")
+        return 0
     issues = gh.problem_issues()
     if args.post:
         for k in keys:
