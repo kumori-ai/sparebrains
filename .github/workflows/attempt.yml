@@ -16,7 +16,7 @@ on:
         description: "issue #3: <set>/<target> whose closest misses get their layout repaired and re-judged (no model call)"
         default: ""
       relay_target:
-        description: "stage 2: <set>/<target> to relay from its dossier (e.g. mil/mil_c05_s01_ex03); set = relay run, ladder ignored"
+        description: "stage 2: <set>/<target> to relay from its dossier (e.g. mil/mil_c05_s01_ex03), or next = the next open problem with tries left"
         default: ""
       ladder:
         description: "run the 24/7 ladder (every lane × every target, owed cells only); off = the knobs below"
@@ -108,7 +108,7 @@ jobs:
           FIXER_TARGET: ${{ inputs.fixer_target }}
           CRON: ${{ github.event.schedule }}
         run: |
-          if [ "$CRON" = "30 */2 * * *" ]; then
+          if [ "$CRON" = "30 */2 * * *" ] || [ "$RELAY_TARGET" = "next" ]; then
             # stage 2 on its own: the fixer, then the relay, on the next open problem with tries left
             python3 tools/attempt.py --relay --relay-next --skip-benched --max-calls 15
           elif [ -n "$FIXER_TARGET" ]; then
@@ -170,3 +170,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run attempt.yml --ref main
+
+      # Stage 2 rides the ladder's own chain: GitHub fired 8 of 24 scheduled events in two days and
+      # never the relay's first :30 (2026-10-06), so the cron is only a backup. Its own concurrency
+      # group, so it never waits behind or replaces a ladder job.
+      - name: hand stage 2 the next open problem
+        if: success() && steps.publish.outcome == 'success' && steps.run.outputs.mode != '' && !startsWith(steps.run.outputs.mode, 'relay') && steps.run.outputs.mode != 'fixer'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run attempt.yml --ref main -f relay_target=next -f ladder=false
