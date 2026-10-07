@@ -30,6 +30,7 @@ from check import judge                                              # the judge
 from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S,
                     owed_history, build_ladder_queue, interleave_by_provider)   # the ladder's queue, read from the committed ledger
 import relay                                                         # stage 2: tries from a problem's dossier
+import fixer                                                         # issue #3: repairs form, no model
 from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
@@ -610,13 +611,22 @@ def main():
         skip(name, lane, attempt_no, f"router deferred the relay ask {relay.DEFERS} times")
         return "gave_up"
 
-    def fix_one(name, near):
-        """Issue #3, the deterministic part: a stored near miss with its layout repaired, judged
-        unchanged otherwise. Credited to the lane that wrote it; try_mode 'fixer', prev_id its row."""
-        fixed = "\n".join(align_tactics(near["proof"].rstrip("\n").splitlines())) + "\n"
-        if fixed == near["proof"].rstrip("\n") + "\n":
+    fix_index = {}
+
+    def fix_one(name, near, tset=None):
+        """Issue #3: a stored failed proof with its form repaired (layout, Lean 3 syntax, invented names;
+        tools/fixer.py), judged unchanged otherwise. Credited to the lane that wrote it; try_mode 'fixer',
+        prev_id its row, the passes that changed it in `fixes`."""
+        tset = tset or target_set
+        if "names" not in fix_index:                     # mathlib's real names, built once per job
+            src = ROOT / ".lake" / "packages" / "mathlib" / "Mathlib"
+            fix_index["names"] = fixer.mathlib_index(src) if src.is_dir() else set()
+            fix_index["by_last"] = fixer._by_last(fix_index["names"])
+            print(f"fixer: {len(fix_index['names'])} mathlib names indexed", flush=True)
+        fixed, fixes = fixer.fix(near["proof"], near.get("lean_output") or "", fix_index["names"], fix_index["by_last"])
+        if not fixes:
             return None
-        target_text = (tdir / f"{name}.lean").read_text()
+        target_text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
         prefix = target_text[:PROOF_SEP.search(target_text).end()]
         candidate = prefix + "\n" + fixed
         cpath = tmpdir / f"{name}.fixer.{near['id']}.lean"
@@ -626,8 +636,8 @@ def main():
         if verdict == "wellformed":
             verdict, reason = "reject", "proof still contains sorry"
         lane = {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
-        row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest()), "verdict": verdict,
-               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer",
+        row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest(), tset), "verdict": verdict,
+               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer", "fixes": fixes,
                "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
                "proof_sha": hashlib.sha256(fixed.encode()).hexdigest()}
         record(row, None, None, fixed, candidate, lean_out)
@@ -636,9 +646,9 @@ def main():
             if verdict == "accept":
                 state["accepts"] += 1
                 solved.setdefault(name, lane)
-        print(f"[fixer] {name} ← {near['backend']} (#{near['id']}, layout repaired) → {verdict}  {reason[:110]}", flush=True)
+        print(f"[fixer] {name} ← {near['backend']} (#{near['id']}, {'+'.join(fixes)}) → {verdict}  {reason[:110]}", flush=True)
         if verdict == "accept":
-            vpath = ROOT / "verified" / target_set / name / f"{near['backend']}.lean"
+            vpath = ROOT / "verified" / tset / name / f"{near['backend']}.lean"
             vpath.parent.mkdir(parents=True, exist_ok=True)
             vpath.write_text(candidate)
             print("    ┌ kernel-accepted proof, verbatim:\n" + "\n".join("    │ " + l for l in fixed.rstrip().splitlines()) + "\n    └", flush=True)
@@ -761,11 +771,18 @@ def main():
         heartbeat("done", force=True)
         print(f"ladder: {remaining} cells left for the next job ({len(parked)} behind a parked provider)")
     elif args.fixer:                                     # issue #3: no model call, the kernel re-judges
-        for name in names:
-            d = relay.fetch_dossier(target_set, name)
-            for near in d.get("near_misses") or []:
-                if name not in solved and near.get("proof"):
-                    fix_one(name, near)
+        fixed_before = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer"}
+        cells = ([(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]]
+                 if args.only == "all" else [(target_set, n) for n in names])
+        for tset, name in cells:
+            if state["calls"] >= args.max_calls:
+                print(f"cap reached: {args.max_calls} fixer checks")
+                break
+            d = relay.fetch_dossier(tset, name)
+            for near in (d.get("near_misses") or []) + (d.get("form_misses") or []):
+                if (tset, name) not in solved and name not in solved and near.get("proof") and near["id"] not in fixed_before:
+                    fixed_before.add(near["id"])
+                    fix_one(name, near, tset)
     elif args.relay:                                     # stage 2: one problem, the strongest lanes in turn
         tried = owed_history(relay_rows=True)
         for name in names:
@@ -778,9 +795,10 @@ def main():
                 print(f"relay: {name} is already solved; nothing to relay", flush=True)
                 continue
             if args.relay_next:                          # the fixer first: free, and it may already solve it
-                for near in ctx["dossier"].get("near_misses") or []:
+                for near in (ctx["dossier"].get("near_misses") or []) + (ctx["dossier"].get("form_misses") or []):
                     if near.get("proof") and near["id"] not in fixed_ids and name not in solved:
-                        fix_one(name, near)
+                        fixed_ids.add(near["id"])
+                        fix_one(name, near, target_set)
             for lane in order:
                 if name in solved or state["calls"] >= args.max_calls:
                     break

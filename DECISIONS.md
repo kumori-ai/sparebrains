@@ -30,6 +30,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and lane errors, so both stayed "owed" forever and the line never moved. `relay.spent()` now
   counts every call. Same night, at 16,000 tokens `apodex-1-1-mini` answered 9 of 40 ladder calls
   (4 of 45 at 4,000) and proved one; the other 31 still ran out after ~60 s of thinking.
+- **The fixer (#3) now repairs form in three passes, with no model** (`tools/fixer.py`): layout, Lean 3
+  to Lean 4 (begin/end, commas between tactics, `λ x,`, `assume`, `cases ... with`, lowercase
+  namespaces), and invented names, each swapped for the closest real mathlib name from an index built
+  out of mathlib's sources on the runner (same final name in another namespace first, then a close
+  spelling in the same namespace; never guessed without the index). The kernel judges every repair;
+  rows record which passes changed the proof (`fixes`). It reads the dossier's new `form_misses` as
+  well as its near misses, runs first on each relay problem, and `fixer_target=all` sweeps every open
+  problem. Measured before shipping, 2026-10-07: the `lean3_syntax` label mostly catches Lean 4 syntax
+  errors ("unexpected token", a stray `...`), not Lean 3; on 400 such rejects on open problems only 10
+  were really Lean 3. The first draft stripped trailing commas everywhere, which would have broken
+  Lean 4 lists split over lines; commas now go only when a proof is Lean 3 and the line closes its
+  brackets. Still form, so the 61% figure stands; the label name overstates Lean 3.
 - **Correction: the #11 hint was drafted with Claude Opus, so the solve is thread-assisted, not
   person-assisted.** Andy posted both thread hints (#11 and #8), but Claude drafted their text, and
   the record called #11 "a person's hint". CONTRIBUTING asks every contributor to disclose AI help;
