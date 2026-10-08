@@ -648,16 +648,26 @@ def main():
             if lane["provider"] in exhausted or benched(lane["backend"]):
                 return None
             extra = {"reasoning_effort": lane_effort(lane)} if lane_effort(lane) else {}
-            try:
-                with provider_lock[lane["provider"]]:
-                    reply, _, _ = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
-                                           max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2,
-                                           system=SYSTEM, app_name="sparebrains", timeout=(10, args.call_timeout),
-                                           include_metadata=True, timeout_s=relay.LONG_CALL_S, long_call=True,
-                                           request_id=uuid.uuid4().hex, **extra)
-            except Exception as e:
-                print(f"    subgoal ask to {lane['backend']} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
-                reply = None
+            reply = None
+            for tries in (1, 2, 3):                       # the router paces each lane: wait as long as it says, as run_one does
+                try:                                      # (2026-10-08: 40 of a queue's asks hit "per-lane RPM spacing" unwaited)
+                    with provider_lock[lane["provider"]]:
+                        reply, _, _ = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
+                                               max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2,
+                                               system=SYSTEM, app_name="sparebrains", timeout=(10, args.call_timeout),
+                                               include_metadata=True, timeout_s=relay.LONG_CALL_S, long_call=True,
+                                               request_id=uuid.uuid4().hex, **extra)
+                    break
+                except KumoriAPIError as e:
+                    wait = e.retry_after or 0
+                    if tries < 3 and ("RPM spacing" in str(e) or e.status_code == 429) and 0 < wait <= relay.PARK_WAIT_S:
+                        time.sleep(wait + 0.5)
+                        continue
+                    print(f"    subgoal ask to {lane['backend']} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                    break
+                except Exception as e:
+                    print(f"    subgoal ask to {lane['backend']} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                    break
             with lock:
                 state["calls"] += 1
             return reply
