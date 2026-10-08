@@ -197,6 +197,8 @@ def main():
                     help="relay mode: take the first open problem in the stage-2 order that still has relay tries left")
     ap.add_argument("--fixer", action="store_true",
                     help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
+    ap.add_argument("--redo", action="store_true",
+                    help="fixer mode: take near misses the fixer+loop pass already saw (e.g. to keep their sketches)")
     ap.add_argument("--slice", default="", help="fixer mode: i/N takes every Nth open problem from i, for a matrix of jobs")
     ap.add_argument("--lemmas", action="store_true",
                     help="the lemma queue: open steps the fixer left in stored sketches, closest first, each asked of "
@@ -913,7 +915,8 @@ def main():
         heartbeat("done", force=True)
         print(f"ladder: {remaining} cells left for the next job ({len(parked)} behind a parked provider)")
     elif args.fixer:                                     # issue #3: no model call, the kernel re-judges
-        fixed_before = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer+loop"}
+        fixed_before = (set() if args.redo else
+                        {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer+loop"})
         cells = ([(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]]
                  if args.only == "all" else [(target_set, n) for n in names])
         if args.slice:                                   # a matrix of fixer jobs, each every Nth problem

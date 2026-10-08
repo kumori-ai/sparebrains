@@ -76,7 +76,7 @@ concurrency:
   # publish.py already retries a push on a fresh fetch when the other job lands first
   # The fixer has its own group (2026-10-08): in the relay's, the relay's self-chained next job, a newer
   # pending run, replaced a waiting fixer run every time.
-  group: ${{ (inputs.fixer_target != '' && inputs.fixer_target != null) && 'fixer' || ((github.event.schedule == '30 */2 * * *' || (inputs.relay_target != '' && inputs.relay_target != null)) && 'relay' || 'attempt') }}
+  group: ${{ (inputs.fixer_target != '' && inputs.fixer_target != null) && format('fixer-{0}', inputs.fixer_target) || ((github.event.schedule == '30 */2 * * *' || (inputs.relay_target != '' && inputs.relay_target != null)) && 'relay' || 'attempt') }}
   cancel-in-progress: false
 
 jobs:
@@ -147,7 +147,10 @@ jobs:
             # (DECISIONS.md 2026-10-08, the loop); --max-calls counts the Lean checks and the asks together
             python3 tools/attempt.py --fixer --only all --fixer-ask --skip-benched --max-calls "${{ inputs.max_calls }}"
           elif [ -n "$FIXER_TARGET" ]; then
-            python3 tools/attempt.py --fixer --targets "targets/${FIXER_TARGET%/*}" --only "${FIXER_TARGET##*/}"
+            # named problems (comma-separated after the set, e.g. minif2f/test/a,b,c): taken again even if seen,
+            # and sliced like the matrix when fixer_slices is given
+            python3 tools/attempt.py --fixer --redo --targets "targets/${FIXER_TARGET%/*}" --only "${FIXER_TARGET##*/}" \
+              ${SLICE:+--slice "$SLICE"} --max-calls "${{ inputs.max_calls }}"
           elif [ -n "$RELAY_TARGET" ]; then
             # stage 2, the relay: the strongest live lanes try one open problem from its dossier
             python3 tools/attempt.py --relay --targets "targets/${RELAY_TARGET%/*}" --only "${RELAY_TARGET##*/}" \
