@@ -36,7 +36,8 @@ class RelayPromptTests(unittest.TestCase):
         self.assertEqual(meta["prev_id"], 101)
         self.assertIn("Nat.fake", prompt)
         self.assertNotIn(", h\n", prompt + "\n")                       # a local name is not a missing library name
-        self.assertLess(prompt.index("intro x"), prompt.index("simp"))
+        tried = prompt[len(relay.RELAY):]                              # the fixed preamble names tactics too
+        self.assertLess(tried.index("intro x"), tried.index("simp"))
         self.assertTrue(prompt.endswith(TARGET))
 
     def test_the_proof_only_answer_it_asks_for_is_one_the_extractor_takes(self):

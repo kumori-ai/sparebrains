@@ -129,7 +129,7 @@ def owed_history(ledger_root=None, relay_rows=False):
                 r = json.loads(line)
             except ValueError:
                 continue
-            if r.get("try_mode") == "fixer" or relay.is_relay(r) != relay_rows:
+            if str(r.get("try_mode") or "").startswith("fixer") or relay.is_relay(r) != relay_rows:
                 continue                                 # a fixer row re-judges an old answer; it is nobody's try
             key = (r.get("target_set"), r.get("target"), r.get("backend"))
             if r.get("verdict") in ("accept", "reject"):

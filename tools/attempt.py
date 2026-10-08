@@ -31,6 +31,7 @@ from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is
                     owed_history, build_ladder_queue, interleave_by_provider)   # the ladder's queue, read from the committed ledger
 import relay                                                         # stage 2: tries from a problem's dossier
 import lean_tools                                                     # real mathlib names for invented ones
+import subgoals                                                      # APOLLO's loop on a rejected relay try
 import fixer                                                         # issue #3: repairs form, no model
 from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
@@ -299,7 +300,7 @@ def main():
         mode = "relay"
         for l in order:
             print(f"  relay lane {l['backend']}: {strength[l['backend']]} targets proved above MATH level 2")
-        fixed_ids = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer"}
+        fixed_ids = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer+loop"}   # once per near miss
         by_problem = relay.problem_rows(ledger_rows)               # rounds: the swarm (DECISIONS.md 2026-10-08)
         people = (relay.load_people(os.environ["SB_PEOPLE_FILE"]) if os.environ.get("SB_PEOPLE_FILE")
                   else relay.people_comments())
@@ -543,16 +544,19 @@ def main():
             reason = RUNNER_PATH.sub("", reason)
             if verdict == "wellformed":
                 verdict, reason = "reject", "proof still contains sorry"
-                if relay_ctx:                            # the model's holes: Lean fills them, or says what it saw
-                    filled, tools_used = fill_holes(candidate, prefix)
-                    if filled:
-                        cpath.write_text(filled)
-                        v2, r2, s2, o2 = judge(str(cpath), args.lean_timeout)
-                        lean_s += s2
-                        tools_used["judged"] = v2
-                        if v2 == "accept":
-                            candidate, proof, lean_out = filled, filled[len(prefix):].lstrip("\n"), o2
-                            verdict, reason = "accept", f"kernel accepted after Lean filled {tools_used['holes']} sorry hole(s)"
+            if relay_ctx and verdict == "reject":       # APOLLO's loop: holes, Lean's closers, the same model per step
+                t_rep = time.monotonic()
+                rep = subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out)
+                tools_used = {"subgoals": {**{k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")},
+                                           "seconds": round(time.monotonic() - t_rep, 1)}}
+                if rep.get("accepted"):
+                    candidate, lean_out = rep["accepted"], rep.get("lean_output") or lean_out
+                    proof = candidate[len(prefix):].lstrip("\n")
+                    verdict = "accept"
+                    reason = (f"kernel accepted after the loop: {rep.get('closed_by_lean', 0)} step(s) closed by Lean's "
+                              f"automation, {rep.get('lemmas_proved', 0)} proved by the model as lemmas")
+                elif rep.get("sketch"):
+                    tools_used["sketch"] = rep["sketch"]
         row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict, "reason": reason[:300],
                "returned_backend": returned_backend, "inference": inference,
                "failure_kind": failure_kind(verdict, reason),
@@ -562,7 +566,8 @@ def main():
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
         if relay_ctx:                                    # which tools this try had, for the digest and the before/after
-            row["tools"] = {"names_shown": sorted((relay_ctx.get("real_names") or {}))[:12], **tools_used}
+            row["tools"] = {"names_shown": sorted((relay_ctx.get("real_names") or {}))[:12],
+                            **{k: v for k, v in tools_used.items() if k != "sketch"}}
         with lock:
             t, pl = per_target[name], per_lane[lane["backend"]]
             t["done"] += 1
@@ -581,8 +586,10 @@ def main():
         telemetry_future = record(row, prompt, reply, proof, candidate, lean_out)
         if relay_ctx and verdict == "reject" and proof:
             said = RUNNER_PATH.sub("", lean_out or reason)
-            if tools_used.get("try_this"):
-                said += "\nLean's exact?/apply? suggestions for this try's sorry holes: " + "; ".join(tools_used["try_this"])
+            sg = tools_used.get("subgoals") or {}
+            if tools_used.get("sketch"):                 # the next lane starts from what Lean already accepted
+                said += (f"\nAfter this try, Lean's automation closed {sg.get('closed_by_lean', 0)} failing step(s). "
+                         "What still needs a proof is each `sorry` in:\n" + tools_used["sketch"][len(prefix):][-2500:])
             relay_ctx["this_job"].append((lane["backend"], row["failure_kind"], proof, said))
             look_up_names(relay_ctx, fixer.UNKNOWN.findall(lean_out or ""))   # names this try just invented
         if verdict in ("accept", "reject"):
@@ -615,24 +622,53 @@ def main():
             return "error_router"                        # says nothing about this lane on this target
         return verdict
 
-    def fill_holes(candidate, prefix):
-        """(filled candidate or None, what Lean did). Every `sorry` in the proof tried with exact?, then
-        apply? (tools/lean_tools.py suggest); filled only when Lean has a suggestion for every hole."""
-        body = candidate[len(prefix):]
-        holes = len(re.findall(r"\bsorry\b", body))
-        if not holes or holes > 4:
-            return None, {"holes": holes, "try_this": [], "skipped": holes > 4}
+    def subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out):
+        """tools/subgoals.py on one rejected relay try. Its model calls go to the same lane and count against
+        --max-calls; each lemma it asks for is its own ledger row (try_mode relay-subgoal, verdict
+        lemma-accept / lemma-reject), so the loop's work is as public as the try itself."""
+        def ask(prompt):
+            with lock:
+                if state["calls"] >= args.max_calls:
+                    return None
+            if lane["provider"] in exhausted or benched(lane["backend"]):
+                return None
+            extra = {"reasoning_effort": lane_effort(lane)} if lane_effort(lane) else {}
+            try:
+                with provider_lock[lane["provider"]]:
+                    reply, _, _ = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
+                                           max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2,
+                                           system=SYSTEM, app_name="sparebrains", timeout=(10, args.call_timeout),
+                                           include_metadata=True, timeout_s=relay.LONG_CALL_S, long_call=True,
+                                           request_id=uuid.uuid4().hex, **extra)
+            except Exception as e:
+                print(f"    subgoal ask to {lane['backend']} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                reply = None
+            with lock:
+                state["calls"] += 1
+            return reply
+
+        def on_lemma(statement, t):
+            verdict = "lemma-accept" if t["verdict"] == "accept" else "lemma-reject"
+            row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict,
+                   "reason": RUNNER_PATH.sub("", t.get("reason") or "")[:300], "try_mode": "relay-subgoal",
+                   "failure_kind": failure_kind(t["verdict"], t.get("reason") or ""), "lemma": statement[:600],
+                   "call_seconds": 0.0, "lean_seconds": t.get("seconds", 0.0), "response_chars": len(t.get("reply") or ""),
+                   "proof_sha": hashlib.sha256(t["proof"].encode()).hexdigest() if t.get("proof") else None}
+            record(row, t["prompt"], t.get("reply"), t.get("proof"),
+                   subgoals.lemma_file(prefix, statement, t.get("proof") or ""), t.get("output"))
+            print(f"    subgoal {verdict} ← {lane['backend']}: {statement[:110]}", flush=True)
+
         try:
-            got = lean_tools.suggest(candidate, timeout=120)
-        except Exception as e:
-            print(f"relay: suggest unavailable ({type(e).__name__})", flush=True)
-            return None, {"holes": holes, "try_this": []}
-        tries = next((s["try_this"] for s in got["suggestions"] if s["try_this"]), [])
-        used = {"holes": holes, "try_this": tries[:6]}
-        if len(tries) < holes:
-            return None, used
-        it = iter(tries)
-        return prefix + re.sub(r"\bsorry\b", lambda m: next(it), body), used
+            rep = subgoals.repair(candidate, prefix, lean_out, ask=ask, run_lean=lean_tools.run_lean,
+                                  judge_text=lean_tools.judge_text, on_lemma=on_lemma,
+                                  fix=lambda proof, out: fixer.fix(proof, out, *lean_tools.index()))
+        except Exception as e:                           # the loop is a bonus on a try already recorded as rejected
+            print(f"    subgoal loop failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
+            return {"stopped": f"loop error: {type(e).__name__}"}
+        print(f"    loop: {rep.get('rounds', 0)} round(s) of holes, {rep.get('closed_by_lean', 0)}/{rep.get('holes', 0)} "
+              f"closed by Lean, {rep.get('lemmas_proved', 0)} lemma(s) proved in {rep.get('asked', 0)} ask(s)"
+              f"{'; ' + rep['stopped'] if rep.get('stopped') else ''}", flush=True)
+        return rep
 
     def look_up_names(ctx, invented):
         """Real mathlib names for invented ones, into the next relay prompt (tools/lean_tools.py names).
@@ -667,8 +703,10 @@ def main():
 
     def fix_one(name, near, tset=None):
         """Issue #3: a stored failed proof with its form repaired (layout, Lean 3 syntax, invented names;
-        tools/fixer.py), judged unchanged otherwise. Credited to the lane that wrote it; try_mode 'fixer',
-        prev_id its row, the passes that changed it in `fixes`."""
+        tools/fixer.py), then taken apart by tools/subgoals.py with Lean's automation only (no model in this
+        pass). Credited to the lane that wrote it; try_mode 'fixer+loop', prev_id its row, the passes that
+        changed it in `fixes`, the loop's summary in `tools`. Every near miss gets this pass once: the first
+        replay (2026-10-08) solved 2 of 15 open problems' closest misses this way (435, 233)."""
         tset = tset or target_set
         if "names" not in fix_index:                     # mathlib's real names, built once per job
             src = ROOT / ".lake" / "packages" / "mathlib" / "Mathlib"
@@ -676,8 +714,6 @@ def main():
             fix_index["by_last"] = fixer._by_last(fix_index["names"])
             print(f"fixer: {len(fix_index['names'])} mathlib names indexed", flush=True)
         fixed, fixes = fixer.fix(near["proof"], near.get("lean_output") or "", fix_index["names"], fix_index["by_last"])
-        if not fixes:
-            return None
         target_text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
         prefix = target_text[:PROOF_SEP.search(target_text).end()]
         candidate = prefix + "\n" + fixed
@@ -687,18 +723,34 @@ def main():
         reason = RUNNER_PATH.sub("", reason)
         if verdict == "wellformed":
             verdict, reason = "reject", "proof still contains sorry"
+        loop = {}
+        if verdict == "reject":
+            t_loop = time.monotonic()
+            try:
+                rep = subgoals.repair(candidate, prefix, lean_out, ask=None, run_lean=lean_tools.run_lean,
+                                      judge_text=lean_tools.judge_text)
+            except Exception as e:
+                rep = {"stopped": f"loop error: {type(e).__name__}"}
+            loop = {k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")}
+            loop["seconds"] = round(time.monotonic() - t_loop, 1)
+            if rep.get("accepted"):
+                candidate, lean_out = rep["accepted"], rep.get("lean_output") or lean_out
+                fixed = candidate[len(prefix):].lstrip("\n")
+                verdict = "accept"
+                reason = f"kernel accepted after Lean's automation closed {rep.get('closed_by_lean', 0)} failing step(s)"
         lane = {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
         row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest(), tset), "verdict": verdict,
-               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer", "fixes": fixes,
+               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer+loop", "fixes": fixes,
                "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
-               "proof_sha": hashlib.sha256(fixed.encode()).hexdigest()}
+               "proof_sha": hashlib.sha256(fixed.encode()).hexdigest(), "tools": {"subgoals": loop}}
         record(row, None, None, fixed, candidate, lean_out)
         with lock:
             state["calls"] += 1
             if verdict == "accept":
                 state["accepts"] += 1
                 solved.setdefault(name, lane)
-        print(f"[fixer] {name} ← {near['backend']} (#{near['id']}, {'+'.join(fixes)}) → {verdict}  {reason[:110]}", flush=True)
+        print(f"[fixer] {name} ← {near['backend']} (#{near['id']}, {'+'.join(fixes) or 'no form fix'}) → {verdict}  {reason[:110]}"
+              f"{'  loop: ' + loop['stopped'] if loop.get('stopped') else ''}", flush=True)
         if verdict == "accept":
             vpath = ROOT / "verified" / tset / name / f"{near['backend']}.lean"
             vpath.parent.mkdir(parents=True, exist_ok=True)
@@ -833,7 +885,7 @@ def main():
         heartbeat("done", force=True)
         print(f"ladder: {remaining} cells left for the next job ({len(parked)} behind a parked provider)")
     elif args.fixer:                                     # issue #3: no model call, the kernel re-judges
-        fixed_before = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer"}
+        fixed_before = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer+loop"}
         cells = ([(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]]
                  if args.only == "all" else [(target_set, n) for n in names])
         for tset, name in cells:

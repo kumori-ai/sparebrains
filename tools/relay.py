@@ -33,10 +33,12 @@ RELAY = ("Other models, and possibly people, have already tried to prove the Lea
          "`sorry`; keep the theorem statement byte-for-byte; no `admit` or `native_decide`; no new "
          "axioms; Lean 4 syntax, not Lean 3. Answer with only the proof that replaces `sorry` (the tactic lines "
          "after `:= by`), in one ```lean code block, and nothing else.\n\n"
-         "Tools: you cannot run Lean, but this harness runs it for you. If you know the proof's shape but not one "
-         "step, write `sorry` at that step: Lean's own `exact?` and `apply?` then try to fill every hole, and the "
-         "filled proof is judged. Holes Lean cannot fill are rejected, and what Lean suggested is shown to the "
-         "next try. Real mathlib names for invented ones are listed below when a name was the problem.\n\n")
+         "Tools: you cannot run Lean, but this harness runs it for you, step by step. Write the proof's shape "
+         "with `have` steps; if you cannot do one step, write `sorry` there. Every step Lean rejects becomes a "
+         "hole too. Lean's own automation (omega, linarith, nlinarith, positivity, norm_num, simp, aesop, "
+         "exact?) tries each hole, and any hole still open comes back to you alone, as a small lemma with what "
+         "Lean said about it. A correct outline with a few hard steps is worth more than a long guess. Real "
+         "mathlib names for invented ones are listed below when a name was the problem.\n\n")
 
 
 def is_relay(row):
@@ -155,7 +157,7 @@ def problem_rows(rows):
     from collections import defaultdict
     by = defaultdict(list)
     for r in rows:
-        if r.get("try_mode") != "fixer" and r.get("verdict") in ("accept", "reject", "error"):
+        if not str(r.get("try_mode") or "").startswith("fixer") and r.get("verdict") in ("accept", "reject", "error"):
             by[(r.get("target_set"), r.get("target"))].append(r)
     for v in by.values():
         v.sort(key=_ts)

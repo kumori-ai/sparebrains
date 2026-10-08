@@ -5,6 +5,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **The loop, not the hole filler: APOLLO's pipeline on every rejected relay try (Andy, after a
+  deep search).** The papers put Lean's hole filling alone at 0.4 to 6 points and the loop at the rest:
+  APOLLO took a general model (o4-mini) from 7% to 46.7% on miniF2F by taking a failed proof apart and
+  sending only the failing steps back. `tools/subgoals.py` does that: the fixer first (form), every step
+  Lean rejected becomes `sorry` (the accepted steps stay), one Lean run tries `omega`, `linarith`,
+  `nlinarith`, `positivity`, `decide`, `norm_num`, `simp`, `aesop`, `exact?` on every hole, `extract_goal`
+  prints each hole still open as a standalone lemma, and the same lane is asked for that lemma alone
+  (one retry carrying Lean's error, 4 asks a try at most, counted against `--max-calls`). A proved lemma's
+  tactics are spliced into its hole and the whole file is judged again; nothing counts until the kernel
+  accepts it. Each lemma ask is its own row (`try_mode relay-subgoal`, verdict `lemma-accept` /
+  `lemma-reject`, outside every accept/reject count), and a partial result hands its sketch to the next
+  lane. The fixer pass now runs the loop with Lean's automation only (`fixer+loop`, once per near miss).
+  Measured as of 2026-10-08, automation only, on the closest misses of 15 open problems: 2 solved
+  outright (mathd_numbertheory_435 and 233, both apodex's, each re-checked by `check.py`), 9 taken
+  down to 1 to 3 open steps a model would be asked for, 4 too broken to take apart. A demo with a scripted
+  model (wrong lemma, then a right one after Lean's error) went through to an accept. The relay's rows
+  carry `tools.subgoals`, which is how this repo will measure its own number.
+
 - **One set of Lean tools for every surface: `tools/lean_tools.py` (Andy).** Four agent volunteers
   (Claude, Codex, Haiku) each solved an open problem on the first check, problems the free models had
   failed 100+ times; the agents could compile, read Lean's error and look up real lemma names, and the

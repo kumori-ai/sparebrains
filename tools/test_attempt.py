@@ -157,6 +157,44 @@ class DeadLaneTests(RetryPacingTests):
         self.assertFalse(lane_is_gone(router[1]))
 
 
+class SubgoalLoopTests(RetryPacingTests):
+    """A rejected relay try goes through tools/subgoals.py, and an accept from it is the try's verdict."""
+    def relay_env(self, rep):
+        import tempfile
+        from unittest.mock import Mock
+        env, lane = self.runner()
+        from collections import defaultdict
+        env.update(extract_proof=attempt.extract_proof, tmpdir=Path(tempfile.mkdtemp()),
+                   per_target=defaultdict(lambda: {"done": 0, "accepts": 0, "errors": 0, "lanes": []}),
+                   judge=Mock(return_value=("reject", "lean exit 1: x.lean:2:2: error: nope", 1.0, "x.lean:2:2: error: nope")),
+                   subgoal_repair=Mock(return_value=rep), look_up_names=Mock(),
+                   relay=Mock(relay_prompt=Mock(return_value=("prompt", {"try_mode": "relay", "prev_id": None,
+                                                                          "comment_ids": [], "dossier_sha": "s"})),
+                              LONG_CALL_S=240),
+                   args=type(env['args'])(**{**vars(env['args']), "lean_timeout": 30}))
+        env['llm_chat'].return_value = ("```lean\n  exact foo\n```", "test-lane", {})
+        return env, lane, {"dossier": {}, "this_job": [], "real_names": {}}
+
+    def test_the_loop_turns_a_reject_into_an_accept(self):
+        whole = "theorem demo : True := by\n  trivial\n"
+        env, lane, ctx = self.relay_env({"accepted": whole, "closed_by_lean": 1, "lemmas_proved": 0, "holes": 1})
+        with patch.object(attempt.Path, "mkdir"), patch.object(attempt.Path, "write_text"):
+            self.assertEqual(env['run_one']('demo', lane, 1, relay_ctx=ctx), 'accept')
+        row = env['record'].call_args[0][0]
+        self.assertIn("1 step(s) closed by Lean", row["reason"])
+        self.assertEqual(row["tools"]["subgoals"]["closed_by_lean"], 1)
+        self.assertNotIn("accepted", row["tools"]["subgoals"])
+
+    def test_a_partial_loop_hands_its_sketch_to_the_next_lane(self):
+        env, lane, ctx = self.relay_env({"stopped": "1 of 1 open steps unproved", "closed_by_lean": 2,
+                                         "sketch": "theorem demo : True := by\n  · sorry"})
+        self.assertEqual(env['run_one']('demo', lane, 1, relay_ctx=ctx), 'reject')
+        said = ctx["this_job"][0][3]
+        self.assertIn("Lean's automation closed 2 failing step(s)", said)
+        self.assertIn("· sorry", said)
+        self.assertNotIn("sketch", env['record'].call_args[0][0]["tools"])
+
+
 class OwedHistoryTests(unittest.TestCase):
     def ledger(self, rows):
         import json, tempfile
