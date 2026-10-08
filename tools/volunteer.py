@@ -27,7 +27,18 @@ from proof_text import PROOF_SEP, extract_proof
 HEADER = "**sparebrains hand-off**"
 MARKER = re.compile(r"<!-- sparebrains:problem ([\w./-]+/[\w.-]+) -->")
 LEAN_BLOCK = re.compile(r"```lean[ \t]*\n(.*?)```", re.S)
-FIELD = re.compile(r"^\s*-\s*(model|tool|verdict|wall-clock|attempts)\s*:\s*(.+)$", re.I | re.M)
+FIELD = re.compile(r"^[ \t]*-[ \t]*([A-Za-z][A-Za-z _-]{0,39}?)[ \t]*:[ \t]*(.*)$", re.M)
+# The hand-off's run, cost and machine lines (kumori_agents.md "What a hand-off records"), each parsed as
+# str, int or float. Only these keys are kept: the comment is data, so a key nobody listed goes nowhere.
+METRICS = {"model": str, "tool": str, "tool_version": str, "effort": str, "mode": str, "tools_used": str,
+           "tokens_in": int, "tokens_out": int, "tokens_total": int, "turns": int, "seconds": float,
+           "check_runs": int, "attempts": int,
+           "os": str, "arch": str, "cpu": str, "cores": int, "ram_gb": float, "gpu": str, "vram_gb": float,
+           "load": float, "local_model_runtime": str, "quant": str}
+OLD_NAMES = {"wall_clock": "seconds", "tokens": "tokens_total"}   # the format before 2026-10-08
+NOT_SHOWN = {"", "unknown", "not shown", "n/a", "na", "?", "-"}
+NUMBER = re.compile(r"(-?\d+(?:\.\d+)?)\s*([kmh]|min|minutes?|hours?|hrs?|sec|seconds?|s)?\b", re.I)
+MAX_VALUE = 120
 LOGIN = re.compile(r"^[A-Za-z0-9-]{1,39}$")
 MAX_LEAN = 60_000
 
@@ -42,8 +53,49 @@ def parse(body):
     lean = blocks[-1]
     if len(lean) > MAX_LEAN:
         return None, f"the Lean is over {MAX_LEAN:,} characters"
-    fields = {k.lower(): v.strip()[:120] for k, v in FIELD.findall(body)}
-    return {"lean": lean, **fields}, None
+    head = body[:body.find("```lean")]           # the fields sit above the Lean; a line inside it is proof
+    raw = {}
+    for k, v in FIELD.findall(head):
+        raw.setdefault(re.sub(r"[ -]+", "_", k.strip().lower()), v.strip()[:MAX_VALUE])
+    metrics = parse_metrics(raw)
+    return {"lean": lean, "verdict": raw.get("verdict"), "model": metrics.get("model"),
+            "tool": metrics.get("tool"), "metrics": metrics}, None
+
+
+def number(text, kind, minutes=False):
+    """The value's first number as int or float, or None. 12,345 and 12.3k read as written; a time in
+    minutes (or one written with min/h) becomes seconds."""
+    m = NUMBER.search(text.replace(",", ""))
+    if not m:
+        return None
+    n, unit = float(m.group(1)), (m.group(2) or "").lower()
+    if unit == "k" and not minutes:
+        n *= 1_000
+    elif unit == "m" and not minutes and kind is int:
+        n *= 1_000_000
+    elif unit.startswith("h"):
+        n *= 3600
+    elif unit.startswith("min") or (minutes and unit in ("", "m")):
+        n *= 60
+    return int(round(n)) if kind is int else round(n, 2)
+
+
+def parse_metrics(raw):
+    """{whitelisted key: value or None} for every whitelisted key the hand-off wrote. `unknown`, `not
+    shown` and an unfilled `<placeholder>` are None, never a guess."""
+    out = {}
+    for key, kind in METRICS.items():
+        old = next((o for o, new in OLD_NAMES.items() if new == key and o in raw), None)
+        if key not in raw and not old:
+            continue
+        text = (raw[key] if key in raw else raw[old]).strip().strip("`'\"").strip()
+        if text.lower() in NOT_SHOWN or (text.startswith("<") and text.endswith(">")):
+            out[key] = None
+        elif kind is str:
+            out[key] = text
+        else:
+            out[key] = number(text, kind, minutes=key not in raw and old == "wall_clock")
+    return out
 
 
 def problem_key(issue_body):
@@ -63,6 +115,7 @@ def check(key, handoff, author, comment, timeout=600):
            "rung_rank": rung_of(target_set, target)[1],
            "backend": f"volunteer:{author}", "provider": "volunteer", "model": handoff.get("model") or "unknown",
            "tool": handoff.get("tool") or "unknown", "try_mode": "volunteer", "mode": "volunteer",
+           "agent_metrics": handoff.get("metrics") or {},
            "attempt_no": 1, "comment_id": comment["id"], "comment_url": comment.get("html_url"),
            "statement_sha": hashlib.sha256(prefix.encode()).hexdigest(), "call_seconds": 0.0}
     if not proof:

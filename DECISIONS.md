@@ -5,6 +5,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **Every hand-off carries its run, cost and machine as parseable lines (Andy).** As of 2026-10-08 the
+  hand-off asked for model, tool, wall-clock, attempts and tokens, and `tools/volunteer.py` read only
+  model and tool onto the row; tokens never reached it. The fixed format now has run lines (model, tool,
+  tool_version, effort, mode, tools_used), cost lines (tokens_in/out/total, turns, seconds, check_runs,
+  attempts) and opt-in, coarse machine lines (os, arch, cpu, cores, ram_gb, gpu, vram_gb, load,
+  local_model_runtime, quant), kept as `- key: value` lines because pipes render as Markdown tables in
+  a GitHub comment. The parser keeps only those keys, stores `unknown` as null, reads the old
+  `wall-clock` (minutes) and `tokens` names, and puts the result on the ledger row and kumori's
+  `sparebrains_attempts.agent_metrics` (JSONB), so time, tokens and hardware against solves can be read
+  across agents and models over time. Nothing is posted without the person seeing the exact text and
+  typing yes, every post on its own (v1, no approve-ahead).
+
 - **One set of Lean tools for every surface: `tools/lean_tools.py` (Andy).** Four agent volunteers
   (Claude, Codex, Haiku) each solved an open problem on the first check, problems the free models had
   failed 100+ times; the agents could compile, read Lean's error and look up real lemma names, and the
