@@ -12,10 +12,6 @@ on:
 permissions:
   contents: write        # publish the ledger row (and verified/ on an accept)
 
-concurrency:
-  group: volunteer
-  cancel-in-progress: false
-
 jobs:
   check:
     # Only a hand-off, only on a problem thread, never the bot's own comments.
@@ -23,6 +19,12 @@ jobs:
       contains(github.event.comment.body, '**sparebrains hand-off**') &&
       contains(github.event.issue.labels.*.name, 'problem') &&
       github.event.comment.user.type != 'Bot' && !github.event.issue.pull_request
+    # Job-level, not workflow-level: every comment starts this workflow, the bot's own replies included,
+    # and a run that its `if` skips must never take the queue's waiting slot. 2026-10-08 the bot's reply
+    # on #7 replaced #10's waiting check, which GitHub then cancelled.
+    concurrency:
+      group: volunteer
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
