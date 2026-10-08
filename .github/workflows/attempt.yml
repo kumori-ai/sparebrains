@@ -120,7 +120,9 @@ jobs:
         run: |
           if [ "$CRON" = "30 */2 * * *" ] || [ "$RELAY_TARGET" = "next" ]; then
             # stage 2 on its own: the fixer, then the relay, on the next open problem with tries left
-            python3 tools/attempt.py --relay --relay-next --skip-benched --max-calls 15
+            # a wide swarm (DECISIONS.md 2026-10-08): the 15 strongest live lanes, so a parked lane never
+            # leaves a job with one call, and 45 calls so a job's Lean setup buys more than a few tries
+            python3 tools/attempt.py --relay --relay-next --skip-benched --relay-lanes 15 --max-calls 45
           elif [ "$FIXER_TARGET" = "all" ]; then
             # the fixer over every open problem: no model calls, one Lean check per repaired proof
             python3 tools/attempt.py --fixer --only all --max-calls "${{ inputs.max_calls }}"

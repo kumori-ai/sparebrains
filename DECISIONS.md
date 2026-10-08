@@ -16,6 +16,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   resting; the only stage-2 solve so far (#11) came from a person's hint, which is why a comment
   always wakes a problem. Person comments are read in their own workflow step, so the step running
   untrusted Lean never holds the GitHub token.
+- **The relay is a wide swarm: the 15 strongest live lanes, 45 calls a job.** Measured 2026-10-08: 31
+  lanes have hard solves from stage 1, but the relay asked the strongest 5 live ones, and with two of
+  those parked a job (minutes of Lean setup) made one call. More distinct models on each problem is
+  the point of the swarm; three tries per lane per round is unchanged.
 - **Volunteer hand-offs are checked automatically (pulled forward from stage 3).** A hand-off comment
   (`AGENTS.md` format) on a problem thread triggers `volunteer.yml`: only the proof in its ```lean
   block is used, spliced onto the target's exact statement, judged by `tools/check.py` as the sandbox
