@@ -5,6 +5,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **The loop's ablation, and its free half on every try from now on (Andy).** Stage 1 stored 10,334
+  rejected cold tries with their proofs. `--retro` re-runs each with Lean only: B = the fixer (form),
+  C = the fixer plus holes and Lean's automation, results in kumori's `sparebrains_ablation`, shown live
+  at /loop. B and C post-process the very answers A judged, so the comparison is paired. As of
+  2026-10-08 evening, about halfway: B turned about 1% of rejects, C about 28%; by tier the tiny lanes go
+  from 6% accepted as written to a projected 39%. Twelve open problems fell to the loop that day
+  (among them imo_1959_p1, aime_1997_p9, amc12a_2002_p13, amc12b_2002_p19 and the Mersenne condition),
+  every one by Lean's automation on a model's near miss, none yet by a model proving a lemma (the lemma
+  queue, arm D, runs at the free pool's pace). The free half is now a nightly job (3:17 PT, 6 slices):
+  every cold reject the day added gets it, the ladder's own verdict stays the clean A, and an open problem
+  it solves is recorded as a normal solve.
+
 - **The loop, not the hole filler: APOLLO's pipeline on every rejected relay try (Andy, after a
   deep search).** The papers put Lean's hole filling alone at 0.4 to 6 points and the loop at the rest:
   APOLLO's paper reports general-purpose models (o3-mini, o4-mini) going from 3-7% to over 40% on miniF2F
