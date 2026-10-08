@@ -88,6 +88,38 @@ class DossierFetchTests(unittest.TestCase):
         self.assertEqual(seen["ua"], relay.USER_AGENT)       # Cloudflare 403s the default Python-urllib agent
 
 
+class LadderDudTests(unittest.TestCase):
+    """A lane that runs dry on a rung leaves the ladder on that rung only; the relay keeps it."""
+    NOW = "2026-10-08T12:00:00+00:00"
+
+    def calls(self, empty, answered, rung="math-L5", mode="ladder-x3", day="2026-10-08"):
+        rows = []
+        for i in range(empty + answered):
+            e = i < empty
+            rows.append({"backend": "b", "rung": rung, "verdict": "error" if e else "reject", "try_mode": mode,
+                         "reason": "KumoriAPIError: kumori /api/v1/llm/chat HTTP 502 : unknown" if e else "type mismatch",
+                         "ts": f"{day}T{i // 60:02d}:{i % 60:02d}:00+00:00"})
+        return rows
+
+    def test_dry_on_a_rung_is_out_there_and_just_under_is_in(self):
+        self.assertTrue(relay.ladder_dud(self.calls(12, 8), "b", "math-L5", self.NOW))
+        self.assertFalse(relay.ladder_dud(self.calls(11, 9), "b", "math-L5", self.NOW))
+
+    def test_dry_on_one_rung_says_nothing_about_another(self):
+        rows = self.calls(20, 0, rung="math-L5") + self.calls(0, 20, rung="primer")
+        self.assertTrue(relay.ladder_dud(rows, "b", "math-L5", self.NOW))
+        self.assertFalse(relay.ladder_dud(rows, "b", "primer", self.NOW))
+
+    def test_too_few_calls_is_not_evidence(self):
+        self.assertFalse(relay.ladder_dud(self.calls(15, 0), "b", "math-L5", self.NOW))
+
+    def test_relay_calls_do_not_count_against_the_ladder(self):
+        self.assertFalse(relay.ladder_dud(self.calls(20, 0, mode="relay"), "b", "math-L5", self.NOW))
+
+    def test_the_bench_expires(self):
+        self.assertFalse(relay.ladder_dud(self.calls(20, 0, day="2026-10-01"), "b", "math-L5", self.NOW))
+
+
 class NextProblemTests(unittest.TestCase):
     def test_walks_the_order_past_problems_whose_tries_are_spent(self):
         from collections import defaultdict

@@ -47,6 +47,7 @@ USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
 EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
 DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
 BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty: out of the relay for 3 days
+LADDER_DUD_LAST, LADDER_DUD_SHARE = 20, 0.6   # a lane's last 20 ladder calls on a rung, 60%+ empty: off that rung
 
 
 def _calls(rows, backend, relay_only=False):
@@ -71,6 +72,21 @@ def relay_benched(rows, backend, now_iso):
     from datetime import datetime, timedelta
     last = _calls(rows, backend, relay_only=True)[-BENCH_LAST:]
     if len(last) < BENCH_LAST or not all(map(is_empty, last)):
+        return False
+    latest = datetime.fromisoformat(last[-1]["ts"].replace("Z", "+00:00"))
+    return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)
+
+
+def ladder_dud(rows, backend, rung, now_iso):
+    """The lane's last LADDER_DUD_LAST ladder calls on this rung came back mostly empty (out of thought
+    before it answered), the latest within BENCH_DAYS: the ladder skips the lane on that rung until then,
+    and keeps asking it everywhere else. Per rung, because a thinking model can be strong on easy
+    problems and run dry on hard ones: 2026-10-08 openrouter-apodex-1-1-mini, the one lane still owing
+    ladder cells, solved 34 primer targets in a night while 119 of its calls in a day on amc12 and
+    MATH L4/L5 ran out of 16,000 tokens mid-thought, and stage 2 waited on that chain."""
+    from datetime import datetime, timedelta
+    last = [r for r in _calls(rows, backend) if not is_relay(r) and r.get("rung") == rung][-LADDER_DUD_LAST:]
+    if len(last) < LADDER_DUD_LAST or sum(map(is_empty, last)) < LADDER_DUD_SHARE * LADDER_DUD_LAST:
         return False
     latest = datetime.fromisoformat(last[-1]["ts"].replace("Z", "+00:00"))
     return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)

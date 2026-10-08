@@ -658,6 +658,16 @@ def main():
     if args.ladder:                                      # 24/7: owed cells across every set, in rung order
         hist = owed_history()
         work = build_ladder_queue(sets, order, args.attempts, hist)
+        # A lane that keeps running dry on a rung is skipped there and kept everywhere else (DECISIONS.md 2026-10-08)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        duds = {(l["backend"], r) for l in order for r in RUNGS if relay.ladder_dud(ledger_rows, l["backend"], r, now_iso)}
+        for b, r in sorted(duds):
+            print(f"  {b} on {r}: {relay.LADDER_DUD_SHARE:.0%}+ of its last {relay.LADDER_DUD_LAST} ladder calls there came "
+                  f"back empty; skipped on {r} for {relay.BENCH_DAYS} days (other rungs and the relay still ask it)")
+        if duds:
+            before = len(work)
+            work = type(work)(item for item in work if (item[5]["backend"], item[3]) not in duds)
+            print(f"ladder: {before - len(work)} cells set aside on dry rungs")
         total_cells = sum(len(ns) for _, _, ns in sets) * len(order) * args.attempts
         by_rung = defaultdict(int)
         for item in work:
@@ -930,6 +940,9 @@ def main():
     if out:
         with open(out, "a") as fh:
             fh.write(f"calls={calls}\naccepts={accepts}\nlanes={len(order)}\ntargets={len(names)}\nmode={mode}\nremaining={remaining}\n")
+            # Stage 2 chains itself (DECISIONS.md 2026-10-08): another relay job follows while this one had a
+            # problem to work and made calls. Zero calls (every lane gated) does not chain, so it cannot spin.
+            fh.write(f"relay_more={1 if (args.relay and args.relay_next and names and calls > 0) else 0}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as fh:

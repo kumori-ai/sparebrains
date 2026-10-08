@@ -5,6 +5,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **Stage 2 runs non-stop, and the ladder stops asking a lane where it runs dry (Andy: "fix it so
+  we're moving").** Measured 2026-10-08: sparebrains made 464 pool calls in 24 h and 81 were answered.
+  The ladder had one lane left owing cells, `openrouter-apodex-1-1-mini`, which ran out of 16,000
+  tokens mid-thought on amc12 and MATH L4/L5 (kumori's log: "ran out of tokens mid-thought (16000
+  max, 54585ms)"; 119 of its 143 calls that day were empty) while solving 34 primer targets in one
+  night. The relay only started after each ladder job, so the solving end ran every few hours with
+  1 to 13 calls. Two changes: the relay chains itself after any run that made calls (a run with none,
+  every lane gated, does not, so it cannot spin; the cron and the ladder restart it), and the ladder
+  skips a lane on a rung where its last 20 calls there were 60% or more empty, for 3 days, while still
+  asking it on every other rung (`relay.ladder_dud`). A longer timeout would not help: the lane ran
+  out of tokens, not time.
+
 - **The problem threads stay at 5 open, refilled as they are solved (Andy).** The pilot (#7 to #11)
   was to run about a week before Andy decided on more threads. Two days in, no one outside had
   commented (every comment on #7 to #11 was the bot's or Andy's; 1 star, 0 watchers), so waiting
