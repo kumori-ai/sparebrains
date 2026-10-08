@@ -18,6 +18,11 @@ LEAN3 = """  begin
 
 
 class Lean3Tests(unittest.TestCase):
+    def test_a_proof_that_opens_with_its_own_by_loses_it(self):
+        p, applied = fixer.fix("  by\n    intro h\n    exact h\n")
+        self.assertEqual((p, applied), ("  intro h\n  exact h\n", ["double_by"]))
+        self.assertNotIn("double_by", fixer.fix("  intro h\n  exact h\n")[1])
+
     def test_a_lean3_block_becomes_lean4(self):
         got = fixer.lean3_to_4(LEAN3)
         self.assertNotIn("begin", got)

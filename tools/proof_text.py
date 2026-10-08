@@ -43,7 +43,11 @@ def extract_proof(reply, name):
             return None                              # prose, a different theorem, or an echoed preamble
         proof = bare.group(1)
     else:
-        proof = text                                 # a fenced bare tactic block
+        # A fenced bare tactic block. If it opens with its own `by`, drop it: the target already ends
+        # in `:= by`, and a second one made Lean stop at "unexpected token 'by'" before reading any
+        # math (74 rejects on 50 problems to 2026-10-08, the closest misses on #7 and #10 among them).
+        bare = BARE_BY.match(text.strip())
+        proof = bare.group(1) if bare else text
     lines = align_tactics(proof.strip("\n").splitlines())
     if not any(l.strip() for l in lines):
         return None

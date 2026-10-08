@@ -12,6 +12,9 @@ import attempt
 class ExtractProofTests(unittest.TestCase):
     def test_recovers_bare_by_block(self):
         self.assertEqual(extract_proof("by\n  norm_num\n", "demo"), "  norm_num\n")
+        # fenced, its own `by` dropped: the target already ends in `:= by` (74 double-by rejects to 2026-10-08)
+        self.assertEqual(extract_proof("```lean\nby\n  norm_num\n```", "demo"), "  norm_num\n")
+        self.assertEqual(extract_proof("```lean\n  norm_num\n```", "demo"), "  norm_num\n")
 
     def test_does_not_mine_by_from_prose(self):
         self.assertIsNone(extract_proof("Here is a proof: by\n  norm_num\n", "demo"))

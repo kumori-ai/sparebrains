@@ -101,6 +101,16 @@ def _by_last(index):
 def fix(proof, lean_output="", index=None, by_last=None):
     """(repaired proof, [pass names that changed it]). Unchanged proof and [] when nothing applies."""
     applied, p = [], proof.rstrip("\n") + "\n"
+    # A proof that opens with its own `by` lands after the target's `:= by`: Lean stops at
+    # "unexpected token 'by'" before any math (74 rejects on 50 problems to 2026-10-08).
+    m = re.match(r"\s*by\b[ \t]*\n?", p)
+    if m:
+        rest = p[m.end():]
+        lines = [l for l in rest.splitlines() if l.strip()]
+        if lines:
+            cut = min(len(l) - len(l.lstrip()) for l in lines)
+            p = "\n".join(("  " + l[cut:]) if l.strip() else l for l in rest.splitlines()) + "\n"
+            applied.append("double_by")
     q = "\n".join(align_tactics(p.rstrip("\n").splitlines())) + "\n"
     if q != p:
         applied.append("layout")
