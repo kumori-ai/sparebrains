@@ -6,6 +6,7 @@ reading the dossier and the ledger. Everything here is rendered from the public 
     python3 tools/problem_issues.py --post --only ...         (GH_TOKEN: the app's installation token)
     python3 tools/problem_issues.py --digest RUN_ID            one comment per problem a relay run touched
     python3 tools/problem_issues.py --sync                     every comment back into the dossier
+    python3 tools/problem_issues.py --refill 5                 keep 5 threads open: when one is solved, open the next
 
 The issue body is the bot's and is regenerated in place (it opens with MARKER); people write in
 the comments, and those comments reach the next model through the dossier.
@@ -108,6 +109,9 @@ def digest(run_id, rows, comments=None):
             a = accepted[0]
             lines += ["", f"**Solved.** The kernel accepted `{a['backend']}`'s proof: "
                       f"[verified/{key}/{a['backend']}.lean](https://github.com/{REPO}/blob/main/verified/{key}/{a['backend']}.lean)."]
+        else:
+            lines += ["", "_Spot what they missed? A lemma that exists, a different route, a partial proof: comment "
+                      "below and the next run's models read it, as one did for `mathd_algebra_756` (#11)._"]
         out.append((key, "\n".join(lines)))
     return out
 
@@ -138,6 +142,30 @@ class GitHub:
             page += 1
 
 
+def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=None):
+    """Keep n problem threads open (Andy, 2026-10-08). A solved problem's thread closes in the digest;
+    its place goes to the next problem in the stage-2 order that has never had a thread. A closed thread
+    is never reopened, and no more than n are ever open, so a run opens at most n. Returns opened keys."""
+    render_fn = render_fn or render
+    open_now, opened = sum(1 for i in issues.values() if i["state"] == "open"), []
+    for t in open_targets:
+        if open_now >= n:
+            break
+        k = key_of(t["target_set"], t["target"])
+        if k in issues:
+            continue
+        d = fetch_dossier(t["target_set"], t["target"])
+        if d.get("solved"):
+            continue
+        title, body = render_fn(d, (order or {}).get(k))
+        i = gh.call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
+        issues[k] = i
+        open_now += 1
+        opened.append(k)
+        print(f"{k}: opened #{i['number']} {i['html_url']} (refill to {n})")
+    return opened
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="", help="comma-separated <set>/<target> keys")
@@ -147,6 +175,8 @@ def main():
     ap.add_argument("--sync", action="store_true", help="copy every problem issue's comments into the dossier")
     ap.add_argument("--note", type=int, default=0, help="post NOTE_BODY (env) on this issue number as the bot")
     ap.add_argument("--close", action="store_true", help="with --note: close the issue as completed")
+    ap.add_argument("--refill", type=int, default=0, help="open threads for the next unsolved problems in the "
+                    "stage-2 order until this many are open")
     args = ap.parse_args()
     try:
         order = {key_of(t["target_set"], t["target"]): t["order"] for t in relay.fetch_json("/targets.json")["open"]}
@@ -213,6 +243,8 @@ def main():
             if "**Solved.**" in text and issues[k]["state"] == "open":
                 gh.call("PATCH", f"/issues/{n}", {"state": "closed", "state_reason": "completed"})
             print(f"{k}: digest on #{n}")
+    if args.refill:
+        refill(gh, issues, relay.fetch_json("/targets.json")["open"], relay.fetch_dossier, args.refill, order)
     if args.sync:
         from utilities.kumori_api_client import init as kumori_init, sparebrains_thread
         kumori_init()

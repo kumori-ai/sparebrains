@@ -3,6 +3,20 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-08
+
+- **The problem threads stay at 5 open, refilled as they are solved (Andy).** The pilot (#7 to #11)
+  was to run about a week before Andy decided on more threads. Two days in, no one outside had
+  commented (every comment on #7 to #11 was the bot's or Andy's; 1 star, 0 watchers), so waiting
+  would show nothing: the gap is that nobody has heard of the repo, not how many threads it has. The
+  point of stage 2 in public is the threads themselves: models working each problem in the open,
+  with an invitation to join. After every attempt run the issues workflow now tops the open threads
+  back up to 5 (`problem_issues.py --refill 5`) from the stage-2 order, skipping any problem that
+  already had a thread; a closed thread is never reopened, so no run opens more than 5. Every digest
+  that is not a solve ends by inviting a comment, pointing at #11 (a person's hint the next models
+  read, and the first stage-2 solve). Threads for all 114 open problems were ruled out: a wall of
+  bot issues reads as noise to the first real visitor.
+
 ## 2026-10-07
 
 - **Thinking models get 16,000 output tokens in every mode, the ladder included (Andy).** On

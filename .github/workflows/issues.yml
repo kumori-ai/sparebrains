@@ -66,4 +66,5 @@ jobs:
           python3 -m pip install -q requests
           if [ -n "$POST" ]; then python3 tools/problem_issues.py --post --only "$POST"; fi
           if [ -n "$RUN_ID" ]; then python3 tools/problem_issues.py --digest "$RUN_ID"; fi
+          python3 tools/problem_issues.py --refill 5
           python3 tools/problem_issues.py --sync
