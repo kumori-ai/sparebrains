@@ -71,7 +71,9 @@ permissions:
 concurrency:
   # a stage-2 relay dispatch runs beside the ladder instead of queuing hours behind it;
   # publish.py already retries a push on a fresh fetch when the other job lands first
-  group: ${{ (github.event.schedule == '30 */2 * * *' || (inputs.relay_target != '' && inputs.relay_target != null) || (inputs.fixer_target != '' && inputs.fixer_target != null)) && 'relay' || 'attempt' }}
+  # The fixer has its own group (2026-10-08): in the relay's, the relay's self-chained next job, a newer
+  # pending run, replaced a waiting fixer run every time.
+  group: ${{ (inputs.fixer_target != '' && inputs.fixer_target != null) && 'fixer' || ((github.event.schedule == '30 */2 * * *' || (inputs.relay_target != '' && inputs.relay_target != null)) && 'relay' || 'attempt') }}
   cancel-in-progress: false
 
 jobs:
