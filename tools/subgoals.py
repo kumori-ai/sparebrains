@@ -13,7 +13,7 @@ and model call goes through callables the caller passes in (`run_lean`, `judge_t
 relay keeps its sandbox, its call cap and its ledger, and the tests need neither Lean nor a model.
 
 Measured in the literature, not here yet: the loop (a model re-trying with Lean's error, per subgoal)
-moved a general model from 7% to 46.7% on miniF2F under APOLLO; hole filling alone added 0.4 to 6
+took general-purpose models (o3-mini, o4-mini) from 3-7% to over 40% on miniF2F under APOLLO (its abstract); hole filling alone added 0.4 to 6
 points. Each try's `tools.subgoals` row in the ledger is how this repo measures its own number.
 """
 import re
