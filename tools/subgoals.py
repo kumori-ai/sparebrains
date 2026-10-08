@@ -259,7 +259,7 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, na
     real names for any it invented (the first live ask, 2026-10-08: `Nat.coprime_pow_eq_pow_iff`)."""
     tries, last = [], None
     for _ in range(2):
-        if budget["asks"] >= MAX_ASKS:
+        if budget["asks"] >= budget.get("max", MAX_ASKS):
             break
         prompt = (SUBGOAL + "```lean\n" + statement + "\n```\n\nWhere it sits (the open step is `sorry`):\n```lean\n"
                   + sketch[-3000:] + "\n```\n\nWhat Lean said about the step that was there:\n```\n" + lean_said[-1500:] + "\n```\n")
@@ -340,22 +340,47 @@ def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=N
     log.update(auto_log)
     if ask is None and goals:                           # the fixer's pass: no model, so open steps stay open
         log["stopped"] = f"{len(goals)} step(s) left for a model"
-        log["sketch"] = text
+        log["sketch"], log["goals"] = text, list(goals.values())
         return log
+    return prove_open(text, goals, prefix, [ask], judge_text, on_lemma=on_lemma, names=names, said=lean_out, log=log)
+
+
+def prove_sketch(sketch, prefix, *, asks, run_lean, judge_text, on_lemma=None, names=None, said="", max_asks=18):
+    """The lemma queue (DECISIONS.md 2026-10-08): a stored sketch's open steps, each tried by every ask in
+    `asks` in turn (the strongest live lanes first) until one proves it; then splice and judge."""
+    top = prefix.count("\n") + 1
+    hs = holes(sketch, top)
+    if not hs:
+        return {"stopped": "no hole in the sketch"}
+    text, goals, log = automate_and_goals(sketch, top, run_lean)
+    log.update(rounds=0, asked=0, lemmas_proved=0)
+    return prove_open(text, goals, prefix, asks, judge_text, on_lemma=on_lemma, names=names, said=said, log=log,
+                      max_asks=max_asks)
+
+
+def prove_open(text, goals, prefix, asks, judge_text, *, on_lemma=None, names=None, said="", log=None, max_asks=MAX_ASKS):
+    """Each open step to the asks in turn, a proved one spliced into its hole, the whole file judged."""
+    log = log if log is not None else {}
+    top = prefix.count("\n") + 1
     if len(goals) > MAX_HOLES:
         log["stopped"] = f"{len(goals)} steps still open after Lean's automation"
         log["sketch"] = text
         return log
-    budget, plan = {"asks": 0}, {}
-    original_said = lean_out or ""
+    budget, plan, provers = {"asks": 0, "max": max_asks}, {}, []
     for i, statement in goals.items():
-        body, tries = prove_goal(prefix, statement, text, original_said, ask, judge_text, budget, names)
-        for t in tries:
-            if on_lemma:
-                on_lemma(statement, t)
-        if body:
-            plan[i] = body
+        for who, ask in enumerate(asks):
+            body, tries = prove_goal(prefix, statement, text, said or "", ask, judge_text, budget, names)
+            for t in tries:
+                if on_lemma:
+                    on_lemma(statement, {**t, "by": who})
+            if body:
+                plan[i] = body
+                provers.append(who)
+                break
+        if i not in plan:                                # one unproved step leaves the proof open: stop spending
+            break
     log["asked"] = budget["asks"]
+    log["provers"] = provers
     log["lemmas_proved"] = len(plan)
     log["goals"] = list(goals.values())
     open_holes = holes(text, top) or []
