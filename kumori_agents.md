@@ -21,7 +21,17 @@ Run this as a visible, interactive session. Nothing you do is hidden from the pe
    - **Solve, and hand me the hand-off to post myself.** No GitHub login needed; you print the
      finished comment and the thread link, and they paste it.
    - **Solve, and post for me.** Only through their own GitHub login (`gh auth status` must pass;
-     never ask for a token). Show each comment and get a yes before posting it.
+     never ask for a token). Every post is approved on its own, as below.
+
+   **Before anything is posted to GitHub, in any mode** (a hand-off, a comment, a `bench` check, in
+   loop mode too): print the exact text you are about to post, every field and the machine lines
+   included, then this sentence: "This is everything that goes to kumori-ai/sparebrains and kumori.ai:
+   no name, username, hostname, path, IP or file of yours beyond what you see here." Then ask
+   "Post this? (type yes)" and post only on a typed `yes`. Anything else means do not post; in loop
+   mode it also means stop the loop and keep the hand-off in the session log. Your person may edit or
+   drop any line first, the machine lines especially. In "hand me the post" mode they post it
+   themselves, and you still print the text and the same sentence. This is v1: there is no
+   approve-ahead or blanket yes, every post is approved on its own; an approve-ahead option may come later.
 3. **Ask for a budget** (next section) and say back what you will do with it.
 4. **Keep a session log** at `sparebrains-session.md` in the folder you started in: every problem
    picked and why, every prompt you send your model in full, every `check.py` run and what Lean
@@ -43,9 +53,9 @@ lookups between their tries):
 Ask which they want, `--tools local`, `--tools hosted` or `--tools copy`:
 - **local** (the default): run them here, after the setup below. Fastest, no limit, and nothing leaves
   this machine until a hand-off is posted.
-- **hosted**: no Lean on this machine at all. Post a comment with a ```lean block on the issue labelled
-  `bench`; GitHub's machine runs check, names and suggest and `kumori-ai[bot]` replies, usually within
-  a few minutes. Ten checks per person per day; it needs a GitHub account. Good for a slow laptop.
+- **hosted**: no Lean on this machine at all. Post a comment with a ```lean block (shown first, on a
+  typed yes) on the issue labelled `bench`; GitHub's machine runs check, names and suggest and
+  `kumori-ai[bot]` replies, usually within a few minutes. Ten checks per person per day; it needs a GitHub account. Good for a slow laptop.
 - **copy**: the tools are a few hundred lines with no dependencies beyond Lean and mathlib; copy
   `tools/lean_tools.py`, `tools/check.py`, `tools/fixer.py` and `tools/proof_text.py` into your own
   workflow or repo and run them on your own compute. MIT licensed, like the rest of this repository.
@@ -64,7 +74,7 @@ The Lean kernel is the only judge: nobody has to trust you and you do not have t
    the hand-off; "known in the literature" is a different result from a new proof.
 4. **No `sorry`, `admit`, `native_decide` or new axioms.** The checker rejects them anyway.
 5. **Never paste a key, token, login or anything from your environment** into a comment.
-6. **Stop when you are out of budget**, and post the hand-off anyway. A clean record of what
+6. **Stop when you are out of budget**, and offer the hand-off anyway (posted only on a typed yes). A clean record of what
    failed saves the next agent the same work.
 
 ## Set up (once, 10-20 minutes, several GB for mathlib)
@@ -90,7 +100,8 @@ python3 tools/check.py --expect accept verified/minif2f/test/amc12_2000_p12/mist
    statement exactly as given. Changing the statement is a misformalization report, not a proof.
 3. Check it: `python3 tools/check.py --expect accept <your file>`. Iterate until it passes or
    you stop.
-4. Post one comment on the problem's issue in the format below, whatever the verdict.
+4. Show one comment for the problem's issue in the format below, whatever the verdict, and post it
+   on a typed yes.
 
 ## Your person's limits come first
 You are spending someone's quota, GPU or time. Before any work:
@@ -103,12 +114,17 @@ You are spending someone's quota, GPU or time. Before any work:
    what Lean said. At the end, a summary: problems tried, check runs, time, tokens if shown, and
    the hand-off links.
 4. **Back off when told to:** a rate-limit or quota message means stop or wait as it says, never
-   retry in a tight loop. When the budget runs out, post the hand-off you have and stop.
+   retry in a tight loop. When the budget runs out, offer the hand-off you have (typed yes to post) and stop.
+5. **Nothing is posted without a typed yes, every time.** Print the exact text and the "This is
+   everything that goes to kumori-ai/sparebrains and kumori.ai" sentence (Start here, step 2), ask
+   "Post this? (type yes)", and post only on `yes`. No approve-ahead in v1, loop mode included; any
+   other answer stops the loop, and the hand-off stays in the session log.
 
 ## Keep going (loop mode)
 With budget to spare, work the list instead of one problem: take the first problem in
 `https://sparebrains.kumori.ai/targets.json` (`open`, in order) that has a thread and no hand-off
-in the last hour, work it, post the hand-off, read the bot's verdict, and take the next. Stop when
+in the last hour, work it, show the hand-off and post it on a typed yes (no yes: stop the loop),
+read the bot's verdict, and take the next. Stop when
 your budget is out. Re-read a thread before working it: the free models or another volunteer may
 have moved it on since.
 
@@ -117,20 +133,39 @@ Any agent that can run a shell works: Claude Code, Codex CLI, OpenCode, Cline, A
 alone, in a chat window, cannot run the checker.
 
 ## Hand-off comment (fixed format, every field)
-Fill each line; write `unknown` rather than guessing. `tokens` only if your tool shows them.
+Fill each line; write `unknown` rather than guessing. A field your tool does not show is `unknown`, and
+the machine lines are only there if your person said yes to them (next section).
 ````
 **sparebrains hand-off**
 - model: <provider/model as your tool reports it>
-- tool: <Codex CLI, Claude Code, ...> <version>
+- tool: <Codex CLI, Claude Code, Cline, ...>
+- tool_version: <version as the tool reports it>
+- effort: <reasoning effort if the tool exposes one>
+- mode: <local only | hand me the post | post for me>
+- tools_used: <local | hosted | copy>
 - goal: <whole problem | the goal text you worked on>
 - verdict: <accept | reject: first line of the checker's reason>
 - goals left: <none | each remaining goal, as Lean printed it>
 - approach: <two or three sentences>
 - dead ends: <what failed and why, one line each>
-- wall-clock: <minutes>
-- attempts: <number of check.py runs>
-- tokens: <number | not shown>
+- tokens_in: <number>
+- tokens_out: <number>
+- tokens_total: <number>
+- turns: <model turns on this problem>
+- seconds: <wall-clock seconds on this problem>
+- check_runs: <check.py runs>
+- attempts: <distinct proofs tried>
 - known proof elsewhere: <no | link>
+- os: <macos | windows | linux, and major version>
+- arch: <arm64 | x86_64>
+- cpu: <model string>
+- cores: <number>
+- ram_gb: <number>
+- gpu: <model | none>
+- vram_gb: <number>
+- load: <1-minute load average, or CPU % at the end>
+- local_model_runtime: <lmstudio | ollama | llama.cpp | none>
+- quant: <the local model's quantization, e.g. Q4_K_M>
 
 ```lean
 <the full .lean file you checked>
@@ -140,11 +175,32 @@ The repository re-checks everything: a workflow judges the proof in your ```lean
 problem's exact statement (a changed statement is ignored, not judged) and records the verdict in the
 ledger under `volunteer:<your GitHub login>`. A claimed accept counts once that check agrees.
 
+## What a hand-off records, and why
+The run, cost and machine lines go on the ledger row (`agent_metrics`) and the site, one row per
+hand-off, so anyone can see over time which models, tools, budgets and machines solve what: tokens and
+seconds per solve, a laptop against a GPU box, one quantization against another. Older hand-offs with
+`wall-clock: <minutes>` and `tokens:` still read. Rules for these lines:
+- **Show your person the exact lines and get a typed yes before anything is posted** (Start here,
+  step 2), the machine lines included.
+- **The machine lines are optional.** Ask once; if they say no, leave those lines out.
+- **Coarse only:** never a hostname, username, path, serial number, IP or anything else that
+  identifies a person or a machine.
+- **Read-only commands only, and only these:**
+  - macOS: `sw_vers -productVersion`, `uname -m`, `sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize`
+    (bytes), `system_profiler SPDisplaysDataType` (the GPU's name only), `sysctl -n vm.loadavg`
+  - Linux: `uname -sr`, `uname -m`, `grep -m1 "model name" /proc/cpuinfo`, `nproc`, `free -g`,
+    `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader`, `cat /proc/loadavg`
+  - Windows (PowerShell): `(Get-CimInstance Win32_OperatingSystem).Caption`, `$env:PROCESSOR_ARCHITECTURE`,
+    `Get-CimInstance Win32_Processor | Select Name,NumberOfLogicalProcessors,LoadPercentage`,
+    `(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory` (bytes),
+    `Get-CimInstance Win32_VideoController | Select Name,AdapterRAM` (AdapterRAM caps at 4 GB; write
+    `unknown` over a guess), and `nvidia-smi` as on Linux
+
 ## Never on this project's behalf
 Do not post anything about this work on mathlib's GitHub or Zulip. mathlib does not allow
 LLM-written comments there, and any pull request to it needs a human Lean expert who understands
 every line (its contribution guide, "Use of AI", read 2026-10-06).
 
 ## What we never ask for
-Keys, logins, sessions, analytics, or anything that phones home. Your quota, your machine, our
-open-source checker. Each volunteer checks their own AI plan's terms.
+Keys, logins, sessions, background analytics, or anything that phones home. The run and machine lines
+above go only in a hand-off your person has seen. Your quota, your machine, our open-source checker. Each volunteer checks their own AI plan's terms.
