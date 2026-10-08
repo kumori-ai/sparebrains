@@ -197,6 +197,10 @@ def main():
                     help="relay mode: take the first open problem in the stage-2 order that still has relay tries left")
     ap.add_argument("--fixer", action="store_true",
                     help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
+    ap.add_argument("--slice", default="", help="fixer mode: i/N takes every Nth open problem from i, for a matrix of jobs")
+    ap.add_argument("--lemmas", action="store_true",
+                    help="the lemma queue: open steps the fixer left in stored sketches, closest first, each asked of "
+                         "the 3 strongest live lanes in turn (tools/subgoals.py prove_sketch)")
     ap.add_argument("--fixer-ask", action="store_true",
                     help="fixer mode: a near miss's steps Lean's automation leaves open go to the lane that wrote it, "
                          "if it is live (tools/subgoals.py); counts against --max-calls")
@@ -287,6 +291,8 @@ def main():
         if not args.only:
             sys.exit("--fixer needs --only")
         order, mode = [], "fixer"
+    if args.lemmas:
+        order, mode = [], "lemmas"
     if args.relay:
         if not (args.only or args.relay_next):
             sys.exit("--relay needs --only or --relay-next")
@@ -626,10 +632,8 @@ def main():
             return "error_router"                        # says nothing about this lane on this target
         return verdict
 
-    def subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out, try_mode="relay-subgoal"):
-        """tools/subgoals.py on one rejected relay try. Its model calls go to the same lane and count against
-        --max-calls; each lemma it asks for is its own ledger row (try_mode relay-subgoal, verdict
-        lemma-accept / lemma-reject), so the loop's work is as public as the try itself."""
+    def make_ask(lane):
+        """One lemma ask to `lane`, or None (the call cap, a parked lane, an error). Counts against --max-calls."""
         def ask(prompt):
             with lock:
                 if state["calls"] >= args.max_calls:
@@ -650,8 +654,12 @@ def main():
             with lock:
                 state["calls"] += 1
             return reply
+        return ask
 
+    def make_on_lemma(name, lanes_, attempt_no, statement_sha, tset, prefix, try_mode):
+        """Each lemma ask is its own ledger row (verdict lemma-accept / lemma-reject), credited to the lane asked."""
         def on_lemma(statement, t):
+            lane = lanes_[t.get("by", 0)]
             verdict = "lemma-accept" if t["verdict"] == "accept" else "lemma-reject"
             row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict,
                    "reason": RUNNER_PATH.sub("", t.get("reason") or "")[:300], "try_mode": try_mode,
@@ -661,9 +669,15 @@ def main():
             record(row, t["prompt"], t.get("reply"), t.get("proof"),
                    subgoals.lemma_file(prefix, statement, t.get("proof") or ""), t.get("output"))
             print(f"    subgoal {verdict} ← {lane['backend']}: {statement[:110]}", flush=True)
+        return on_lemma
 
+    def subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out, try_mode="relay-subgoal"):
+        """tools/subgoals.py on one rejected relay try. Its model calls go to the same lane and count against
+        --max-calls; each lemma it asks for is its own ledger row (try_mode relay-subgoal, verdict
+        lemma-accept / lemma-reject), so the loop's work is as public as the try itself."""
+        on_lemma = make_on_lemma(name, [lane], attempt_no, statement_sha, tset, prefix, try_mode)
         try:
-            rep = subgoals.repair(candidate, prefix, lean_out, ask=ask, run_lean=lean_tools.run_lean,
+            rep = subgoals.repair(candidate, prefix, lean_out, ask=make_ask(lane), run_lean=lean_tools.run_lean,
                                   judge_text=lean_tools.judge_text, on_lemma=on_lemma,
                                   fix=lambda proof, out: fixer.fix(proof, out, *lean_tools.index()),
                                   names=lambda n: lean_tools.names(n, k=4))
@@ -728,7 +742,7 @@ def main():
         reason = RUNNER_PATH.sub("", reason)
         if verdict == "wellformed":
             verdict, reason = "reject", "proof still contains sorry"
-        loop = {}
+        loop, rep_sketch = {}, {}
         own = live_lanes.get(near["backend"]) if args.fixer_ask else None
         if verdict == "reject":
             t_loop = time.monotonic()
@@ -741,6 +755,7 @@ def main():
                                           judge_text=lean_tools.judge_text)
                 except Exception as e:
                     rep = {"stopped": f"loop error: {type(e).__name__}"}
+            rep_sketch = rep
             loop = {k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")}
             loop["seconds"] = round(time.monotonic() - t_loop, 1)
             if rep.get("accepted"):
@@ -754,6 +769,8 @@ def main():
                "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer+loop", "fixes": fixes,
                "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
                "proof_sha": hashlib.sha256(fixed.encode()).hexdigest(), "tools": {"subgoals": loop}}
+        if verdict == "reject" and rep_sketch.get("sketch") and loop.get("goals"):   # for the lemma queue
+            row["tools"]["sketch"] = rep_sketch["sketch"][len(prefix):][:6000]
         record(row, None, None, fixed, candidate, lean_out)
         with lock:
             state["calls"] += 1
@@ -899,6 +916,10 @@ def main():
         fixed_before = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer+loop"}
         cells = ([(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]]
                  if args.only == "all" else [(target_set, n) for n in names])
+        if args.slice:                                   # a matrix of fixer jobs, each every Nth problem
+            k, n_ = (int(x) for x in args.slice.split("/"))
+            cells = [c for j, c in enumerate(cells) if j % n_ == k]
+            print(f"fixer slice {args.slice}: {len(cells)} open problems", flush=True)
         for tset, name in cells:
             if state["calls"] >= args.max_calls:
                 print(f"cap reached: {args.max_calls} fixer checks")
@@ -908,6 +929,62 @@ def main():
                 if (tset, name) not in solved and name not in solved and near.get("proof") and near["id"] not in fixed_before:
                     fixed_before.add(near["id"])
                     fix_one(name, near, tset)
+    elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps
+        open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+        done = {r.get("sketch_of") for r in ledger_rows if r.get("try_mode") == "lemma-queue"}
+        queue, seen_sketch = [], set()
+        for r in ledger_rows:
+            sk, goals = (r.get("tools") or {}).get("sketch"), ((r.get("tools") or {}).get("subgoals") or {}).get("goals")
+            key = f"{r.get('run_id')}/{r.get('target')}/{r.get('proof_sha')}"
+            if (r.get("try_mode") == "fixer+loop" and r.get("verdict") == "reject" and sk and goals
+                    and (r["target_set"], r["target"]) in open_now and key not in done
+                    and (r["target"], sk) not in seen_sketch):
+                seen_sketch.add((r["target"], sk))
+                queue.append((len(goals), r.get("rung_rank") or 99, key, r))
+        queue.sort(key=lambda q: q[:2])
+        strength = relay.lane_strength(ledger_rows, RUNGS)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        provers = relay.strongest([l for l in known + unknown if not relay.relay_benched(ledger_rows, l["backend"], now_iso)],
+                                  strength, 3)
+        print(f"lemma queue: {len(queue)} sketches with open steps; provers: {', '.join(l['backend'] for l in provers)}", flush=True)
+        for n_goals, _, key, r in queue:
+            tset, name = r["target_set"], r["target"]
+            if state["calls"] >= args.max_calls or not provers:
+                print(f"cap reached: {args.max_calls} calls")
+                break
+            if (tset, name) in solved or name in solved:
+                continue
+            target_text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
+            prefix = target_text[:PROOF_SEP.search(target_text).end()]
+            sha = hashlib.sha256(prefix.encode()).hexdigest()
+            sketch = prefix + "\n" + r["tools"]["sketch"]
+            t0 = time.monotonic()
+            try:
+                rep = subgoals.prove_sketch(sketch, prefix, asks=[make_ask(l) for l in provers], run_lean=lean_tools.run_lean,
+                                            judge_text=lean_tools.judge_text, names=lambda n: lean_tools.names(n, k=4),
+                                            on_lemma=make_on_lemma(name, provers, 1, sha, tset, prefix, "lemma-queue-step"))
+            except Exception as e:
+                print(f"lemma queue: {name} failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
+                continue
+            got = rep.get("accepted")
+            by = provers[rep["provers"][-1]] if rep.get("provers") else provers[0]
+            reason = (f"kernel accepted: {r['backend']}'s sketch, its open step(s) proved by "
+                      + ", ".join(provers[w]["backend"] for w in rep["provers"])) if got else (rep.get("stopped") or "not closed")
+            row = {**base_row(name, by, 1, sha, tset), "verdict": "accept" if got else "reject", "reason": reason[:300],
+                   "failure_kind": failure_kind("accept" if got else "reject", reason), "try_mode": "lemma-queue",
+                   "sketch_of": key, "call_seconds": 0.0, "lean_seconds": round(time.monotonic() - t0, 1), "response_chars": 0,
+                   "proof_sha": hashlib.sha256((got or sketch).encode()).hexdigest(),
+                   "tools": {"sketch_by": r["backend"], "provers": [provers[w]["backend"] for w in rep.get("provers", [])],
+                             "subgoals": {k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")}}}
+            record(row, None, None, got[len(prefix):] if got else None, got or sketch, rep.get("lean_output"))
+            print(f"[lemma queue] {name} ({n_goals} open, sketch by {r['backend']}) → {row['verdict']}  {reason[:120]}", flush=True)
+            if got:
+                with lock:
+                    state["accepts"] += 1
+                    solved.setdefault(name, by)
+                vpath = ROOT / "verified" / tset / name / f"{by['backend']}.lean"
+                vpath.parent.mkdir(parents=True, exist_ok=True)
+                vpath.write_text(got)
     elif args.relay:                                     # stage 2: one problem, the strongest lanes in turn
         tried = owed_history(relay_rows=True)
         for name in names:

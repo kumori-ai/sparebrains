@@ -176,5 +176,28 @@ class Repair(unittest.TestCase):
         self.assertEqual(log["stopped"], "no step of the proof survived")
 
 
+class Queue(unittest.TestCase):
+    SKETCH = PREFIX + "\n  constructor\n  · sorry\n  · omega"
+    GOAL = "theorem demo.extracted_1_1 (p : ℕ) (hp : Nat.Prime p) (hd : p ∣ 12) : p = 2 ∨ p = 3 := sorry"
+
+    def test_the_next_lane_gets_the_step_the_first_could_not_prove(self):
+        script = ["proof.lean:6:4: error: Tactic `first` failed\n",          # automation: the hole stays open
+                  "sb_hole 1\n" + self.GOAL + "\n",
+                  {"verdict": "reject", "output": "proof.lean:4:8: error: nope", "reason": "x"},
+                  {"verdict": "reject", "output": "proof.lean:4:8: error: nope", "reason": "x"},
+                  {"verdict": "accept", "output": "", "reason": "ok"},          # lane 2's first answer
+                  {"verdict": "accept", "output": "", "reason": "ok"}]          # the spliced whole
+        run_lean, judge_text, seen = fake_lean(script)
+        weak = lambda p: "```lean\ntheorem sb_goal := by\n  exact nope\n```"
+        strong = lambda p: "```lean\ntheorem sb_goal := by\n  interval_cases p <;> omega\n```"
+        who = []
+        log = sg.prove_sketch(self.SKETCH, PREFIX, asks=[weak, strong], run_lean=run_lean, judge_text=judge_text,
+                              on_lemma=lambda st, t: who.append((t["by"], t["verdict"])))
+        self.assertEqual(log["final"], "accept")
+        self.assertEqual(who, [(0, "reject"), (0, "reject"), (1, "accept")])
+        self.assertEqual(log["provers"], [1])
+        self.assertIn("  · interval_cases p <;> omega\n  · omega", log["accepted"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

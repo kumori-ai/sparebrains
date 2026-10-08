@@ -13,7 +13,10 @@ on:
   workflow_dispatch:
     inputs:
       fixer_target:
-        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call)"
+        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call); lemmas = the lemma queue"
+        default: ""
+      fixer_slices:
+        description: 'fixer_target=all as a matrix: a JSON list of slices, e.g. ["0/6","1/6","2/6","3/6","4/6","5/6"]; automation only'
         default: ""
       relay_target:
         description: "stage 2: <set>/<target> to relay from its dossier (e.g. mil/mil_c05_s01_ex03), or next = the next open problem with tries left"
@@ -80,6 +83,12 @@ jobs:
   attempt:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    # One job unless fixer_slices is given: then one fixer job per slice, side by side (2026-10-08). Lean time
+    # is free and parallel; model answers are not, so the sliced pass asks no model.
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: ${{ fromJSON(inputs.fixer_slices != '' && inputs.fixer_slices != null && inputs.fixer_slices || '[""]') }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -118,6 +127,7 @@ jobs:
           SCHEDULED: ${{ github.event_name == 'schedule' }}
           RELAY_TARGET: ${{ inputs.relay_target }}
           FIXER_TARGET: ${{ inputs.fixer_target }}
+          SLICE: ${{ matrix.slice }}
           CRON: ${{ github.event.schedule }}
         run: |
           if [ "$CRON" = "30 */2 * * *" ] || [ "$RELAY_TARGET" = "next" ]; then
@@ -125,6 +135,12 @@ jobs:
             # a wide swarm (DECISIONS.md 2026-10-08): the 15 strongest live lanes, so a parked lane never
             # leaves a job with one call, and 45 calls so a job's Lean setup buys more than a few tries
             python3 tools/attempt.py --relay --relay-next --skip-benched --relay-lanes 15 --max-calls 45
+          elif [ "$FIXER_TARGET" = "all" ] && [ -n "$SLICE" ]; then
+            # one slice of the matrix: automation only, no model asked; the sketches it leaves feed the lemma queue
+            python3 tools/attempt.py --fixer --only all --slice "$SLICE" --max-calls "${{ inputs.max_calls }}"
+          elif [ "$FIXER_TARGET" = "lemmas" ]; then
+            # the lemma queue: stored sketches' open steps, closest first, each to the 3 strongest live lanes
+            python3 tools/attempt.py --lemmas --skip-benched --max-calls "${{ inputs.max_calls }}"
           elif [ "$FIXER_TARGET" = "all" ]; then
             # the fixer over every open problem: form repaired, failing steps turned into holes for Lean's
             # automation, and the steps still open asked of the lane that wrote the near miss, if it is live
@@ -163,7 +179,7 @@ jobs:
         if: always() && steps.run.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
-          name: attempt-${{ github.run_id }}-${{ github.run_attempt }}
+          name: attempt-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/sparebrains-recovery/
           retention-days: 30
           if-no-files-found: warn
