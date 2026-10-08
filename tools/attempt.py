@@ -665,7 +665,8 @@ def main():
         try:
             rep = subgoals.repair(candidate, prefix, lean_out, ask=ask, run_lean=lean_tools.run_lean,
                                   judge_text=lean_tools.judge_text, on_lemma=on_lemma,
-                                  fix=lambda proof, out: fixer.fix(proof, out, *lean_tools.index()))
+                                  fix=lambda proof, out: fixer.fix(proof, out, *lean_tools.index()),
+                                  names=lambda n: lean_tools.names(n, k=4))
         except Exception as e:                           # the loop is a bonus on a try already recorded as rejected
             print(f"    subgoal loop failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
             return {"stopped": f"loop error: {type(e).__name__}"}

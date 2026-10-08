@@ -98,6 +98,15 @@ class Executed(unittest.TestCase):
         self.assertIsNone(sg._executed(line, 9, []))      # no linter output: unknown, keep the combinator
 
 
+class Names(unittest.TestCase):
+    def test_invented_library_names_get_real_ones_and_local_names_do_not(self):
+        said = "x.lean:4:8: error(lean.unknownIdentifier): Unknown constant `Nat.coprime_pow_eq_pow_iff`\nUnknown identifier `h7`"
+        lines = sg.real_names(said, lambda n: ["Nat.pow_left_injective", n])
+        self.assertIn("`Nat.coprime_pow_eq_pow_iff` does not exist: real names close to it: `Nat.pow_left_injective`", lines)
+        self.assertNotIn("h7", lines)
+        self.assertEqual(sg.real_names(said, None), "")
+
+
 def fake_lean(script):
     """run_lean / judge_text fakes that answer in order from `script` and record what they were shown."""
     seen = []

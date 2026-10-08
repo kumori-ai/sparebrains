@@ -33,6 +33,7 @@ HOLE = re.compile(r"^(\s*)(· |all_goals )?sorry\s*$")     # `all_goals sorry`: 
 NEVER_RUN = "this tactic is never executed"
 TRY_THIS = re.compile(r"Try this:[ \t]*\n?[ \t]*(?:\[\w+\][ \t]*)?([^\n]+)")
 DECL = re.compile(r"^(?:theorem|lemma)\s", re.M)
+UNKNOWN = re.compile(r"[Uu]nknown (?:identifier|constant) [`']([^`'\s]+)[`']")
 SUBGOAL = ("A proof of a Lean 4 theorem is almost done. Lean accepted every other step; this one is still "
            "open, and Lean's automation (omega, linarith, nlinarith, positivity, decide, norm_num, simp, "
            "aesop, exact?) could not close it. Prove it as a standalone lemma.\n\n"
@@ -237,17 +238,35 @@ def lemma_file(prefix, statement, body):
     return header + statement + "\n" + body
 
 
-def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget):
-    """(tactic lines or None, [tries]). The same model, up to two asks: the second carries Lean's error."""
+def real_names(said, names):
+    """Lines naming real mathlib lemmas for each library-style name Lean did not know, or ''."""
+    if not names:
+        return ""
+    out = []
+    for u in dict.fromkeys(UNKNOWN.findall(said or "")):
+        if "." in u and u[0].isupper():
+            try:
+                close = [n for n in names(u) if n != u][:4]
+            except Exception:
+                close = []
+            out.append(f"- `{u}` does not exist" + (": real names close to it: " + ", ".join(f"`{n}`" for n in close)
+                                                    if close else "; nothing close in mathlib"))
+    return ("\nNames Lean did not know, and real mathlib names close to them:\n" + "\n".join(out) + "\n") if out else ""
+
+
+def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, names=None):
+    """(tactic lines or None, [tries]). The same model, up to two asks: the second carries Lean's error and
+    real names for any it invented (the first live ask, 2026-10-08: `Nat.coprime_pow_eq_pow_iff`)."""
     tries, last = [], None
     for _ in range(2):
         if budget["asks"] >= MAX_ASKS:
             break
         prompt = (SUBGOAL + "```lean\n" + statement + "\n```\n\nWhere it sits (the open step is `sorry`):\n```lean\n"
                   + sketch[-3000:] + "\n```\n\nWhat Lean said about the step that was there:\n```\n" + lean_said[-1500:] + "\n```\n")
+        prompt += real_names(lean_said, names) if not last else ""
         if last:
             prompt += ("\nYour previous proof of this lemma:\n```lean\n" + last[0][-2500:] + "\n```\nLean said:\n```\n"
-                       + last[1][-1500:] + "\n```\nFix it.\n")
+                       + last[1][-1500:] + "\n```\n" + real_names(last[1], names) + "Fix it.\n")
         budget["asks"] += 1
         reply = ask(prompt)
         if reply is None:                                # the call cap, a parked lane, an error: stop asking
@@ -268,7 +287,7 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget):
     return None, tries
 
 
-def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=None, fix=None):
+def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=None, fix=None, names=None):
     """APOLLO's loop on one rejected candidate. Returns a summary dict; `accepted` holds the final file
     when the kernel accepted it. `on_lemma(statement, try)` is called for every lemma ask, for the ledger.
     `fix(proof, lean_output)` -> (proof, [passes]) repairs form first; a parse error leaves Lean nothing
@@ -330,7 +349,7 @@ def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=N
     budget, plan = {"asks": 0}, {}
     original_said = lean_out or ""
     for i, statement in goals.items():
-        body, tries = prove_goal(prefix, statement, text, original_said, ask, judge_text, budget)
+        body, tries = prove_goal(prefix, statement, text, original_said, ask, judge_text, budget, names)
         for t in tries:
             if on_lemma:
                 on_lemma(statement, t)
