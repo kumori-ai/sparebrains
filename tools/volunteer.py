@@ -8,7 +8,11 @@ unchanged, running as the sandbox user with no secret in reach. The verdict beco
 (`try_mode: volunteer`, backend `volunteer:<github login>`), an accepted proof goes to `verified/`,
 and the reply the bot posts is printed to --reply.
 
-    python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply reply.md
+    python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply reply.md --record record.json
+
+--record holds the full transcript (the hand-off, the proof, the candidate, what Lean said) for the
+workflow's next step to post to kumori's sparebrains_attempts, where the site and the relay's open list
+read from; that step holds the key, this one runs untrusted Lean and never does.
 """
 import argparse, hashlib, json, re, sys, tempfile
 from datetime import datetime, timezone
@@ -69,7 +73,8 @@ def check(key, handoff, author, comment, timeout=600):
     with tempfile.TemporaryDirectory(prefix="sb-volunteer-") as d:
         path = Path(d) / f"{target}.lean"
         path.write_text(candidate)
-        verdict, reason, lean_s, _ = judge(str(path), timeout)
+        verdict, reason, lean_s, lean_out = judge(str(path), timeout)
+    row["_transcript"] = {"proof": proof, "candidate": candidate, "lean_output": (lean_out or "")[-20000:]}
     row.update(verdict=verdict, reason=(reason or "")[:300], lean_seconds=round(lean_s or 0, 1),
                failure_kind=failure_kind(verdict, reason), proof_sha=hashlib.sha256(proof.encode()).hexdigest())
     return row, (candidate if verdict == "accept" else None)
@@ -89,6 +94,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--event", required=True)
     ap.add_argument("--reply", required=True)
+    ap.add_argument("--record", help="write the full transcript here, for the site")
     args = ap.parse_args()
     ev = json.loads(Path(args.event).read_text())
     comment, issue = ev["comment"], ev["issue"]
@@ -105,9 +111,12 @@ def main():
         print(f"{why}; nothing to check")
         return 0
     row, candidate = check(key, handoff, author, comment)
+    transcript = row.pop("_transcript", {})
     ledger = ROOT / "ledger" / key.rsplit("/", 1)[0] / f"{row['run_id']}.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text(json.dumps(row) + "\n")
+    if args.record:
+        Path(args.record).write_text(json.dumps({**row, **transcript, "response": comment.get("body") or ""}))
     if candidate:
         out = ROOT / "verified" / key / f"volunteer-{author}.lean"
         out.parent.mkdir(parents=True, exist_ok=True)

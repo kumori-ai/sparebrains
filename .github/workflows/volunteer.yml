@@ -47,9 +47,21 @@ jobs:
       - name: check the hand-off
         id: check
         run: |
-          python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply "$RUNNER_TEMP/reply.md"
+          python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply "$RUNNER_TEMP/reply.md" --record "$RUNNER_TEMP/record.json"
           if [ -s "$RUNNER_TEMP/reply.md" ]; then echo "checked=1" >> "$GITHUB_OUTPUT"; fi
           if grep -q "The kernel accepted this" "$RUNNER_TEMP/reply.md" 2>/dev/null; then echo "accepted=1" >> "$GITHUB_OUTPUT"; fi
+
+      # The site and the relay's open list read kumori's sparebrains_attempts, not this repo's ledger:
+      # without this a volunteer's solve stayed "open" there (#12, 2026-10-08). The key lives only here.
+      - name: record on the site
+        if: steps.check.outputs.checked == '1'
+        env:
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          python3 -c "import json, os, sys; sys.path[:0] = ['.']
+          from utilities.kumori_api_client import init, sparebrains_attempt
+          init(); r = sparebrains_attempt(json.load(open(os.environ['RUNNER_TEMP'] + '/record.json')))
+          print('recorded on the site:', r); sys.exit(0 if r else 1)"
 
       - name: publish the ledger
         if: steps.check.outputs.checked == '1'

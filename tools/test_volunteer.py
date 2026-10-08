@@ -67,6 +67,28 @@ class Check(unittest.TestCase):
         self.assertIsNone(self.judged(proof, "reject")[1])
 
 
+class Record(unittest.TestCase):
+    def test_the_site_gets_the_transcript_and_the_ledger_row_stays_lean(self):
+        ev = {"comment": {"id": 9, "body": handoff(f"theorem {NAME} := by\n  simp"), "html_url": "u",
+                          "user": {"login": "someone", "type": "User"}},
+              "issue": {"number": 7, "body": f"<!-- sparebrains:problem {KEY} -->"}}
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(v, "ROOT", Path(d)):
+            (Path(d) / "targets" / KEY).parent.mkdir(parents=True)
+            (Path(d) / "targets" / f"{KEY}.lean").write_text(TARGET)
+            evp, rp, rec = Path(d) / "ev.json", Path(d) / "r.md", Path(d) / "rec.json"
+            evp.write_text(json.dumps(ev))
+            with mock.patch.object(v, "judge", lambda p, t: ("reject", "lean exit 1: unsolved goals", 1.0, "LEAN SAID THIS")), \
+                 mock.patch.object(sys, "argv", ["v", "--event", str(evp), "--reply", str(rp), "--record", str(rec)]):
+                v.main()
+            site = json.loads(rec.read_text())
+            ledger = json.loads(next((Path(d) / "ledger").rglob("*.jsonl")).read_text())
+        self.assertEqual((site["lean_output"], site["verdict"]), ("LEAN SAID THIS", "reject"))
+        self.assertIn("sparebrains hand-off", site["response"])
+        self.assertTrue(site["candidate"].startswith(TARGET[:v.PROOF_SEP.search(TARGET).end()]))
+        self.assertNotIn("_transcript", ledger)
+        self.assertNotIn("candidate", ledger)
+
+
 class Main(unittest.TestCase):
     def run_main(self, body, user_type="User", login="someone", issue_body=None):
         ev = {"comment": {"id": 7, "body": body, "html_url": "u", "user": {"login": login, "type": user_type}},
