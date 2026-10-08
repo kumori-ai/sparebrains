@@ -21,8 +21,9 @@ only what the Lean kernel accepts. The same standard applies to anything a perso
    really exists, a partial proof, a link to your own branch or write-up. To try with your own
    model or agent, start from [AGENTS.md](AGENTS.md); check your Lean with `tools/check.py`, the
    same judge and mathlib pin the engine uses (the README's "Check the work" has the commands).
-   Automatic checking of Lean posted in comments is stage 3 and not built yet; until then the
-   maintainer re-runs it.
+   A hand-off in the AGENTS.md format is checked automatically when you post it: the kernel judges
+   your proof against the problem's exact statement and `kumori-ai[bot]` replies with the verdict in a
+   few minutes (since 2026-10-08).
 3. **A new target.** Something with a real answer key, stated in Lean 4 against our mathlib pin
    or precise enough that it can be.
 

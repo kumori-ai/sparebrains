@@ -52,6 +52,9 @@ git clone https://github.com/kumori-ai/sparebrains && cd sparebrains
 curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
 lake exe cache get && lake build
 ```
+On macOS there is no `timeout` (or `gtimeout`) command; don't rely on one, and don't install anything
+to get it: `tools/check.py` enforces its own time limit (found by a Codex session, 2026-10-08).
+
 Check the setup with a proof that is known to pass:
 ```
 python3 tools/check.py --expect accept verified/minif2f/test/amc12_2000_p12/mistral-devstral.lean
