@@ -7,8 +7,8 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 - **The loop, not the hole filler: APOLLO's pipeline on every rejected relay try (Andy, after a
   deep search).** The papers put Lean's hole filling alone at 0.4 to 6 points and the loop at the rest:
-  APOLLO took a general model (o4-mini) from 7% to 46.7% on miniF2F by taking a failed proof apart and
-  sending only the failing steps back. `tools/subgoals.py` does that: the fixer first (form), every step
+  APOLLO's paper reports general-purpose models (o3-mini, o4-mini) going from 3-7% to over 40% on miniF2F
+  by taking a failed proof apart and sending only the failing steps back (abstract, checked 2026-10-08). `tools/subgoals.py` does that: the fixer first (form), every step
   Lean rejected becomes `sorry` (the accepted steps stay), one Lean run tries `omega`, `linarith`,
   `nlinarith`, `positivity`, `decide`, `norm_num`, `simp`, `aesop`, `exact?` on every hole, `extract_goal`
   prints each hole still open as a standalone lemma, and the same lane is asked for that lemma alone
