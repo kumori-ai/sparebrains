@@ -124,8 +124,10 @@ jobs:
             # leaves a job with one call, and 45 calls so a job's Lean setup buys more than a few tries
             python3 tools/attempt.py --relay --relay-next --skip-benched --relay-lanes 15 --max-calls 45
           elif [ "$FIXER_TARGET" = "all" ]; then
-            # the fixer over every open problem: no model calls, one Lean check per repaired proof
-            python3 tools/attempt.py --fixer --only all --max-calls "${{ inputs.max_calls }}"
+            # the fixer over every open problem: form repaired, failing steps turned into holes for Lean's
+            # automation, and the steps still open asked of the lane that wrote the near miss, if it is live
+            # (DECISIONS.md 2026-10-08, the loop); --max-calls counts the Lean checks and the asks together
+            python3 tools/attempt.py --fixer --only all --fixer-ask --skip-benched --max-calls "${{ inputs.max_calls }}"
           elif [ -n "$FIXER_TARGET" ]; then
             python3 tools/attempt.py --fixer --targets "targets/${FIXER_TARGET%/*}" --only "${FIXER_TARGET##*/}"
           elif [ -n "$RELAY_TARGET" ]; then
@@ -135,7 +137,10 @@ jobs:
           elif [ "$SCHEDULED" = "true" ] || [ "${{ inputs.ladder }}" = "true" ]; then
             # the ladder: every lane, every set, 3 tries per cell, until the wall-clock budget
             # every set: primer and mil statements + reference proofs kernel-checked by the targets workflow (2026-09-02)
-            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 320
+            # Test window for the loop, 2026-10-08 to 2026-10-10 (Andy): the ladder is capped at 30 calls a job so
+            # the free pool's answers go to stage 2, where every rejected try gets the loop. Back to
+            # --max-minutes 320 with no call cap when the verdict is in (kumori_tasks has the reminder).
+            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 60 --max-calls 30
           else
             python3 tools/attempt.py \
               --sample "${{ inputs.sample }}" --seed "${{ inputs.seed }}" \

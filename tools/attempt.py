@@ -197,6 +197,9 @@ def main():
                     help="relay mode: take the first open problem in the stage-2 order that still has relay tries left")
     ap.add_argument("--fixer", action="store_true",
                     help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
+    ap.add_argument("--fixer-ask", action="store_true",
+                    help="fixer mode: a near miss's steps Lean's automation leaves open go to the lane that wrote it, "
+                         "if it is live (tools/subgoals.py); counts against --max-calls")
     ap.add_argument("--targets", default="targets/minif2f/test")
     ap.add_argument("--only", default="", help="comma-separated target names (overrides --sample)")
     ap.add_argument("--unattempted", action="store_true",
@@ -279,6 +282,7 @@ def main():
     if args.ladder:
         order = sorted(known, key=lambda l: (-l["rank"], l["backend"])) + unknown     # strongest first, untiered last
         mode = f"ladder-x{args.attempts}"
+    live_lanes = {l["backend"]: l for l in known + unknown}   # the fixer's asks go to a near miss's own lane
     if args.fixer:
         if not args.only:
             sys.exit("--fixer needs --only")
@@ -622,7 +626,7 @@ def main():
             return "error_router"                        # says nothing about this lane on this target
         return verdict
 
-    def subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out):
+    def subgoal_repair(name, lane, attempt_no, tset, statement_sha, prefix, candidate, lean_out, try_mode="relay-subgoal"):
         """tools/subgoals.py on one rejected relay try. Its model calls go to the same lane and count against
         --max-calls; each lemma it asks for is its own ledger row (try_mode relay-subgoal, verdict
         lemma-accept / lemma-reject), so the loop's work is as public as the try itself."""
@@ -650,7 +654,7 @@ def main():
         def on_lemma(statement, t):
             verdict = "lemma-accept" if t["verdict"] == "accept" else "lemma-reject"
             row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict,
-                   "reason": RUNNER_PATH.sub("", t.get("reason") or "")[:300], "try_mode": "relay-subgoal",
+                   "reason": RUNNER_PATH.sub("", t.get("reason") or "")[:300], "try_mode": try_mode,
                    "failure_kind": failure_kind(t["verdict"], t.get("reason") or ""), "lemma": statement[:600],
                    "call_seconds": 0.0, "lean_seconds": t.get("seconds", 0.0), "response_chars": len(t.get("reply") or ""),
                    "proof_sha": hashlib.sha256(t["proof"].encode()).hexdigest() if t.get("proof") else None}
@@ -724,21 +728,27 @@ def main():
         if verdict == "wellformed":
             verdict, reason = "reject", "proof still contains sorry"
         loop = {}
+        own = live_lanes.get(near["backend"]) if args.fixer_ask else None
         if verdict == "reject":
             t_loop = time.monotonic()
-            try:
-                rep = subgoals.repair(candidate, prefix, lean_out, ask=None, run_lean=lean_tools.run_lean,
-                                      judge_text=lean_tools.judge_text)
-            except Exception as e:
-                rep = {"stopped": f"loop error: {type(e).__name__}"}
+            if own:                                      # the lane that wrote it proves its own open steps
+                rep = subgoal_repair(name, own, 1, tset, hashlib.sha256(prefix.encode()).hexdigest(), prefix,
+                                     candidate, lean_out, try_mode="fixer-subgoal")
+            else:
+                try:
+                    rep = subgoals.repair(candidate, prefix, lean_out, ask=None, run_lean=lean_tools.run_lean,
+                                          judge_text=lean_tools.judge_text)
+                except Exception as e:
+                    rep = {"stopped": f"loop error: {type(e).__name__}"}
             loop = {k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")}
             loop["seconds"] = round(time.monotonic() - t_loop, 1)
             if rep.get("accepted"):
                 candidate, lean_out = rep["accepted"], rep.get("lean_output") or lean_out
                 fixed = candidate[len(prefix):].lstrip("\n")
                 verdict = "accept"
-                reason = f"kernel accepted after Lean's automation closed {rep.get('closed_by_lean', 0)} failing step(s)"
-        lane = {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
+                reason = (f"kernel accepted after Lean's automation closed {rep.get('closed_by_lean', 0)} failing step(s)"
+                          + (f" and the lane proved {rep['lemmas_proved']} open step(s) as lemmas" if rep.get("lemmas_proved") else ""))
+        lane = own or {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
         row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest(), tset), "verdict": verdict,
                "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer+loop", "fixes": fixes,
                "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
