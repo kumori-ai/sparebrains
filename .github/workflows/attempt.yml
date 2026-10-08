@@ -226,11 +226,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run attempt.yml --ref main -f relay_target=next -f ladder=false
 
+      # Only a ladder job hands stage 2 the next problem (2026-10-08: a retro canary, mode 'retro', dispatched a relay).
       # Stage 2 rides the ladder's own chain: GitHub fired 8 of 24 scheduled events in two days and
       # never the relay's first :30 (2026-10-06), so the cron is only a backup. Its own concurrency
       # group, so it never waits behind or replaces a ladder job.
       - name: hand stage 2 the next open problem
-        if: success() && steps.publish.outcome == 'success' && steps.run.outputs.mode != '' && !startsWith(steps.run.outputs.mode, 'relay') && steps.run.outputs.mode != 'fixer'
+        if: success() && steps.publish.outcome == 'success' && steps.run.outputs.mode != '' && startsWith(steps.run.outputs.mode, 'ladder')
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run attempt.yml --ref main -f relay_target=next -f ladder=false
