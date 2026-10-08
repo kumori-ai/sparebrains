@@ -200,6 +200,9 @@ def main():
     ap.add_argument("--redo", action="store_true",
                     help="fixer mode: take near misses the fixer+loop pass already saw (e.g. to keep their sketches)")
     ap.add_argument("--slice", default="", help="fixer mode: i/N takes every Nth open problem from i, for a matrix of jobs")
+    ap.add_argument("--retro", action="store_true",
+                    help="the loop's ablation: every stored cold reject re-run with Lean only, B = the fixer, C = the fixer "
+                         "plus holes and Lean's automation; results to kumori's sparebrains_ablation (use --slice k/N)")
     ap.add_argument("--lemmas", action="store_true",
                     help="the lemma queue: open steps the fixer left in stored sketches, closest first, each asked of "
                          "the 3 strongest live lanes in turn (tools/subgoals.py prove_sketch)")
@@ -295,6 +298,8 @@ def main():
         order, mode = [], "fixer"
     if args.lemmas:
         order, mode = [], "lemmas"
+    if args.retro:
+        order, mode = [], "retro"
     if args.relay:
         if not (args.only or args.relay_next):
             sys.exit("--relay needs --only or --relay-next")
@@ -932,6 +937,81 @@ def main():
                 if (tset, name) not in solved and name not in solved and near.get("proof") and near["id"] not in fixed_before:
                     fixed_before.add(near["id"])
                     fix_one(name, near, tset)
+    elif args.retro:                                     # the ablation: stored cold rejects, Lean only (no model)
+        from utilities.kumori_api_client import sparebrains_ablation, sparebrains_ablation_todo
+        open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+        names_ix = lean_tools.index()
+        deadline = time.time() + 60 * args.max_minutes if args.max_minutes else None
+        after, n_done, turned = 0, 0, {"b": 0, "c": 0}
+        while state["calls"] < args.max_calls and not (deadline and time.time() > deadline):
+            page = sparebrains_ablation_todo(args.slice or "0/1", after, 100)
+            if not page:
+                break
+            for a in page:
+                after = a["id"]
+                if state["calls"] >= args.max_calls or (deadline and time.time() > deadline):
+                    break
+                tset, name = a["target_set"], a["target"]
+                tfile = ROOT / "targets" / tset / f"{name}.lean"
+                if not tfile.exists():
+                    continue
+                t0 = time.monotonic()
+                target_text = tfile.read_text()
+                prefix = target_text[:PROOF_SEP.search(target_text).end()]
+                said = a.get("lean_output") or ""
+                if not subgoals.errors(said):            # a stored output with no positioned error: judge it afresh
+                    said = lean_tools.judge_text(prefix + "\n" + a["proof"])["output"]
+                fixed, fixes = fixer.fix(a["proof"], said, *names_ix)
+                cand, b_verdict = prefix + "\n" + fixed, "reject"
+                if fixes:
+                    rb = lean_tools.judge_text(cand)
+                    b_verdict, said = ("accept" if rb["verdict"] == "accept" else "reject"), rb["output"]
+                rep = {}
+                if b_verdict == "accept":
+                    c_verdict, final = "accept", cand
+                else:
+                    try:
+                        rep = subgoals.repair(cand, prefix, said, ask=None, run_lean=lean_tools.run_lean,
+                                              judge_text=lean_tools.judge_text)
+                    except Exception as e:
+                        rep = {"stopped": f"loop error: {type(e).__name__}"}
+                    c_verdict, final = ("accept", rep["accepted"]) if rep.get("accepted") else ("reject", None)
+                solved_open = c_verdict == "accept" and (tset, name) in open_now and name not in solved
+                if solved_open:                          # a solve of an open problem is a solve: on the record
+                    lane = {"backend": a["backend"], "provider": None, "model": None, "tier": a.get("quality_tier"), "rank": None}
+                    why = (f"kernel accepted after the fixer ({'+'.join(fixes)})" if b_verdict == "accept" else
+                           f"kernel accepted after Lean's automation closed {rep.get('closed_by_lean', 0)} failing step(s)")
+                    row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest(), tset),
+                           "verdict": "accept", "reason": why, "failure_kind": None, "try_mode": "fixer+loop",
+                           "fixes": fixes, "prev_id": a["id"], "call_seconds": 0.0,
+                           "lean_seconds": round(time.monotonic() - t0, 1), "response_chars": 0,
+                           "proof_sha": hashlib.sha256(final.encode()).hexdigest()}
+                    record(row, None, None, final[len(prefix):].lstrip("\n"), final, rep.get("lean_output"))
+                    with lock:
+                        state["accepts"] += 1
+                        solved.setdefault(name, lane)
+                    vpath = ROOT / "verified" / tset / name / f"{a['backend']}.lean"
+                    vpath.parent.mkdir(parents=True, exist_ok=True)
+                    vpath.write_text(final)
+                turned["b"] += b_verdict == "accept"
+                turned["c"] += c_verdict == "accept"
+                sparebrains_ablation({"run_id": run_id, "attempt_id": a["id"], "target_set": tset, "target": name,
+                                      "backend": a["backend"], "quality_tier": a.get("quality_tier"), "rung": a.get("rung"),
+                                      "b_fixes": "+".join(fixes) or None, "b_verdict": b_verdict, "c_verdict": c_verdict,
+                                      "holes": rep.get("holes"), "closed_by_lean": rep.get("closed_by_lean"),
+                                      "open_steps": len(rep.get("goals") or []) or None, "stopped": rep.get("stopped"),
+                                      "closers": ", ".join(rep.get("closers") or []) or None,
+                                      "sketch": (rep.get("sketch") or "")[len(prefix):] or None,
+                                      "final_proof": final[len(prefix):] if final else None, "solved_open": solved_open,
+                                      "seconds": round(time.monotonic() - t0, 1)})
+                with lock:
+                    state["calls"] += 1
+                n_done += 1
+                if c_verdict == "accept" or n_done % 25 == 0:
+                    print(f"[retro {args.slice or '0/1'}] {n_done} re-run, B turned {turned['b']}, C turned {turned['c']}"
+                          f"{'  ← ' + name + ' (' + a['backend'] + ')' + (' OPEN PROBLEM SOLVED' if solved_open else '') if c_verdict == 'accept' else ''}",
+                          flush=True)
+        print(f"retro: {n_done} stored rejects re-run; B turned {turned['b']}, C turned {turned['c']}", flush=True)
     elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps
         open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
         done = {r.get("sketch_of") for r in ledger_rows if r.get("try_mode") == "lemma-queue"}
