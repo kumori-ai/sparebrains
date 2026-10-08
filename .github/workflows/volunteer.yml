@@ -49,6 +49,7 @@ jobs:
         run: |
           python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply "$RUNNER_TEMP/reply.md"
           if [ -s "$RUNNER_TEMP/reply.md" ]; then echo "checked=1" >> "$GITHUB_OUTPUT"; fi
+          if grep -q "The kernel accepted this" "$RUNNER_TEMP/reply.md" 2>/dev/null; then echo "accepted=1" >> "$GITHUB_OUTPUT"; fi
 
       - name: publish the ledger
         if: steps.check.outputs.checked == '1'
@@ -79,3 +80,12 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           ISSUE: ${{ github.event.issue.number }}
         run: gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/reply.md"
+
+      # A solved problem's thread closes, as a relay solve's does; the issues workflow's refill then opens
+      # the next problem in the stage-2 order (first found 2026-10-08: #12 stayed open after a volunteer solve).
+      - name: close the solved thread
+        if: steps.check.outputs.accepted == '1'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
