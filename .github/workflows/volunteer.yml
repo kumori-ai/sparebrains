@@ -1,4 +1,4 @@
-# A person's or a volunteer agent's hand-off (AGENTS.md), checked the moment it is posted on a problem
+# A person's or a volunteer agent's hand-off (kumori_agents.md), checked the moment it is posted on a problem
 # thread (DECISIONS.md 2026-10-08). The comment is data: tools/volunteer.py takes only the proof from
 # its ```lean block, splices it onto the target's exact statement, and tools/check.py judges it as the
 # sandbox user, the same judge the free models' answers face. The verdict lands in the ledger, an

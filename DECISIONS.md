@@ -5,6 +5,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **One set of Lean tools for every surface: `tools/lean_tools.py` (Andy).** Four agent volunteers
+  (Claude, Codex, Haiku) each solved an open problem on the first check, problems the free models had
+  failed 100+ times; the agents could compile, read Lean's error and look up real lemma names, and the
+  free models' commonest failure was an invented lemma name. So the tools volunteers use are the tools
+  the free models get: `check` (the judge), `names` (real mathlib names closest to a guess),
+  `suggest` (`exact?`/`apply?` on every `sorry`), `auto` (Lean's closers on a statement, no model). The
+  relay now lists the real names next to every invented one, including names a try in the same run
+  just invented. A hosted check bench (`bench.yml`, an issue labelled `bench`) runs the same tools for
+  anyone without Lean, 10 checks a person a day, the cap counted in a step that never runs Lean. The
+  agent file is now `kumori_agents.md` (so a volunteer saving it never overwrites their own
+  `AGENTS.md`, which here only points to it), with tools local, hosted, or copied. `auto` on three
+  open problems (numbertheory 296, 353, 150) solved none: Lean's closers alone are not the gap.
+
 - **Stage 2 is a swarm: rounds reopen on news, breadth-first, until each problem is solved or rests
   (Andy).** A lane's three relay tries on a problem are a round. It earns another round when there is
   news since its last try: 5 answered tries by others (another lane, a volunteer's agent), a person's

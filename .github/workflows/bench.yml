@@ -1,0 +1,79 @@
+# The check bench (DECISIONS.md 2026-10-08): comment a ```lean block on the bench thread and GitHub's
+# machine checks it with tools/lean_tools.py, the same tools volunteers run locally and the free models
+# get between tries. For anyone without Lean on their own machine. The comment is data; Lean runs as
+# the sandbox user; the daily cap is counted in its own step, so the token never sits where Lean runs.
+name: bench
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'bench') &&
+      github.event.comment.user.type != 'Bot' && contains(github.event.comment.body, '```lean')
+    concurrency:
+      group: bench
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: daily cap (10 bench checks per person per day)
+        id: cap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHO: ${{ github.event.comment.user.login }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          n=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments?since=$since&per_page=100" --paginate \
+                --jq "[.[] | select(.user.login == \"$WHO\" and (.body | contains(\"\`\`\`lean\")))] | length" | paste -sd+ | bc)
+          echo "comments with Lean from $WHO in 24h: $n"
+          if [ "${n:-0}" -gt 10 ]; then echo "over=1" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v7
+        if: steps.cap.outputs.over != '1'
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: lean + mathlib cache + build
+        if: steps.cap.outputs.over != '1'
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        if: steps.cap.outputs.over != '1'
+        run: bash tools/judge_sandbox.sh
+
+      - name: check, names, suggestions
+        if: steps.cap.outputs.over != '1'
+        run: python3 tools/lean_tools.py bench --event "$GITHUB_EVENT_PATH" --reply "$RUNNER_TEMP/reply.md"
+
+      - name: over the cap
+        if: steps.cap.outputs.over == '1'
+        env:
+          WHO: ${{ github.event.comment.user.login }}
+        run: echo "@$WHO that is more than 10 bench checks today; the bench takes more tomorrow. Locally, \`python3 tools/lean_tools.py\` has no limit." > "$RUNNER_TEMP/reply.md"
+
+      - name: kumori-ai[bot] token (one hour, issues on this repo only)
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SPAREBRAINS_APP_ID }}
+          private-key: ${{ secrets.SPAREBRAINS_APP_KEY }}
+
+      - name: reply
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ -s "$RUNNER_TEMP/reply.md" ]; then gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/reply.md"; fi

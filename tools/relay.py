@@ -247,7 +247,7 @@ def _clip(text, cap):
     return text if len(text) <= cap else text[:cap] + "\n…"
 
 
-def relay_prompt(target_text, dossier, this_job=()):
+def relay_prompt(target_text, dossier, this_job=(), real_names=None):
     """(prompt, meta). `this_job` holds this run's own rejected relay tries on the target, newest
     last, so the next lane sees them before the site has caught up."""
     if dossier.get("solved"):
@@ -256,10 +256,13 @@ def relay_prompt(target_text, dossier, this_job=()):
     fails = ", ".join(f"{f['kind']} {f['n']} (by {f['lanes']} lanes)" for f in dossier.get("failures", []))
     parts.append(f"## Earlier tries\n{dossier.get('answered', 0)} answered tries by {dossier.get('lanes_tried', 0)} "
                  f"models, all rejected. How they failed: {fails or 'unknown'}.\n\n")
-    names = library_names(dossier)
+    names = list(dict.fromkeys(library_names(dossier) + list(real_names or {})))
     if names:
-        parts.append("## Names that do not exist in this mathlib (models used them anyway)\n"
-                     + ", ".join(names) + "\n\n")
+        # With the closest real names (tools/lean_tools.py names, DECISIONS.md 2026-10-08): an invented
+        # lemma name was the commonest failure, and a model cannot look one up; an agent can.
+        lines = [f"- `{n}` does not exist" + (f"; real names close to it: {', '.join(f'`{r}`' for r in real_names[n])}"
+                                                if real_names and real_names.get(n) else "") for n in names]
+        parts.append("## Names that do not exist in this mathlib (models used them anyway)\n" + "\n".join(lines) + "\n\n")
     near = [{"backend": b, "failure_kind": k, "proof": p, "lean_output": o, "id": None} for b, k, p, o in this_job][::-1]
     near += dossier.get("near_misses") or []
     if near:

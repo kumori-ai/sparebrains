@@ -30,6 +30,7 @@ from check import judge                                              # the judge
 from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S,
                     owed_history, build_ladder_queue, interleave_by_provider)   # the ladder's queue, read from the committed ledger
 import relay                                                         # stage 2: tries from a problem's dossier
+import lean_tools                                                     # real mathlib names for invented ones
 import fixer                                                         # issue #3: repairs form, no model
 from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
@@ -445,7 +446,8 @@ def main():
         prompt = repair_prompt(target_text, prev) if repair else ASK + target_text
         meta = None
         if relay_ctx:                                    # stage 2: the dossier, never a known proof
-            prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"])
+            prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"],
+                                              relay_ctx.get("real_names"))
         # a relay try may think for minutes (kumori's opt-in long_call, sparebrains keys only)
         long_or_not = {"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx else {"timeout_s": 60}
         if lane_effort(lane):
@@ -566,6 +568,7 @@ def main():
         telemetry_future = record(row, prompt, reply, proof, candidate, lean_out)
         if relay_ctx and verdict == "reject" and proof:
             relay_ctx["this_job"].append((lane["backend"], row["failure_kind"], proof, RUNNER_PATH.sub("", lean_out or reason)))
+            look_up_names(relay_ctx, fixer.UNKNOWN.findall(lean_out or ""))   # names this try just invented
         if verdict in ("accept", "reject"):
             with lock:
                 memory[(tset, name, lane["backend"])] = {"id": None, "verdict": verdict, "failure_kind": row["failure_kind"],
@@ -595,6 +598,17 @@ def main():
         if verdict == "error" and error_scope(reason) == "router":
             return "error_router"                        # says nothing about this lane on this target
         return verdict
+
+    def look_up_names(ctx, invented):
+        """Real mathlib names for invented ones, into the next relay prompt (tools/lean_tools.py names).
+        Library-style names only; a lookup failure just leaves the name without suggestions."""
+        for n in invented:
+            if "." in n and n[0].isupper() and n not in ctx["real_names"]:
+                try:
+                    ctx["real_names"][n] = [r for r in lean_tools.names(n, k=4) if r != n]
+                except Exception as e:
+                    print(f"relay: name lookup unavailable ({type(e).__name__}); prompt without suggestions", flush=True)
+                    ctx["real_names"][n] = []
 
     def relay_ask(name, lane, attempt_no, ctx):
         """One relay try, waiting out the router's pacing. After every reply the router parks a lane
@@ -800,7 +814,8 @@ def main():
         tried = owed_history(relay_rows=True)
         for name in names:
             try:
-                ctx = {"dossier": relay.fetch_dossier(target_set, name), "this_job": []}
+                ctx = {"dossier": relay.fetch_dossier(target_set, name), "this_job": [], "real_names": {}}
+                look_up_names(ctx, relay.library_names(ctx["dossier"]))
             except Exception as e:
                 print(f"relay: no dossier for {target_set}/{name} ({type(e).__name__}: {e}); skipped", flush=True)
                 continue

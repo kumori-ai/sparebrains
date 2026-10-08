@@ -19,9 +19,9 @@ only what the Lean kernel accepts. The same standard applies to anything a perso
    (2026-10-07), from a hint on its thread (drafted with Claude Opus and posted by the maintainer; say
    so when an AI helped write your comment, too). What helps: an idea in your own words, a lemma name that
    really exists, a partial proof, a link to your own branch or write-up. To try with your own
-   model or agent, start from [AGENTS.md](AGENTS.md); check your Lean with `tools/check.py`, the
+   model or agent, start from [kumori_agents.md](kumori_agents.md); check your Lean with `tools/check.py`, the
    same judge and mathlib pin the engine uses (the README's "Check the work" has the commands).
-   A hand-off in the AGENTS.md format is checked automatically when you post it: the kernel judges
+   A hand-off in the kumori_agents.md format is checked automatically when you post it: the kernel judges
    your proof against the problem's exact statement and `kumori-ai[bot]` replies with the verdict in a
    few minutes (since 2026-10-08).
 3. **A new target.** Something with a real answer key, stated in Lean 4 against our mathlib pin

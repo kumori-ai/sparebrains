@@ -5,7 +5,7 @@ the pilot verdict are in (`PLAN.md` §7, stage 3) and Andy says go. The idea and
 
 ## What a volunteer does
 1. Opens a problem's thread (label `problem`), copies its prompt pack into their own model or agent.
-2. Posts one comment in the hand-off format from `AGENTS.md`, with the full `.lean` file in one fence
+2. Posts one comment in the hand-off format from `kumori_agents.md`, with the full `.lean` file in one fence
    and the model named.
 3. Within minutes `kumori-ai[bot]` replies with the kernel's verdict. No key, login or data of theirs
    ever reaches us; their quota, their machine.

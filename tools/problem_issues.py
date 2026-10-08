@@ -60,7 +60,7 @@ def render(d, order=None):
     parts += ["### How to help",
               "- **An idea, a lemma name that does exist, a partial proof:** comment below, in your own words.",
               "- **Your own model or agent:** paste the prompt pack below into it, check the result with "
-              "`tools/check.py` ([AGENTS.md](https://github.com/kumori-ai/sparebrains/blob/main/AGENTS.md)), and post "
+              "`tools/check.py` ([kumori_agents.md](https://github.com/kumori-ai/sparebrains/blob/main/kumori_agents.md)), and post "
               "the hand-off. Say which model you used; AI help is welcome here and is always disclosed.",
               "- **The statement looks wrong:** use the misformalization form instead of a proof.",
               f"- Everything known about this problem: [the dossier]({page}), or [as JSON]({page}.json) for a program.", "",

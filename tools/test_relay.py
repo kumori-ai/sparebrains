@@ -125,6 +125,16 @@ def row(backend, minute, verdict="reject", mode="relay", model="m1", target="a",
             "target": target, "ts": f"2026-10-08T10:{minute:02d}:00+00:00"}
 
 
+class RealNamesInPromptTests(unittest.TestCase):
+    def test_invented_names_come_with_the_closest_real_ones(self):
+        d = {"target": "x", "answered": 3, "lanes_tried": 2, "unknown_names": [["Nat.Prime.dvd_pow", 5]]}
+        prompt, _ = relay.relay_prompt("theorem x : True := by\n  sorry\n", d,
+                                       real_names={"Nat.Prime.dvd_pow": ["Nat.Prime.dvd_of_dvd_pow"]})
+        self.assertIn("`Nat.Prime.dvd_pow` does not exist; real names close to it: `Nat.Prime.dvd_of_dvd_pow`", prompt)
+        bare, _ = relay.relay_prompt("theorem x : True := by\n  sorry\n", d)
+        self.assertIn("`Nat.Prime.dvd_pow` does not exist", bare)
+
+
 class RoundTests(unittest.TestCase):
     """A lane's three relay tries are a round; news since its last try earns another (the swarm)."""
     def test_a_round_is_spent_after_three_tries_with_no_news(self):
