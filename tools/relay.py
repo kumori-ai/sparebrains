@@ -30,9 +30,13 @@ RELAY = ("Other models, and possibly people, have already tried to prove the Lea
          "message, and every attempt so far was rejected by the Lean kernel. Below is what they tried and exactly "
          "why it failed. Learn from it, then write a complete proof.\n\n"
          "Rules: Lean v4.33.1 and mathlib v4.33.1, and `import Mathlib` is already in the file. Replace only the "
-         "`sorry`; keep the theorem statement byte-for-byte; no `sorry`, `admit`, or `native_decide`; no new "
+         "`sorry`; keep the theorem statement byte-for-byte; no `admit` or `native_decide`; no new "
          "axioms; Lean 4 syntax, not Lean 3. Answer with only the proof that replaces `sorry` (the tactic lines "
-         "after `:= by`), in one ```lean code block, and nothing else.\n\n")
+         "after `:= by`), in one ```lean code block, and nothing else.\n\n"
+         "Tools: you cannot run Lean, but this harness runs it for you. If you know the proof's shape but not one "
+         "step, write `sorry` at that step: Lean's own `exact?` and `apply?` then try to fill every hole, and the "
+         "filled proof is judged. Holes Lean cannot fill are rejected, and what Lean suggested is shown to the "
+         "next try. Real mathlib names for invented ones are listed below when a name was the problem.\n\n")
 
 
 def is_relay(row):

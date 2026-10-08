@@ -52,11 +52,15 @@ def run_lean(text, timeout=180):
     import subprocess
     with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=ROOT, delete=False) as f:
         f.write(text)
+    # NamedTemporaryFile is 0600; in Actions Lean runs as the sandbox user, who then cannot read it, and
+    # every bench `suggest` came back empty in about 3 seconds (2026-10-08, #13). check.judge makes its own.
+    Path(f.name).chmod(0o644)
     cmd, env = check.lean_cmd(f.name)
     t0 = time.monotonic()
     try:
         run = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, cwd=ROOT)
-        out = run.stdout + run.stderr
+        out = "\n".join(l for l in (run.stdout + run.stderr).splitlines()
+                         if not l.startswith(("info: downloading", "info: installing")))
     except subprocess.TimeoutExpired:
         out = f"timeout after {timeout}s"
     finally:
@@ -71,7 +75,8 @@ def judge_text(text, timeout=300):
         verdict, reason, secs, out = check.judge(f.name, timeout)
     finally:
         Path(f.name).unlink(missing_ok=True)
-    clean = lambda t: (t or "").replace(f.name, "proof.lean")     # no runner or temp paths in a public reply
+    clean = lambda t: "\n".join(l for l in (t or "").replace(f.name, "proof.lean").splitlines()   # no paths or
+                                 if not l.startswith(("info: downloading", "info: installing")))  # toolchain noise
     return {"verdict": verdict, "reason": clean(reason), "seconds": round(secs, 1), "output": clean(out)[-4000:]}
 
 
@@ -128,6 +133,10 @@ def bench_reply(text):
         tries = [t for s_ in sg["suggestions"] for t in s_["try_this"]]
         lines += ["", f"**For the `sorry` holes ({sg['holes']}), Lean suggests:**"]
         lines += [f"- `{t}`" for t in tries[:6]] or ["- nothing found by `exact?` or `apply?`"]
+        if not tries:                                    # show what Lean said, so "nothing" is never a black box
+            said = next((s_["lean"] for s_ in sg["suggestions"] if s_["lean"]), "")
+            if said:
+                lines += ["", "<details><summary>What Lean said to exact? / apply?</summary>", "", "```", said[-1500:], "```", "</details>"]
     if r["verdict"] != "accept" and r["output"].strip():
         lines += ["", "<details><summary>What Lean said</summary>", "", "```", r["output"].strip()[-2500:], "```", "</details>"]
     lines += ["", "_Same tools as `python3 tools/lean_tools.py check / names / suggest`. A bench check is for "

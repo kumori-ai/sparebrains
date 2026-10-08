@@ -529,6 +529,7 @@ def main():
         call_s = time.monotonic() - t0
         proof = extract_proof(reply or "", name) if reply else None
         candidate = lean_out = None
+        tools_used = {}
         lean_s = 0.0
         if err:
             verdict, reason = "error", err
@@ -542,6 +543,16 @@ def main():
             reason = RUNNER_PATH.sub("", reason)
             if verdict == "wellformed":
                 verdict, reason = "reject", "proof still contains sorry"
+                if relay_ctx:                            # the model's holes: Lean fills them, or says what it saw
+                    filled, tools_used = fill_holes(candidate, prefix)
+                    if filled:
+                        cpath.write_text(filled)
+                        v2, r2, s2, o2 = judge(str(cpath), args.lean_timeout)
+                        lean_s += s2
+                        tools_used["judged"] = v2
+                        if v2 == "accept":
+                            candidate, proof, lean_out = filled, filled[len(prefix):].lstrip("\n"), o2
+                            verdict, reason = "accept", f"kernel accepted after Lean filled {tools_used['holes']} sorry hole(s)"
         row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict, "reason": reason[:300],
                "returned_backend": returned_backend, "inference": inference,
                "failure_kind": failure_kind(verdict, reason),
@@ -550,6 +561,8 @@ def main():
                "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
+        if relay_ctx:                                    # which tools this try had, for the digest and the before/after
+            row["tools"] = {"names_shown": sorted((relay_ctx.get("real_names") or {}))[:12], **tools_used}
         with lock:
             t, pl = per_target[name], per_lane[lane["backend"]]
             t["done"] += 1
@@ -567,7 +580,10 @@ def main():
             target_done = (not args.stop_on_accept) and t["done"] >= planned_per_target
         telemetry_future = record(row, prompt, reply, proof, candidate, lean_out)
         if relay_ctx and verdict == "reject" and proof:
-            relay_ctx["this_job"].append((lane["backend"], row["failure_kind"], proof, RUNNER_PATH.sub("", lean_out or reason)))
+            said = RUNNER_PATH.sub("", lean_out or reason)
+            if tools_used.get("try_this"):
+                said += "\nLean's exact?/apply? suggestions for this try's sorry holes: " + "; ".join(tools_used["try_this"])
+            relay_ctx["this_job"].append((lane["backend"], row["failure_kind"], proof, said))
             look_up_names(relay_ctx, fixer.UNKNOWN.findall(lean_out or ""))   # names this try just invented
         if verdict in ("accept", "reject"):
             with lock:
@@ -598,6 +614,25 @@ def main():
         if verdict == "error" and error_scope(reason) == "router":
             return "error_router"                        # says nothing about this lane on this target
         return verdict
+
+    def fill_holes(candidate, prefix):
+        """(filled candidate or None, what Lean did). Every `sorry` in the proof tried with exact?, then
+        apply? (tools/lean_tools.py suggest); filled only when Lean has a suggestion for every hole."""
+        body = candidate[len(prefix):]
+        holes = len(re.findall(r"\bsorry\b", body))
+        if not holes or holes > 4:
+            return None, {"holes": holes, "try_this": [], "skipped": holes > 4}
+        try:
+            got = lean_tools.suggest(candidate, timeout=120)
+        except Exception as e:
+            print(f"relay: suggest unavailable ({type(e).__name__})", flush=True)
+            return None, {"holes": holes, "try_this": []}
+        tries = next((s["try_this"] for s in got["suggestions"] if s["try_this"]), [])
+        used = {"holes": holes, "try_this": tries[:6]}
+        if len(tries) < holes:
+            return None, used
+        it = iter(tries)
+        return prefix + re.sub(r"\bsorry\b", lambda m: next(it), body), used
 
     def look_up_names(ctx, invented):
         """Real mathlib names for invented ones, into the next relay prompt (tools/lean_tools.py names).
