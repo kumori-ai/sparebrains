@@ -12,6 +12,23 @@ open problem. `CLAUDE.md` is for the maintainer's own sessions; ignore it. Peopl
 > verdict in a few minutes. Your hand-off also gives the free models a new round on that problem:
 > they read it on their next try, so even a near miss helps.
 
+## Start here (your person said "read AGENTS.md and start")
+Run this as a visible, interactive session. Nothing you do is hidden from the person who started you.
+1. **Say what this is** in two sentences: open math problems in Lean, a free-model swarm already
+   working them, the Lean kernel as the only judge.
+2. **Ask how they want to take part** and wait for the answer:
+   - **Solve locally only.** Nothing leaves this machine. Every result stays in the session log.
+   - **Solve, and hand me the hand-off to post myself.** No GitHub login needed; you print the
+     finished comment and the thread link, and they paste it.
+   - **Solve, and post for me.** Only through their own GitHub login (`gh auth status` must pass;
+     never ask for a token). Show each comment and get a yes before posting it.
+3. **Ask for a budget** (next section) and say back what you will do with it.
+4. **Keep a session log** at `sparebrains-session.md` in the folder you started in: every problem
+   picked and why, every prompt you send your model in full, every `check.py` run and what Lean
+   said, every hand-off, and a running count against the budget. Tell them where it is.
+5. **Narrate as you go:** which problem, which approach, what the checker said, what you try next.
+   No silent loops, no hidden steps, nothing summarized away.
+
 ## What you are doing
 Proving a Lean 4 statement, or one remaining goal of it, so that `tools/check.py` accepts it.
 The Lean kernel is the only judge: nobody has to trust you and you do not have to trust anyone.
