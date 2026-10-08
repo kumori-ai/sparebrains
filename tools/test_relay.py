@@ -120,17 +120,68 @@ class LadderDudTests(unittest.TestCase):
         self.assertFalse(relay.ladder_dud(self.calls(20, 0, day="2026-10-01"), "b", "math-L5", self.NOW))
 
 
+def row(backend, minute, verdict="reject", mode="relay", model="m1", target="a", tset="mil"):
+    return {"backend": backend, "verdict": verdict, "try_mode": mode, "model": model, "target_set": tset,
+            "target": target, "ts": f"2026-10-08T10:{minute:02d}:00+00:00"}
+
+
+class RoundTests(unittest.TestCase):
+    """A lane's three relay tries are a round; news since its last try earns another (the swarm)."""
+    def test_a_round_is_spent_after_three_tries_with_no_news(self):
+        prow = [row("x", m) for m in (1, 2, 3)]
+        self.assertEqual(relay.tries_left(prow, "x", "m1"), 0)
+        self.assertEqual(relay.tries_left(prow[:1], "x", "m1"), 2)
+        self.assertEqual(relay.tries_left([], "x", "m1"), relay.RELAY_TRIES)
+
+    def test_five_answers_by_others_open_a_new_round_and_four_do_not(self):
+        mine = [row("x", m) for m in (1, 2, 3)]
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i) for i in range(4)], "x", "m1"), 0)
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i) for i in range(5)], "x", "m1"), relay.RELAY_TRIES)
+
+    def test_others_errors_are_not_news(self):
+        prow = [row("x", m) for m in (1, 2, 3)] + [row(f"o{i}", 10 + i, verdict="error") for i in range(9)]
+        self.assertEqual(relay.tries_left(prow, "x", "m1"), 0)
+
+    def test_a_persons_comment_opens_a_new_round(self):
+        prow = [row("x", m) for m in (1, 2, 3)]
+        self.assertEqual(relay.tries_left(prow, "x", "m1", ["2026-10-08T10:30:00+00:00"]), relay.RELAY_TRIES)
+        self.assertEqual(relay.tries_left(prow, "x", "m1", ["2026-10-08T09:00:00+00:00"]), 0, "an older comment was already read")
+
+    def test_a_new_model_behind_the_lane_opens_a_new_round(self):
+        prow = [row("x", m) for m in (1, 2, 3)]
+        self.assertEqual(relay.tries_left(prow, "x", "m2"), relay.RELAY_TRIES)
+
+    def test_the_round_counts_only_tries_since_the_last_news(self):
+        prow = ([row("x", m) for m in (1, 2, 3)] + [row(f"o{i}", 10 + i) for i in range(5)] + [row("x", 20)])
+        self.assertEqual(relay.tries_left(prow, "x", "m1"), 2)
+
+
 class NextProblemTests(unittest.TestCase):
-    def test_walks_the_order_past_problems_whose_tries_are_spent(self):
-        from collections import defaultdict
-        tried = defaultdict(lambda: {"answered": 0, "errors": 0})
-        tried[("mil", "a", "x")] = {"answered": 3, "errors": 0}
-        tried[("mil", "a", "y")] = {"answered": 0, "errors": 0, "router_errors": 3}   # three empty calls spend it
-        open_list = [dict(target_set="mil", target="b", order=2), dict(target_set="mil", target="a", order=1)]
-        lanes = [dict(backend="x"), dict(backend="y")]
-        self.assertEqual(relay.next_problem(open_list, lanes, tried), ("mil", "b"))
-        tried[("mil", "b", "x")] = tried[("mil", "b", "y")] = {"answered": 3, "errors": 0}
-        self.assertIsNone(relay.next_problem(open_list, lanes, tried))
+    LANES = [dict(backend="x", model="m1"), dict(backend="y", model="m1")]
+
+    def opens(self, *names):
+        return [dict(target_set="mil", target=n, order=i) for i, n in enumerate(names)]
+
+    def test_breadth_first_fewest_relay_tries_then_order(self):
+        by = relay.problem_rows([row("x", 1, target="a"), row("x", 2, target="b"), row("y", 3, target="b")])
+        self.assertEqual(relay.next_problem(self.opens("a", "b", "c"), self.LANES, by), ("mil", "c"))
+        self.assertEqual(relay.next_problem(self.opens("a", "b"), self.LANES, by), ("mil", "a"))
+
+    def test_a_fresh_comment_jumps_the_queue(self):
+        by = relay.problem_rows([row("x", m, target="b") for m in (1, 2, 3)])
+        people = {("mil", "b"): ["2026-10-08T10:30:00+00:00"]}
+        self.assertEqual(relay.next_problem(self.opens("a", "b"), self.LANES, by, people), ("mil", "b"))
+
+    def test_nothing_owed_is_none(self):
+        by = relay.problem_rows([row(b, m, target="a") for b, ms in (("x", (1, 2, 3)), ("y", (4, 5, 6))) for m in ms])
+        self.assertIsNone(relay.next_problem(self.opens("a"), self.LANES, by))
+
+    def test_a_problem_rests_at_the_ceiling_until_a_person_speaks(self):
+        rows = [dict(row(f"l{i % 9}", 0), ts=f"2026-10-08T{(i // 60):02d}:{i % 60:02d}:00+00:00")
+                for i in range(relay.PROBLEM_CEILING)]
+        prow = relay.problem_rows(rows)[("mil", "a")]
+        self.assertTrue(relay.resting(prow))
+        self.assertFalse(relay.resting(prow, ["2026-10-08T23:00:00+00:00"]))
 
 
 class TokenBudgetTests(unittest.TestCase):

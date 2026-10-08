@@ -99,6 +99,16 @@ jobs:
       - name: judge sandbox (untrusted Lean runs as another user)
         run: bash tools/judge_sandbox.sh
 
+      # Person comments on the problem threads, for the relay's rounds (DECISIONS.md 2026-10-08). Read
+      # here, with the token, so the step below that runs untrusted Lean never holds it.
+      - name: person comments on the problem threads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -c "import os, sys, json; sys.path[:0]=['tools','.']; import relay; \
+          json.dump({f'{k[0]}/{k[1]}': v for k, v in relay.people_comments(os.environ['GH_TOKEN']).items()}, open(os.environ['RUNNER_TEMP'] + '/people.json', 'w'))"
+          echo "SB_PEOPLE_FILE=$RUNNER_TEMP/people.json" >> "$GITHUB_ENV"
+
       - name: run the loop
         id: run
         env:

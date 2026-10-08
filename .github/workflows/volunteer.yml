@@ -1,0 +1,81 @@
+# A person's or a volunteer agent's hand-off (AGENTS.md), checked the moment it is posted on a problem
+# thread (DECISIONS.md 2026-10-08). The comment is data: tools/volunteer.py takes only the proof from
+# its ```lean block, splices it onto the target's exact statement, and tools/check.py judges it as the
+# sandbox user, the same judge the free models' answers face. The verdict lands in the ledger, an
+# accepted proof in verified/, and kumori-ai[bot] replies on the thread with what the kernel said.
+name: volunteer
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write        # publish the ledger row (and verified/ on an accept)
+
+concurrency:
+  group: volunteer
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # Only a hand-off, only on a problem thread, never the bot's own comments.
+    if: >-
+      contains(github.event.comment.body, '**sparebrains hand-off**') &&
+      contains(github.event.issue.labels.*.name, 'problem') &&
+      github.event.comment.user.type != 'Bot' && !github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests
+
+      - name: lean + mathlib cache + build
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: check the hand-off
+        id: check
+        run: |
+          python3 tools/volunteer.py --event "$GITHUB_EVENT_PATH" --reply "$RUNNER_TEMP/reply.md"
+          if [ -s "$RUNNER_TEMP/reply.md" ]; then echo "checked=1" >> "$GITHUB_OUTPUT"; fi
+
+      - name: publish the ledger
+        if: steps.check.outputs.checked == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHO: ${{ github.event.comment.user.login }}
+          URL: ${{ github.event.comment.html_url }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "volunteer hand-off from $WHO checked
+
+          $URL
+          Verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py), against the target's exact statement (tools/volunteer.py)"
+
+      - name: kumori-ai[bot] token (one hour, issues on this repo only)
+        if: steps.check.outputs.checked == '1'
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SPAREBRAINS_APP_ID }}
+          private-key: ${{ secrets.SPAREBRAINS_APP_KEY }}
+
+      - name: reply on the thread
+        if: steps.check.outputs.checked == '1'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/reply.md"

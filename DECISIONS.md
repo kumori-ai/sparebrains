@@ -5,6 +5,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-08
 
+- **Stage 2 is a swarm: rounds reopen on news, breadth-first, until each problem is solved or rests
+  (Andy).** A lane's three relay tries on a problem are a round. It earns another round when there is
+  news since its last try: 5 answered tries by others (another lane, a volunteer's agent), a person's
+  comment on the thread, or a different model behind the lane; every round reads everything earlier
+  rounds left in the dossier. The relay takes a problem a person just spoke on first, then the one
+  with the fewest relay tries (every open problem gets a round before any gets another), then the
+  stage-2 order. A problem rests only after 1,000 relay tries since a person last commented (Andy: assume
+  nobody ever shows up; the point is models working as a swarm), and a comment wakes it. With no people at all the free pool keeps going until each open problem is solved or
+  resting; the only stage-2 solve so far (#11) came from a person's hint, which is why a comment
+  always wakes a problem. Person comments are read in their own workflow step, so the step running
+  untrusted Lean never holds the GitHub token.
+- **Volunteer hand-offs are checked automatically (pulled forward from stage 3).** A hand-off comment
+  (`AGENTS.md` format) on a problem thread triggers `volunteer.yml`: only the proof in its ```lean
+  block is used, spliced onto the target's exact statement, judged by `tools/check.py` as the sandbox
+  user, recorded as `volunteer:<login>` (`try_mode: volunteer`), an accept written to `verified/`, and
+  the bot replies with the verdict. Submitting needs a GitHub account (identity, credit, blocking);
+  reading needs nothing. `AGENTS.md` gains a loop mode and a line on local models.
+
 - **Stage 2 runs non-stop, and the ladder stops asking a lane where it runs dry (Andy: "fix it so
   we're moving").** Measured 2026-10-08: sparebrains made 464 pool calls in 24 h and 81 were answered.
   The ladder had one lane left owing cells, `openrouter-apodex-1-1-mini`, which ran out of 16,000

@@ -299,14 +299,17 @@ def main():
         for l in order:
             print(f"  relay lane {l['backend']}: {strength[l['backend']]} targets proved above MATH level 2")
         fixed_ids = {r.get("prev_id") for r in ledger_rows if r.get("try_mode") == "fixer"}
+        by_problem = relay.problem_rows(ledger_rows)               # rounds: the swarm (DECISIONS.md 2026-10-08)
+        people = (relay.load_people(os.environ["SB_PEOPLE_FILE"]) if os.environ.get("SB_PEOPLE_FILE")
+                  else relay.people_comments())
         if args.relay_next:
-            pick = relay.next_problem(relay.fetch_json("/targets.json")["open"], order, owed_history(relay_rows=True))
+            pick = relay.next_problem(relay.fetch_json("/targets.json")["open"], order, by_problem, people)
             names = [pick[1]] if pick else []
             if pick:
                 target_set, tdir = pick[0], ROOT / "targets" / pick[0]
                 print(f"relay: next open problem with tries left is {target_set}/{pick[1]}")
             else:
-                print("relay: every open problem has used its relay tries on today's live lanes")
+                print("relay: no open problem has news since its last round, or every one is resting")
     lane_manifest = [{k: l[k] for k in ("backend", "provider", "model", "tier", "rank")} for l in order]
     lane_roster_sha = hashlib.sha256(json.dumps(lane_manifest, sort_keys=True).encode()).hexdigest()[:12]
     t_start = time.time()
@@ -813,7 +816,9 @@ def main():
                 if name in solved or state["calls"] >= args.max_calls:
                     break
                 h = tried[(target_set, name, lane["backend"])]
-                for attempt_no in range(relay.spent(h) + 1, relay.RELAY_TRIES + 1):
+                left = relay.tries_left(by_problem.get((target_set, name), []), lane["backend"], lane.get("model"),
+                                        people.get((target_set, name), []))
+                for attempt_no in range(relay.spent(h) + 1, relay.spent(h) + left + 1):
                     if state["calls"] >= args.max_calls:
                         break
                     v = relay_ask(name, lane, attempt_no, ctx)

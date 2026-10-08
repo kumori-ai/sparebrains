@@ -42,11 +42,15 @@ def is_relay(row):
 # Cloudflare in front of kumori.ai answers the default "Python-urllib/x.y" agent with error 1010
 # (403); run 37520440995's first relay fetch died on it, 2026-10-06. Say who is asking instead.
 USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
+REPO = "kumori-ai/sparebrains"
 
 
 EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
 DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
 BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty: out of the relay for 3 days
+NEWS_MIN = 5                                  # others' answered tries on a problem since a lane's last: a new round
+PROBLEM_CEILING = 1000                        # relay tries on one problem since a person last spoke on it (Andy:
+                                              # assume nobody shows up; the swarm keeps trying)
 LADDER_DUD_LAST, LADDER_DUD_SHARE = 20, 0.6   # a lane's last 20 ladder calls on a rung, 60%+ empty: off that rung
 
 
@@ -130,14 +134,112 @@ def spent(h):
     return h["answered"] + h["errors"] + h.get("router_errors", 0)
 
 
-def next_problem(open_list, lanes, tried):
-    """(set, target) of the first open problem, in the stage-2 order, that some relay lane still has
-    tries left on, or None."""
-    for t in sorted(open_list, key=lambda t: t["order"]):
-        for l in lanes:
-            if spent(tried[(t["target_set"], t["target"], l["backend"])]) < RELAY_TRIES:
-                return t["target_set"], t["target"]
-    return None
+# ── Rounds: the swarm (DECISIONS.md 2026-10-08) ───────────────────────────────────────────────────
+# Every try on a problem, by any lane, a volunteer's agent or a person's hint, is a new angle in its
+# dossier. A lane's three relay tries on a problem are a round; it earns another round when there is
+# news since its last try: NEWS_MIN answered tries by others, a person's comment, or a different model
+# behind the lane. The relay works breadth-first (a fresh comment first, then the problem with the
+# fewest relay tries), so every open problem gets a round before any gets another, and a problem
+# rests once it has had PROBLEM_CEILING relay tries since a person last said anything about it.
+
+def _ts(r):
+    return r.get("ts") or ""
+
+
+def problem_rows(rows):
+    """(set, target) → every judged try on it, any mode but the fixer's re-judging, oldest first."""
+    from collections import defaultdict
+    by = defaultdict(list)
+    for r in rows:
+        if r.get("try_mode") != "fixer" and r.get("verdict") in ("accept", "reject", "error"):
+            by[(r.get("target_set"), r.get("target"))].append(r)
+    for v in by.values():
+        v.sort(key=_ts)
+    return by
+
+
+def _news(prow, backend, after, before, people):
+    """Did enough happen on this problem between two times (before=None: until now)?"""
+    if any(after < c and (before is None or c < before) for c in people):
+        return True
+    others = sum(1 for r in prow if r.get("backend") != backend and r.get("verdict") in ("accept", "reject")
+                 and after < _ts(r) and (before is None or _ts(r) < before))
+    return others >= NEWS_MIN
+
+
+def tries_left(prow, backend, model, people=()):
+    """Relay tries this lane has left on one problem in its current round."""
+    mine = [r for r in prow if r.get("backend") == backend and is_relay(r)]
+    if not mine:
+        return RELAY_TRIES
+    in_round, prev = 0, None
+    for r in mine:
+        if prev is not None and (r.get("model") != prev.get("model") or _news(prow, backend, _ts(prev), _ts(r), people)):
+            in_round = 0
+        in_round += 1
+        prev = r
+    if (model and prev.get("model") and model != prev.get("model")) or _news(prow, backend, _ts(prev), None, people):
+        return RELAY_TRIES
+    return max(0, RELAY_TRIES - in_round)
+
+
+def resting(prow, people=()):
+    """PROBLEM_CEILING relay tries since a person last commented: the problem waits for new input."""
+    since = max(people, default="")
+    return sum(1 for r in prow if is_relay(r) and _ts(r) > since) >= PROBLEM_CEILING
+
+
+def next_problem(open_list, lanes, by_problem, people_by_problem=None):
+    """(set, target) the relay works next, or None: a problem a person spoke on since its last relay try
+    first, then the fewest relay tries so far (breadth-first), then the stage-2 order. Only problems
+    where some live lane has tries left in its current round, and that are not resting."""
+    best = None
+    for t in open_list:
+        key = (t["target_set"], t["target"])
+        prow, people = by_problem.get(key, []), (people_by_problem or {}).get(key, [])
+        if resting(prow, people) or not any(tries_left(prow, l["backend"], l.get("model"), people) > 0 for l in lanes):
+            continue
+        relay_rows = [r for r in prow if is_relay(r)]
+        fresh = bool(people) and (not relay_rows or max(people) > _ts(relay_rows[-1]))
+        rank = (0 if fresh else 1, len(relay_rows), t["order"])
+        if best is None or rank < best[0]:
+            best = (rank, key)
+    return best[1] if best else None
+
+
+def load_people(path):
+    """people_comments() written to a file by an earlier workflow step, so the step that runs untrusted
+    Lean never holds the GitHub token. Missing or unreadable reads as no comments."""
+    try:
+        raw = json.loads(open(path).read())
+        return {tuple(k.rsplit("/", 1)): v for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+def people_comments(token=None):
+    """(set, target) → created_at of every comment a person (not a bot) left on its problem thread.
+    One GitHub call for the threads, one per thread with comments. A failure reads as no comments."""
+    import urllib.request
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    def get(url):
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+            return json.loads(r.read().decode())
+    out = {}
+    try:
+        for issue in get(f"https://api.github.com/repos/{REPO}/issues?labels=problem&state=all&per_page=100"):
+            m = re.match(r"<!-- sparebrains:problem ([\w./-]+)/([\w.-]+) -->", issue.get("body") or "")
+            if not m or not issue.get("comments"):
+                continue
+            stamps = [c["created_at"].replace("Z", "+00:00") for c in get(issue["comments_url"] + "?per_page=100")
+                      if (c.get("user") or {}).get("type") != "Bot"]
+            if stamps:
+                out[(m.group(1), m.group(2))] = sorted(stamps)
+    except Exception as e:
+        print(f"relay: person comments unavailable ({type(e).__name__}); rounds open on others' tries alone")
+    return out
 
 
 def _clip(text, cap):
