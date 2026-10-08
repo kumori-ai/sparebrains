@@ -1027,11 +1027,22 @@ def main():
         queue.sort(key=lambda q: q[:2])
         strength = relay.lane_strength(ledger_rows, RUNGS)
         now_iso = datetime.now(timezone.utc).isoformat()
-        provers = relay.strongest([l for l in known + unknown if not relay.relay_benched(ledger_rows, l["backend"], now_iso)],
-                                  strength, 3)
+        # The strongest live lane of each of three providers, not the three strongest lanes: on 2026-10-08 those
+        # were all openrouter, whose account-wide daily share was spent, and every ask came back empty.
+        ranked = relay.strongest([l for l in known + unknown if not relay.relay_benched(ledger_rows, l["backend"], now_iso)],
+                                 strength, 50)
+        provers, used = [], set()
+        for l in ranked:
+            if l["provider"] not in used and len(provers) < 3:
+                provers.append(l)
+                used.add(l["provider"])
         print(f"lemma queue: {len(queue)} sketches with open steps; provers: {', '.join(l['backend'] for l in provers)}", flush=True)
+        tried_now = set()                                # one sketch a problem a run: breadth before depth
         for n_goals, _, key, r in queue:
             tset, name = r["target_set"], r["target"]
+            if (tset, name) in tried_now:
+                continue
+            tried_now.add((tset, name))
             if state["calls"] >= args.max_calls or not provers:
                 print(f"cap reached: {args.max_calls} calls")
                 break
