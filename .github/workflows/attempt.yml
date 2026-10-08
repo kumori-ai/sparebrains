@@ -138,6 +138,11 @@ jobs:
           elif [ "$FIXER_TARGET" = "all" ] && [ -n "$SLICE" ]; then
             # one slice of the matrix: automation only, no model asked; the sketches it leaves feed the lemma queue
             python3 tools/attempt.py --fixer --only all --slice "$SLICE" --max-calls "${{ inputs.max_calls }}"
+          elif [ "$FIXER_TARGET" = "retro" ]; then
+            # the loop's ablation: every stored cold reject re-run with Lean only (B = the fixer, C = plus holes and
+            # Lean's automation), results to kumori's sparebrains_ablation; a slice stops at 320 minutes and the
+            # next dispatch picks up what is left (the queue is "not yet re-run")
+            python3 tools/attempt.py --retro --slice "${SLICE:-0/1}" --max-minutes 320 --max-calls "${{ inputs.max_calls }}"
           elif [ "$FIXER_TARGET" = "lemmas" ]; then
             # the lemma queue: stored sketches' open steps, closest first, each to the 3 strongest live lanes
             python3 tools/attempt.py --lemmas --skip-benched --max-calls "${{ inputs.max_calls }}"
