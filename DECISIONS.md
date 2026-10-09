@@ -5,6 +5,16 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-09
 
+- **The loop's verdict; the ladder back to full (Andy).** As of 2026-10-09 the ablation covered 9,848 of
+  10,374 stored cold rejects. Arm A (accepted as written) 44.8%; C (plus the fixer, holes and Lean's
+  automation, no model call) 56.1%; C turned 25.1% of rejects (95% CI 24.3 to 26.0). By tier the smallest
+  gain most: tiny 6.0% to 30.2%, low 15.2% to 32.1%, frontier 66.6% to 73.1%. Arm D, the strongest free lanes
+  asked to prove the steps left open: 0 real steps in about 200 answered asks (the one "proved" step was the
+  artifact below). 23 problems got their first accepted proof on 2026-10-08, 17 through the loop (2 of them
+  on fresh relay tries). So the free half is worth running on everything, and the model half is not yet
+  worth the free pool's quota: the ladder's 30-call test-window cap ends, the retro gives every cold reject
+  the free half, and open steps are left for stronger provers (volunteers' agents, stage 3).
+
 - **The first "proved" lemma was our tool's mistake, not a model's step (Andy).** The lemma queue's first
   kernel-accepted step (amc12b_2002_p4, groq-gptoss, row 51257) was `1/2 + 1/3 + 1/7 = 1/42` read in ℕ,
   where every term is 0: `extract_goal` had printed the real-number step without its type. True, accepted,

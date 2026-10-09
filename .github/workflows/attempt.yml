@@ -169,10 +169,9 @@ jobs:
           elif [ "$SCHEDULED" = "true" ] || [ "${{ inputs.ladder }}" = "true" ]; then
             # the ladder: every lane, every set, 3 tries per cell, until the wall-clock budget
             # every set: primer and mil statements + reference proofs kernel-checked by the targets workflow (2026-09-02)
-            # Test window for the loop, 2026-10-08 to 2026-10-10 (Andy): the ladder is capped at 30 calls a job so
-            # the free pool's answers go to stage 2, where every rejected try gets the loop. Back to
-            # --max-minutes 320 with no call cap when the verdict is in (kumori_tasks has the reminder).
-            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 60 --max-calls 30
+            # (the 2026-10-08 test window's 30-call cap ended 2026-10-09: the loop's verdict is in, DECISIONS.md;
+            # every reject the ladder makes now gets the loop's free pass from the retro)
+            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 320
           else
             python3 tools/attempt.py \
               --sample "${{ inputs.sample }}" --seed "${{ inputs.seed }}" \
