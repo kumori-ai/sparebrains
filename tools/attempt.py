@@ -1024,7 +1024,14 @@ def main():
         print(f"retro: {n_done} stored rejects re-run; B turned {turned['b']}, C turned {turned['c']}", flush=True)
     elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps
         open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
-        done = {r.get("sketch_of") for r in ledger_rows if r.get("try_mode") == "lemma-queue"}
+        # A sketch is done only when a model answered for it. Rows from before 2026-10-08 night carry no `answered`:
+        # those count as done only if the same run has a step row for that problem (the first runs marked ~85
+        # sketches tried while every provider was silent).
+        answered_in = {(r.get("run_id"), r.get("target")) for r in ledger_rows if r.get("try_mode") == "lemma-queue-step"}
+        done = {r.get("sketch_of") for r in ledger_rows if r.get("try_mode") == "lemma-queue"
+                and (r.get("answered", 0) > 0 if "answered" in r else (r.get("run_id"), r.get("target")) in answered_in
+                     or str(r.get("reason", "")).startswith("no hole"))}
+        silent, pauses = 0, 0                            # sketches in a row with no answer at all; pauses taken
         queue, seen_sketch = [], set()
         for r in ledger_rows:
             sk, goals = (r.get("tools") or {}).get("sketch"), ((r.get("tools") or {}).get("subgoals") or {}).get("goals")
@@ -1063,20 +1070,40 @@ def main():
             sha = hashlib.sha256(prefix.encode()).hexdigest()
             sketch = prefix + "\n" + r["tools"]["sketch"]
             t0 = time.monotonic()
+            answers = []
+            record_step = make_on_lemma(name, provers, 1, sha, tset, prefix, "lemma-queue-step")
+
+            def on_step(statement, t):
+                answers.append(1)
+                record_step(statement, t)
             try:
                 rep = subgoals.prove_sketch(sketch, prefix, asks=[make_ask(l) for l in provers], run_lean=lean_tools.run_lean,
                                             judge_text=lean_tools.judge_text, names=lambda n: lean_tools.names(n, k=4),
-                                            on_lemma=make_on_lemma(name, provers, 1, sha, tset, prefix, "lemma-queue-step"))
+                                            on_lemma=on_step)
             except Exception as e:
                 print(f"lemma queue: {name} failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
                 continue
+            if not answers and not rep.get("accepted") and not str(rep.get("stopped", "")).startswith("no hole"):
+                silent += 1                              # nobody answered: leave the sketch in the queue, not "tried"
+                tried_now.discard((tset, name))
+                if silent >= 5:
+                    if pauses >= 3:
+                        print("lemma queue: providers silent after 3 pauses; stopping, the queue keeps its sketches", flush=True)
+                        break
+                    pauses += 1
+                    print(f"lemma queue: 5 sketches in a row got no answer; pausing 15 minutes ({pauses}/3)", flush=True)
+                    time.sleep(900)
+                    silent = 0
+                continue
+            silent = 0
             got = rep.get("accepted")
             by = provers[rep["provers"][-1]] if rep.get("provers") else provers[0]
             reason = (f"kernel accepted: {r['backend']}'s sketch, its open step(s) proved by "
                       + ", ".join(provers[w]["backend"] for w in rep["provers"])) if got else (rep.get("stopped") or "not closed")
             row = {**base_row(name, by, 1, sha, tset), "verdict": "accept" if got else "reject", "reason": reason[:300],
                    "failure_kind": failure_kind("accept" if got else "reject", reason), "try_mode": "lemma-queue",
-                   "sketch_of": key, "call_seconds": 0.0, "lean_seconds": round(time.monotonic() - t0, 1), "response_chars": 0,
+                   "sketch_of": key, "answered": len(answers), "call_seconds": 0.0,
+                   "lean_seconds": round(time.monotonic() - t0, 1), "response_chars": 0,
                    "proof_sha": hashlib.sha256((got or sketch).encode()).hexdigest(),
                    "tools": {"sketch_by": r["backend"], "provers": [provers[w]["backend"] for w in rep.get("provers", [])],
                              "subgoals": {k: v for k, v in rep.items() if k not in ("accepted", "sketch", "lean_output")}}}
