@@ -203,7 +203,9 @@ def automate_and_goals(text, top_line, run_lean):
         if i in closed:
             plan[i] = [f'trace "sb_auto {n}"', AUTO]
         else:
-            plan[i] = [f'trace "sb_hole {n}"', "extract_goal", "sorry"]
+            # numeric types printed, or `(1 / 2 : ℝ)` comes back as `1 / 2` and is re-read in ℕ, where it is 0: the
+            # first "proved" lemma (amc12b_2002_p4, 2026-10-09) was 1/2 + 1/3 + 1/7 = 1/42 in ℕ, true and useless
+            plan[i] = [f'trace "sb_hole {n}"', "set_option pp.numericTypes true in extract_goal", "sorry"]
     probe = _with_tactics(text, plan)
     out2, _ = run_lean(probe)
     segs, msgs = _segments(out2), messages(out2)

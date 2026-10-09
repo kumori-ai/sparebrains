@@ -5,6 +5,8 @@
 # that restarts the chain if a job dies. The pool caps are per UTC day, so a job that
 # finds nothing answerable exits and the next one picks up after the reset.
 name: attempt
+# What a run is, in the Actions list: the retro trigger below finds the last retro by this title.
+run-name: ${{ (github.event.schedule == '17 10 * * *' || inputs.fixer_target == 'retro') && 'fixer retro' || (inputs.fixer_target != '' && inputs.fixer_target != null) && format('fixer {0}', inputs.fixer_target) || github.event_name }}
 
 on:
   schedule:
@@ -229,6 +231,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run attempt.yml --ref main -f relay_target=next -f ladder=false
+
+      # GitHub's cron dropped the 3:17 retro on its first night (2026-10-09), as it drops many scheduled events here.
+      # The relay runs all day, so a relay job starts the retro when none has run in 20 hours; the cron stays as a backup.
+      - name: start the retro if none ran in 20 hours
+        if: success() && steps.publish.outcome == 'success' && startsWith(steps.run.outputs.mode, 'relay')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '20 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          n=$(gh run list --workflow attempt.yml --repo "$GITHUB_REPOSITORY" --limit 300 --json displayTitle,createdAt \
+                --jq "[.[] | select(.displayTitle == \"fixer retro\" and .createdAt > \"$since\")] | length")
+          echo "retro runs since $since: $n"
+          if [ "$n" = "0" ]; then
+            gh workflow run attempt.yml --ref main -f fixer_target=retro -f max_calls=1000 -f ladder=false \
+              -f fixer_slices='["0/6","1/6","2/6","3/6","4/6","5/6"]'
+          fi
 
       # Only a ladder job hands stage 2 the next problem (2026-10-08: a retro canary, mode 'retro', dispatched a relay).
       # Stage 2 rides the ladder's own chain: GitHub fired 8 of 24 scheduled events in two days and
