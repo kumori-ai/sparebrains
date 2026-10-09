@@ -55,6 +55,9 @@ REPO = "kumori-ai/sparebrains"
 EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
 DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
 BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty: out of the relay for 3 days
+FAIL_LAST, FAIL_MIN, FAIL_HOURS = 12, 8, 24    # 8+ of a lane's last 12 relay calls in 24 h were errors: it sits out
+                                              # the job (2026-10-09: openrouter lanes failed 9-11 of 12, often after
+                                              # hanging 260 s, as their account's daily share ran out)
 NEWS_MIN = 5                                  # others' answered tries on a problem since a lane's last: a new round
 PROBLEM_CEILING = 1000                        # relay tries on one problem since a person last spoke on it (Andy:
                                               # assume nobody shows up; the swarm keeps trying)
@@ -86,6 +89,18 @@ def relay_benched(rows, backend, now_iso):
         return False
     latest = datetime.fromisoformat(last[-1]["ts"].replace("Z", "+00:00"))
     return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)
+
+
+def relay_failing(rows, backend, now_iso):
+    """At least FAIL_MIN of the lane's last FAIL_LAST relay calls, all within FAIL_HOURS, were errors of any
+    kind: the lane sits out this relay job. Only the last FAIL_HOURS count, so a lane whose provider's daily
+    share comes back is asked again without anyone deciding it (relay_benched needs every call empty)."""
+    from datetime import datetime, timedelta
+    now = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+    recent = [r for r in _calls(rows, backend, relay_only=True)
+              if r.get("ts") and now - datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) < timedelta(hours=FAIL_HOURS)]
+    last = recent[-FAIL_LAST:]
+    return sum(r.get("verdict") == "error" for r in last) >= FAIL_MIN
 
 
 def ladder_dud(rows, backend, rung, now_iso):

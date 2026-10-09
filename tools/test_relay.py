@@ -278,5 +278,27 @@ class RelayLedgerTests(unittest.TestCase):
         self.assertEqual([l["backend"] for l in relay.strongest(lanes, strength, 5)], ["a"])
 
 
+class FailingLaneTests(unittest.TestCase):
+    NOW = "2026-10-09T18:00:00+00:00"
+
+    def rows(self, verdicts, hours_ago=1):
+        from datetime import datetime, timedelta
+        base = datetime.fromisoformat(self.NOW) - timedelta(hours=hours_ago)
+        return [{"backend": "lane", "try_mode": "relay", "verdict": v, "reason": "HTTP 502 : unknown" if v == "error" else "",
+                 "ts": (base + timedelta(minutes=i)).isoformat()} for i, v in enumerate(verdicts)]
+
+    def test_eight_errors_in_twelve_sits_the_lane_out(self):
+        self.assertTrue(relay.relay_failing(self.rows(["error"] * 8 + ["reject"] * 4), "lane", self.NOW))
+        self.assertFalse(relay.relay_failing(self.rows(["error"] * 7 + ["reject"] * 5), "lane", self.NOW))
+
+    def test_a_day_later_the_lane_is_asked_again(self):
+        self.assertFalse(relay.relay_failing(self.rows(["error"] * 12, hours_ago=30), "lane", self.NOW))
+
+    def test_lemma_rows_do_not_count(self):
+        rows = self.rows(["error"] * 6) + [{"backend": "lane", "try_mode": "relay-subgoal", "verdict": "lemma-reject",
+                                            "ts": "2026-10-09T17:50:00+00:00"}] * 6
+        self.assertFalse(relay.relay_failing(rows, "lane", self.NOW))
+
+
 if __name__ == "__main__":
     unittest.main()

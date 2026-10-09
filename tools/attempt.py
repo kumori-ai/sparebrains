@@ -308,6 +308,11 @@ def main():
         benched_out = [l["backend"] for l in known + unknown if relay.relay_benched(ledger_rows, l["backend"], now_iso)]
         for b in benched_out:
             print(f"  {b}: its last {relay.BENCH_LAST} relay calls all came back empty; out of the relay for {relay.BENCH_DAYS} days")
+        failing = [l["backend"] for l in known + unknown if l["backend"] not in benched_out
+                   and relay.relay_failing(ledger_rows, l["backend"], now_iso)]
+        for b in failing:
+            print(f"  {b}: {relay.FAIL_MIN}+ of its last {relay.FAIL_LAST} relay calls in {relay.FAIL_HOURS} h were errors; sits out this job")
+        benched_out += failing
         order = relay.strongest([l for l in known + unknown if l["backend"] not in benched_out], strength, args.relay_lanes)
         if not order:
             sys.exit("relay: no live lane has a solve above MATH level 2 in the ledger")
