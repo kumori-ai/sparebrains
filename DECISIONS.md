@@ -3,6 +3,15 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-09
+
+- **The first "proved" lemma was our tool's mistake, not a model's step (Andy).** The lemma queue's first
+  kernel-accepted step (amc12b_2002_p4, groq-gptoss, row 51257) was `1/2 + 1/3 + 1/7 = 1/42` read in ℕ,
+  where every term is 0: `extract_goal` had printed the real-number step without its type. True, accepted,
+  useless. `tools/subgoals.py` now prints numeric types (`pp.numericTypes`), so a lemma keeps ℝ or ℕ; the
+  row stays public as a transcript and is kept off the site's verified-steps panel. Arm D's honest count as
+  of this morning: 0 real steps proved by free models in about 200 answered asks.
+
 ## 2026-10-08
 
 - **The loop's ablation, and its free half on every try from now on (Andy).** Stage 1 stored 10,334
