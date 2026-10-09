@@ -654,8 +654,8 @@ def main():
                     with provider_lock[lane["provider"]]:
                         reply, _, _ = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
                                                max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2,
-                                               system=SYSTEM, app_name="sparebrains", timeout=(10, args.call_timeout),
-                                               include_metadata=True, timeout_s=relay.LONG_CALL_S, long_call=True,
+                                               system=SYSTEM, app_name="sparebrains", timeout=(10, relay.LEMMA_CALL_S + 15),
+                                               include_metadata=True, timeout_s=relay.LEMMA_CALL_S, long_call=True,
                                                request_id=uuid.uuid4().hex, **extra)
                     break
                 except KumoriAPIError as e:

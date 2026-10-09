@@ -20,6 +20,7 @@ RELAY_TRIES = 3                    # per (target, lane), like the ladder's three
 MAX_TOKENS = 16_000
 REASONING_EFFORT = "medium"        # kumori's opt-in reasoning_effort (OpenRouter reasoning.effort, Groq GPT-OSS)
 LONG_CALL_S = 240                  # kumori's opt-in pinned long call (api_v1_llm_bp._pinned_timeouts)
+LEMMA_CALL_S = 90                  # one small lemma needs no 240 s: Laguna and OpenRouter's free lane hung to the limit (2026-10-09)
 PARK_WAIT_S = 180                  # a parked lane is waited for, not dropped (groq parked 119 s, run 37522262314)
 DEFERS = 4                         # a mid-ask defer is retried this many times before the lane is left
 PROMPT_CAP = 24_000                # free-model context windows; the full dossier stays at its URL
