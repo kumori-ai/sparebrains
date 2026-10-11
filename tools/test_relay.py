@@ -88,6 +88,43 @@ class DossierFetchTests(unittest.TestCase):
             relay.urllib.request.urlopen = orig
         self.assertEqual(seen["ua"], relay.USER_AGENT)       # Cloudflare 403s the default Python-urllib agent
 
+    def _fetch_with(self, replies):
+        """Run fetch_json against a scripted site: each reply is an HTTP status to raise, or bytes to return.
+        Returns (result or the exception raised, the waits it slept)."""
+        class Reply:
+            def __init__(self, body): self.body = body
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self.body
+        script, waits = list(replies), []
+        def fake_urlopen(req, timeout):
+            r = script.pop(0)
+            if isinstance(r, int): raise relay.urllib.error.HTTPError(req.full_url, r, "scripted", {}, None)
+            if isinstance(r, Exception): raise r
+            return Reply(r)
+        orig, orig_sleep = relay.urllib.request.urlopen, relay.time.sleep
+        relay.urllib.request.urlopen, relay.time.sleep = fake_urlopen, waits.append
+        try:
+            try: return relay.fetch_json("/targets.json"), waits
+            except Exception as e: return e, waits
+        finally:
+            relay.urllib.request.urlopen, relay.time.sleep = orig, orig_sleep
+
+    def test_a_site_deploy_does_not_end_the_job(self):
+        # 2026-10-11: three jobs of one run died on a single 503 while kumori.ai switched versions.
+        got, waits = self._fetch_with([503, 502, relay.urllib.error.URLError("reset"), b'{"open": []}'])
+        self.assertEqual(got, {"open": []})
+        self.assertEqual(waits, list(relay.FETCH_WAITS[:3]))
+
+    def test_a_site_that_stays_down_still_fails(self):
+        got, waits = self._fetch_with([503] * (len(relay.FETCH_WAITS) + 1))
+        self.assertIsInstance(got, relay.urllib.error.HTTPError)
+        self.assertEqual(waits, list(relay.FETCH_WAITS))
+
+    def test_a_wrong_address_fails_at_once(self):
+        got, waits = self._fetch_with([404])
+        self.assertEqual((got.code, waits), (404, []))
+
 
 class LadderDudTests(unittest.TestCase):
     """A lane that runs dry on a rung leaves the ladder on that rung only; the relay keeps it."""

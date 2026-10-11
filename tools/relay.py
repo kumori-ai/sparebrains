@@ -10,7 +10,7 @@ never reach it), and this module refuses a solved one anyway.
 Try modes: `relay` (the dossier) and `relay+thread` (the dossier plus at least one comment), each
 recorded beside `cold` and `repair` so the clean numbers stay clean.
 """
-import hashlib, json, re, urllib.request
+import hashlib, json, re, time, urllib.error, urllib.request
 from collections import Counter
 
 SITE = "https://sparebrains.kumori.ai"
@@ -118,10 +118,26 @@ def ladder_dud(rows, backend, rung, now_iso):
     return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)
 
 
+FETCH_WAITS = (5, 10, 20, 40)      # seconds before each further try: 75 s in all, then the error stands
+
+
 def fetch_json(path, timeout=30):
+    """One page of the public site, as JSON. The site answers 5xx for a short while each time a new version of it
+    takes over (2026-10-11: three jobs of run 38154955711 died on one 503, 32 s after a deploy), so a server
+    error or a dropped connection is tried again before it may end a job. A 4xx is ours to fix: raised at once."""
     req = urllib.request.Request(SITE + path, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+    for wait in (*FETCH_WAITS, None):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or wait is None: raise
+            why = f"HTTP {e.code}"
+        except (urllib.error.URLError, TimeoutError) as e:
+            if wait is None: raise
+            why = type(e).__name__
+        print(f"  {SITE}{path} answered {why}; trying again in {wait}s", flush=True)
+        time.sleep(wait)
 
 
 def fetch_dossier(target_set, target, timeout=30):
