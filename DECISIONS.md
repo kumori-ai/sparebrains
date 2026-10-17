@@ -30,6 +30,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   - **A weekly retro and tool challenge**: the bot posts where the swarm got stuck and one tool to build, with
     its scorer and bar; a Kumori Code session builds candidates; the next week grades it in public. Coders who
     are not mathematicians can help there. Kumori task #460.
+  - **The durable asset is the toolbox and the map, not the models (Andy).** Free models come and go weekly; the
+    tools in `tools/` and the measurements of which models use them well stay, and work on next year's models
+    too. So every model is graded on two numbers: raw skill (cold accepts) and **tool lift** (accepts with the
+    tools minus without, from the ablation's paired arms; tiny lanes 6.0% to 30.2%). Every tool is graded too: the
+    ablation's arms become any tool in the chain, scored on stored rejects with a held-out half. New tools are
+    named for their job (`goal_closer.py`, not `cancer_researcher_1.py`). The counterargument is on record: Sutton's
+    "bitter lesson" (2019) says general methods with more compute win in the long run, which is the labs' bet;
+    tools are the lever a project without a datacenter can pull, and they route the parts tools cannot do to the
+    model best at them (Hilbert's reasoner, APOLLO's prover). Kumori tasks #462 (tool lift), #463 (tool scoreboard).
 - **We show our work on GitHub too (Andy): every open problem gets a thread, and every judged try reaches it.**
   The threads had gone quiet since 10-09 while the relay kept making 450 to 750 tries a day: most went to
   problems with no thread, and GitHub fired the `issues` workflow for only 22 of 60 attempt runs from 10-16
