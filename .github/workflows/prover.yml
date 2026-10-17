@@ -100,9 +100,12 @@ jobs:
           git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
+          # The runner this job got (GitHub promises 4 vCPU and 16 GB on public repos, not the CPU model): one line in the commit.
+          MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
           python3 tools/publish.py --message "prover batch judged: $SUMMARY
 
-          Generated-by: Goedel-Prover-V2-8B on Kaggle (GPU T4 x2), cost \$0, via tools/prover_kernel.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)"
+          Generated-by: Goedel-Prover-V2-8B on Kaggle (GPU T4 x2), cost \$0, via tools/prover_kernel.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Judged on: $MACHINE"
 
       - name: push the next batch
         if: steps.kaggle.outputs.state == 'push'

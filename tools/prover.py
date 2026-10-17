@@ -235,7 +235,7 @@ def batch_record(kout, batch, observed_at, answers=()):
         start = datetime.fromisoformat(tm["started_at"])
         end = datetime.fromisoformat(tm["finished_at"]) if tm.get("finished_at") else None
         rec.update(source="timing.json", started_at=tm["started_at"], finished_at=tm.get("finished_at"),
-                   load_s=tm.get("load_s"), queued_min=round((start - pushed).total_seconds() / 60, 1),
+                   load_s=tm.get("load_s"), machine=tm.get("machine"), queued_min=round((start - pushed).total_seconds() / 60, 1),
                    ran_min=round((end - start).total_seconds() / 60, 1) if end else None)
     else:
         ran_s = 0.0

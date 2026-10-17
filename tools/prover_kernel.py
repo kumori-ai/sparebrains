@@ -7,7 +7,7 @@ Measured on Kaggle's GPU T4 x2, 2026-10-17 (canary): vLLM needs Kaggle's torchau
 CUDA 12.8, vLLM's PyTorch for 13.0, and transformers imports it); the model loads in about 5.6 minutes; 8
 samples of an easy problem came back in 67 s, 108 tokens/s together.
 """
-import json, subprocess, sys, time
+import json, os, subprocess, sys, time
 from datetime import datetime, timezone
 
 PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}]
@@ -29,7 +29,20 @@ def stamp(**kw):
     json.dump(timing, open(TIMING, "w"))
 
 
-timing = {"batch": BATCH, "chunks": []}
+def machine():
+    """What Kaggle gave this batch: CPUs, CPU model, RAM, GPUs. Kaggle publishes only the GPU; the rest is ours to record."""
+    m = {"cpus": os.cpu_count()}
+    try:
+        m["cpu_model"] = next(l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name"))
+        m["ram_gb"] = round(int(next(l.split()[1] for l in open("/proc/meminfo") if l.startswith("MemTotal"))) / 1048576, 1)
+    except Exception:
+        pass
+    r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], capture_output=True, text=True)
+    m["gpus"] = [g.strip() for g in r.stdout.splitlines() if g.strip()]
+    return m
+
+
+timing = {"batch": BATCH, "chunks": [], "machine": machine()}
 stamp(started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))   # the first line run: the queue is over
 t0 = time.time()
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "vllm"], check=True)
