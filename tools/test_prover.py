@@ -98,6 +98,7 @@ class ProverTests(unittest.TestCase):
             self.assertIn('BATCH = "b9"', src)
             self.assertIn(f"theorem {NAME}", src)
             self.assertEqual(meta["machine_shape"], "NvidiaTeslaT4")
+            self.assertEqual(meta["is_private"], "false", "the record is public, the Kaggle half included")
             compile(src, "prover_kernel.py", "exec")
 
 

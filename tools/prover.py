@@ -61,7 +61,8 @@ def todo(open_list, rows):
 
 
 def build(out_dir, work, batch):
-    """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata."""
+    """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
+    everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     problems = [{"target_set": t["target_set"], "target": t["target"], "n": owed,
@@ -75,7 +76,7 @@ def build(out_dir, work, batch):
     (out / "prover_kernel.py").write_text(src)
     (out / "kernel-metadata.json").write_text(json.dumps({
         "id": KERNEL_ID, "title": "sparebrains-prover", "code_file": "prover_kernel.py", "language": "python",
-        "kernel_type": "script", "is_private": "true", "enable_gpu": "true", "enable_internet": "true",
+        "kernel_type": "script", "is_private": "false", "enable_gpu": "true", "enable_internet": "true",
         "machine_shape": "NvidiaTeslaT4", "dataset_sources": [], "model_sources": [], "competition_sources": [],
         "kernel_sources": []}, indent=1))
     return len(problems)
