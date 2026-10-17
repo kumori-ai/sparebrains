@@ -16,7 +16,7 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   is re-run and scored automatically (14 tasks, 127 public datasets; the tools idea in another field); (2) DREAM
   challenges on Synapse with no patient data (each one's terms checked first); (3) cancer drug response on public
   cell-line data (DepMap, GDSC) with our own held-out split and scorer, which needs a partner lab before anyone uses it.
-  Finding one named cancer lab willing to receive the work is a milestone of its own. Kumori tasks #459, #464.
+  Finding one named cancer lab willing to receive the work is a milestone of its own. Kumori tasks #459, #465.
 - **The north star and how we get there (Andy, with Claude).** Sparebrains exists to show that people plus
   freely available AI, coordinated and judged by machines, can solve hard problems in the open, aiming at science
   and eventually cancer research; the labs' math results of 2024-2026 (IMO golds, Erdos problems) came almost
