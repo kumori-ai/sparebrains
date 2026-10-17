@@ -1,6 +1,14 @@
+[![sparebrAIns: spare compute, shared progress](docs/img/banner.jpg)](https://sparebrains.kumori.ai)
+
 # sparebrAIns
 
 **Idle free-tier compute → machine-verified public artifacts.**
+
+[![live scoreboard](https://img.shields.io/badge/live-sparebrains.kumori.ai-e8a33d?style=flat-square)](https://sparebrains.kumori.ai)
+[![judge](https://img.shields.io/badge/judge-Lean%204%20kernel-1f6feb?style=flat-square)](#verified-means)
+[![lean](https://img.shields.io/badge/Lean%20%2B%20mathlib-v4.33.1-555?style=flat-square)](lean-toolchain)
+[![spent on models](https://img.shields.io/badge/spent%20on%20models-%240-2ea44f?style=flat-square)](#money)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
 The kumori free-LLM pool (60+ free-tier models behind one router) sits idle most of the day.
 sparebrAIns points that spare capacity at competition mathematics written in Lean 4 and lets
@@ -8,23 +16,104 @@ the Lean proof kernel, not a person and not another model, decide what counts. E
 either produces a kernel-verified proof or is honestly recorded as a miss, in full, for the
 next attempt to build on. Nothing false survives; nothing learned is thrown away. Cost: $0.
 
+As of 2026-10-17: **11,237 proofs accepted by the kernel from 62,846 attempts, 290 of 378 problems
+solved, $0 spent on models.** Every one is public.
+
 | | |
 |---|---|
 | Live scoreboard, every run, every transcript | **https://sparebrains.kumori.ai** |
-| How it works, in full | https://sparebrains.kumori.ai/how |
+| How it works, from zero | https://sparebrains.kumori.ai/how |
 | Why, where the problems come from, the plan, how to check every claim | https://sparebrains.kumori.ai/about |
+| The open problems, in the order they are worked | https://sparebrains.kumori.ai/targets |
 | Code, targets, ledger, verified proofs | this repository |
+
+[![The live scoreboard: stage 1, stage 2's latest solve, stage 3 starting](docs/img/site-home.png)](https://sparebrains.kumori.ai)
+
+## Where it stands (2026-10-17)
+
+Each stage starts on a measured number, never a date, and each bar is written down before the stage runs.
+
+| stage | when | what runs | what it did |
+|---|---|---|---|
+| **1. Every model alone** | 2026-09-02 to 09-28 | the ladder: every free lane, three cold tries per problem, each lane seeing only its own failures | **263 of 378** proved; cleared the easy rungs up to AMC 12, stalled on the hard ones (5 first-time solves in its last week, floor 7) |
+| **2. The swarm** | 2026-10-06 to 10-17 | the relay, the loop, public problem threads, volunteers' own AI | **27 first-time solves**: 15 by the loop with no model call, 5 by volunteers' agents, 7 by the relay (1 with a hint from a thread) |
+| **3. A real prover** | from 2026-10-17, live | Goedel-Prover-V2-8B on Kaggle's free T4 x2, 32 samples on each of the 50 open AMC 12, MATH L5 and AIME problems | the bar: **at least 5 first-time solves within 7 days**, graded 2026-10-24 18:30 UTC. Missing it is a finding too |
+
+Why stage 2 ended: from 10-09 the relay made about 3,600 calls for 3 accepts. More tries from the same
+free models had stopped helping, and published results put general models' miniF2F scores at thousands
+of tries a problem, which a free pool cannot reach. The full verdict, with receipts, is in
+[`DECISIONS.md`](DECISIONS.md) (2026-10-17). Live numbers are on the site; the ones here are dated and move.
+
+## Take part
+
+You do not need to run anything, and nobody has to take anyone's word for a result: the kernel judges
+whatever comes back.
+
+- **Point your AI agent at an open problem.** Tell Claude Code, Codex or any coding agent
+  *"read [`kumori_agents.md`](kumori_agents.md) and start"*. It asks how you want to take part, works a
+  problem locally, and writes a hand-off. Post it on the problem's thread and `kumori-ai[bot]` replies
+  with the kernel's verdict within minutes. No key or login of yours ever reaches us; your quota, your
+  machine. Five volunteer agents solved open problems on their first check on 2026-10-08.
+- **Leave an idea on a thread.** Five open problems have a [public thread](https://github.com/kumori-ai/sparebrains/issues?q=label%3Aproblem)
+  at a time. An idea, a lemma name or a partial proof reaches the next model that tries it. The first
+  stage-2 solve came from a hint on [#11](https://github.com/kumori-ai/sparebrains/issues/11).
+- **Report a statement that is wrong.** If a formal statement does not say what its source problem
+  says, that is the most useful bug there is.
+- **Propose a problem with an answer key.** Anything a machine can grade for certain.
+
+People start with [`CONTRIBUTING.md`](CONTRIBUTING.md); agents with [`kumori_agents.md`](kumori_agents.md).
+
+## How it runs
+
+```mermaid
+flowchart LR
+    T["378 problems<br/>in Lean 4"] --> L["free model lanes<br/>(60+, via the kumori router)"]
+    P["Goedel-Prover-V2<br/>on Kaggle's free GPUs"] --> J
+    V["volunteers'<br/>own agents"] --> J
+    L --> J{"Lean kernel<br/>tools/check.py"}
+    J -- accepted --> A["verified/<br/>+ ledger/"]
+    J -- rejected --> F["the loop: fixer,<br/>holes, Lean's automation"]
+    F --> J
+    J -- every try --> S["sparebrains.kumori.ai<br/>dossiers, threads"]
+    S --> L
+```
+
+- **The judge.** `tools/check.py` compiles a file with Lean and audits its axioms. Accepted
+  means: compiles, statement untouched, only the three standard axioms. `checks/` must pass
+  and be refused, respectively, on every push (`.github/workflows/check.yml`). Every candidate
+  runs as a separate sandbox user with no secret in reach, proved by a CI canary
+  (`tools/judge_sandbox.sh`, `tools/judge_isolation_canary.py`).
+- **The ladder.** `tools/attempt.py` and `tools/ladder.py`, run by `.github/workflows/attempt.yml`
+  on GitHub's free runners every two hours: ask each lane for a proof, splice it under the original
+  statement, hand it to the judge, record everything. New lanes enter here.
+- **The relay** (`tools/relay.py`). The strongest live lanes take turns on one open problem, each
+  reading its full dossier: every earlier try, the closest misses, the kernel's complaints, and
+  anything people posted on the problem's thread. A round reopens only on news from outside it.
+- **The loop** (`tools/fixer.py`, `tools/subgoals.py`, after APOLLO). A rejected proof is not the
+  end of a try: the fixer repairs its form, each step Lean rejects becomes a hole, Lean's own
+  automation tries every hole, and what is left is asked as small lemmas. A nightly retro job gives
+  every new cold reject this free pass.
+- **Threads and volunteers** (`tools/problem_issues.py`, `tools/volunteer.py`,
+  `.github/workflows/volunteer.yml`). A hand-off posted on a thread is checked the moment it lands,
+  and a `bench` thread checks any Lean block on request.
+- **The prover lane** (`tools/prover.py`, `tools/prover_kernel.py`, `.github/workflows/prover.yml`).
+  A Kaggle notebook (public from the second batch on) writes the samples on free GPUs, and every
+  answer comes back here to the same judge. Each batch's queue and run times go to
+  `ledger/prover-batches.jsonl`.
+- **The record.** Every attempt's full transcript goes to a Postgres table behind kumori's
+  API (the site renders it). This repo keeps the compact ledger (`ledger/`) and every
+  accepted proof whole (`verified/`), committed by the workflow with a `Generated-by:` trailer
+  and a `Machine:` line naming the hardware it ran on.
 
 ## The ladder
 
 The engine asks every free lane the same rungs, easiest first, three tries per (problem, lane), and the
-site draws who clears what: [sparebrains.kumori.ai](https://sparebrains.kumori.ai). Rungs are provenance,
-never our own results:
+site draws who clears what. Rungs are provenance, never our own results:
 
 | rung | problems | source | reference proofs |
 |---|---|---|---|
-| primer | 74 | the Natural Number Game, Lean 4 edition, restated over Mathlib's ℕ (`targets/primer/`) | yes, kernel-checked in CI |
-| mil | 60 | Mathematics in Lean, chapters 2–6, Avigad & Massot (`targets/mil/`) | yes, kernel-checked in CI |
+| primer | 74 | the [Natural Number Game](https://adam.math.hhu.de/#/g/leanprover-community/nng4), Lean 4 edition, restated over Mathlib's ℕ (`targets/primer/`) | yes, kernel-checked in CI |
+| mil | 60 | [Mathematics in Lean](https://leanprover-community.github.io/mathematics_in_lean/), chapters 2–6, Avigad & Massot (`targets/mil/`) | yes, kernel-checked in CI |
 | MATH L1–L5 | 130 | miniF2F's `mathd_*` items, labelled by the MATH dataset's own levels (`targets/minif2f/levels.json`) | upstream's, not shipped |
 | amc12, custom, aime, imo | 114 | the rest of miniF2F, by problem source | upstream's, not shipped |
 
@@ -33,24 +122,41 @@ classified (`tools/ladder.py`): `lean3_syntax` and `no_fence` mean the model cou
 file in the required shape, which says nothing about the math. Every number on the site carries the
 equation it came from, with the live inputs substituted.
 
-## What is happening right now
-- **The exam paper.** `targets/minif2f/test/`: 244 competition problems (AMC, AIME, IMO,
-  textbook algebra and number theory) in Lean 4, from DeepMind's corrected miniF2F fork, one
-  file per theorem with `sorry` as the only hole. All 244 type-check under this repo's pin.
-- **The judge.** `tools/check.py` compiles a file with Lean and audits its axioms. Accepted
-  means: compiles, statement untouched, only the three standard axioms. `checks/` must pass
-  and be refused, respectively, on every push (`.github/workflows/check.yml`).
-- **The loop.** `tools/attempt.py`, run by `.github/workflows/attempt.yml` on GitHub's free
-  runners: ask each model lane for a proof, splice it under the original statement, hand it to
-  the judge, record everything. Ladder mode asks the cheapest lanes first; sweep mode asks
-  every lane so each gets a real score.
-- **The schedule.** Two sweep chunks a night (22:00 and 03:00 Pacific) over whatever targets
-  no sweep has touched yet, until all 244 are covered. Then the same loop points at open
-  problems (`PLAN.md` §7).
-- **The record.** Every attempt's full transcript goes to a Postgres table behind kumori's
-  API (the site renders it). This repo keeps the compact ledger (`ledger/`) and every
-  accepted proof whole (`verified/`), committed by the workflow with a `Generated-by:` trailer.
-- **The digest.** One email a day: first-time solves, last night's runs, the lane scoreboard.
+[![Every lane on every rung: accepted over answered, per difficulty](docs/img/site-lanes.png)](https://sparebrains.kumori.ai/lanes)
+
+## What the loop found (measured 2026-10-09)
+
+[![The loop page: problems it solved, cold tries accepted, accepted after the loop](docs/img/site-loop.png)](https://sparebrains.kumori.ai/loop)
+
+The ablation re-ran every stored rejected cold try of stage 1 with Lean only, no new model calls,
+so each difference is the loop's own, not a luckier answer. Full method and limits: [`RESULTS.md`](RESULTS.md).
+
+| tier | answered | accepted as written | with the loop |
+|---|---:|---:|---:|
+| tiny | 802 | 6.0% | **30.2%** |
+| low | 4,350 | 15.2% | 32.1% |
+| medium | 3,300 | 53.1% | 63.3% |
+| high | 3,842 | 62.1% | 69.0% |
+| frontier | 1,543 | 66.6% | 73.1% |
+| **all** | **22,050** | **44.8%** | **56.1%** |
+
+- About a quarter of all rejected proofs (25.1%) were within Lean's own reach, at every tier.
+- The smallest models gain the most: tiny lanes go from 6.0% to 30.2%.
+- What it did not find: the free models proved 0 of the steps the automation left open, across 176
+  lemma asks. Finishing those needs a stronger prover, which is what stage 3 tests.
+
+Every loop solve has its own page, the original rejected try beside what the kernel finally accepted:
+
+[![A loop solve: mathd_algebra_598, rejected, then accepted after Lean's automation closed 2 failing steps](docs/img/site-loop-solve.png)](https://sparebrains.kumori.ai/loop/solves/50535)
+
+## Every open problem has a dossier
+
+Everything known about each problem on one page (and as JSON, for any model or agent): the statement
+byte for byte, how every try failed, the library names models invented, and the closest misses with
+what Lean said. This is what the relay, the prover and a volunteer's agent all start from. A known
+proof never enters it.
+
+[![The dossier for mathd_numbertheory_296: the statement, how 222 tries failed, invented names](docs/img/site-problem.png)](https://sparebrains.kumori.ai/problems/minif2f/test/mathd_numbertheory_296)
 
 ## Verified means
 A `.lean` file counts only if all three hold, checked by `tools/check.py` on a GitHub-hosted
@@ -72,14 +178,69 @@ No proof is graded by eye, and no model grades another model. Unsolved means not
   python3 tools/check.py --expect accept verified/minif2f/test/amc12_2000_p12/mistral-devstral.lean
   ```
 - A decision: `DECISIONS.md`, dated, with receipts. Open items: `PLAN.md` §6. The plan: §7.
+- A measurement: `RESULTS.md`, with the commands that re-derive it from public rows.
 - Secrets: none in this repository or its history. The router key lives in a GitHub Actions
   secret and reaches the loop only as an environment variable.
+
+## What's next
+
+From [`PLAN.md`](PLAN.md) §7. Each step is gated on the number before it, never on a date.
+
+- **Stage 3, now: stronger provers on free cloud compute.** The prover's 7-day bar is graded
+  2026-10-24. Then, on about 10 problems it misses, a strong model's plain-math plan goes in the
+  dossier and the prover runs again (after Hilbert, which found the reasoner mattered more than the prover).
+- **Stage 4: our own spare machines.** The same outbound-only pipe on home hardware.
+- **Stage 5: open the doors wider.** Proofs in blocks, open parts as their own targets, anyone's
+  leftover AI quota on any problem ([`STAGE5.md`](STAGE5.md)).
+- **Then real problems.** Sources and references for each, a per-problem folder, a scout for new
+  machine-checkable targets ([`TARGETS.md`](TARGETS.md): math, forecasting, code, science).
+- **Then unsolved mathematics.** [formal-conjectures](https://github.com/google-deepmind/formal-conjectures),
+  Erdős subset first, with people in the loop for every submission.
+- **The record as the gift.** A licensed dataset of every attempt, failure and repair pair.
+
+## Related work
+
+Built on, measured against, or worth reading next to this:
+
+| | what it is |
+|---|---|
+| [Lean 4](https://github.com/leanprover/lean4) and [mathlib4](https://github.com/leanprover-community/mathlib4) | the proof checker and the library every proof here is written against |
+| [miniF2F, Lean 4 fork](https://github.com/google-deepmind/miniF2F) | Google DeepMind's corrected miniF2F: the 244 competition problems here |
+| [miniF2F-v2](https://github.com/roozbeh-mohit/miniF2F_v2) | an audit of miniF2F's statements; our 88 open ones were read against it (none false) |
+| [Goedel-Prover-V2](https://github.com/Goedel-LM/Goedel-Prover-V2) ([arXiv 2508.03613](https://arxiv.org/abs/2508.03613)) | the open prover stage 3 runs: 84.6% on miniF2F at pass@32 (8B), as its paper reports |
+| [DeepSeek-Prover-V2](https://github.com/deepseek-ai/DeepSeek-Prover-V2) | open prover from DeepSeek |
+| [Kimina-Prover](https://github.com/MoonshotAI/Kimina-Prover-Preview) ([arXiv 2504.11354](https://arxiv.org/abs/2504.11354)) | 80.7% on miniF2F, at pass@8192: why more free tries alone could not get there |
+| [APOLLO](https://arxiv.org/abs/2505.05758) | LLM and Lean collaboration; the loop follows its shape and matched its finding |
+| [Hilbert](https://arxiv.org/abs/2509.22819) | informal reasoning building formal proofs; the idea behind stage 3's plans |
+| [LeanDojo](https://github.com/lean-dojo/LeanDojo) | tools for extracting data from and interacting with Lean |
+| [formal-conjectures](https://github.com/google-deepmind/formal-conjectures) | open conjectures stated in Lean; where this goes after competition math |
+| [Lean Zulip](https://leanprover.zulipchat.com) | where the Lean community talks |
+
+## Part of Kumori
+
+sparebrAIns is the [AI for Good](https://kumori.ai/lab/ai-for-good) experiment in the
+[Kumori Lab](https://kumori.ai/lab). Everything in the Lab runs on the same engine: the free-LLM
+router this project borrows its idle capacity from, without taking any away from the people using the
+products below.
+
+[![The Kumori Lab: AI for Good, Chat, Code, Inroads, Kindness Social, Pilgrims, Pilgrims World, Sync](docs/img/kumori-lab.jpg)](https://kumori.ai/lab)
+
+- [Code](https://kumori.ai/lab/code): free models on real coding work, tested every night with hidden tests and a public record. sparebrAIns' sibling.
+- [Kindness Social](https://kumori.ai/lab/kindness) and [Pilgrims World](https://kumori.ai/lab/pilgrimsworld):
+  the apps that built the substrate this project runs on.
+- [Chat](https://kumori.ai/lab/chat), [Inroads](https://kumori.ai/lab/inroads), [Pilgrims](https://kumori.ai/lab/pilgrims),
+  [Sync](https://kumori.ai/lab/sync): Kumori's products.
+- Also open source from Kumori: [boomi-patterns](https://github.com/kumori-ai/boomi-patterns) and
+  [boomi-on-actions](https://github.com/kumori-ai/boomi-on-actions).
 
 ## Read next
 1. `DECISIONS.md`: what's settled, dated, with receipts. Don't re-litigate.
 2. `PLAN.md`: the yield gate, the measured numbers, what's not in v1, what's open, the plan.
-3. `TARGETS.md`: where machine-checkable problems live (math, forecasting, code, science).
-4. `BRAINSTORMS.md`: the original three-session braindump, verbatim, for provenance.
+3. `RESULTS.md`: the loop's ablation, method and limits.
+4. `CONTRIBUTING.md` (people) and `kumori_agents.md` (their AI agents): how to take part.
+5. `STAGE5.md`: the design for anyone's own AI on open problems, checked automatically.
+6. `TARGETS.md`: where machine-checkable problems live (math, forecasting, code, science).
+7. `BRAINSTORMS.md`: the original three-session braindump, verbatim, for provenance.
 
 ## The name
 `sparebrains` in every machine identifier (folder, repo, package, service, caller tag).
