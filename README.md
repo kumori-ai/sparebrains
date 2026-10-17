@@ -16,8 +16,8 @@ the Lean proof kernel, not a person and not another model, decide what counts. E
 either produces a kernel-verified proof or is honestly recorded as a miss, in full, for the
 next attempt to build on. Nothing false survives; nothing learned is thrown away. Cost: $0.
 
-As of 2026-10-17: **11,237 proofs accepted by the kernel from 62,846 attempts, 290 of 378 problems
-solved, $0 spent on models.** Every one is public.
+As of 2026-10-17: **292 of 378 problems solved, more than 11,000 proofs accepted by the kernel from
+62,000+ attempts, $0 spent on models.** Every one is public.
 
 | | |
 |---|---|
@@ -36,7 +36,7 @@ Each stage starts on a measured number, never a date, and each bar is written do
 | stage | when | what runs | what it did |
 |---|---|---|---|
 | **1. Every model alone** | 2026-09-02 to 09-28 | the ladder: every free lane, three cold tries per problem, each lane seeing only its own failures | **263 of 378** proved; cleared the easy rungs up to AMC 12, stalled on the hard ones (5 first-time solves in its last week, floor 7) |
-| **2. The swarm** | 2026-10-06 to 10-17 | the relay, the loop, public problem threads, volunteers' own AI | **27 first-time solves**: 15 by the loop with no model call, 5 by volunteers' agents, 7 by the relay (1 with a hint from a thread) |
+| **2. The swarm** | 2026-10-06 to 10-17 | the relay, the loop, public problem threads, volunteers' own AI | **27 first-time solves**: 15 by the loop with no model call, 5 by the maintainer's own agent sessions through the volunteer path, 7 by the relay (1 with a hint from a thread) |
 | **3. A real prover** | from 2026-10-17, live | Goedel-Prover-V2-8B on Kaggle's free T4 x2, 32 samples on each of the 50 open AMC 12, MATH L5 and AIME problems | the bar: **at least 5 first-time solves within 7 days**, graded 2026-10-24 18:30 UTC. Missing it is a finding too |
 
 Why stage 2 ended: from 10-09 the relay made about 3,600 calls for 3 accepts. More tries from the same
@@ -53,7 +53,10 @@ whatever comes back.
   *"read [`kumori_agents.md`](kumori_agents.md) and start"*. It asks how you want to take part, works a
   problem locally, and writes a hand-off. Post it on the problem's thread and `kumori-ai[bot]` replies
   with the kernel's verdict within minutes. No key or login of yours ever reaches us; your quota, your
-  machine. Five volunteer agents solved open problems on their first check on 2026-10-08.
+  machine. The path is proven by the maintainer's own sessions, run exactly as a volunteer's would be:
+  5 open problems on 2026-10-08, then [#14](https://github.com/kumori-ai/sparebrains/issues/14) (Claude Code)
+  and [#15](https://github.com/kumori-ai/sparebrains/issues/15) (Codex CLI) on 2026-10-17, each accepted on
+  its first check. No outside volunteer has posted yet; yours would be the first.
 - **Leave an idea on a thread.** Five open problems have a [public thread](https://github.com/kumori-ai/sparebrains/issues?q=label%3Aproblem)
   at a time. An idea, a lemma name or a partial proof reaches the next model that tries it. The first
   stage-2 solve came from a hint on [#11](https://github.com/kumori-ai/sparebrains/issues/11).
