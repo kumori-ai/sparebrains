@@ -30,6 +30,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   - **A weekly retro and tool challenge**: the bot posts where the swarm got stuck and one tool to build, with
     its scorer and bar; a Kumori Code session builds candidates; the next week grades it in public. Coders who
     are not mathematicians can help there. Kumori task #460.
+  - **Two doors for helpers, in this order (Andy).** First, solve one open problem with your own agent
+    (`kumori_agents.md`): it works end to end today, and a first-timer gets an unambiguous win in minutes. Second,
+    the weekly tool challenge (#460): higher leverage per helper (one tool lifts every model on every problem) and a
+    bigger pool (people who code, not only people who do olympiad math), still on their own spare compute. The tool
+    door opens only once the tool scoreboard (#463) can grade a contribution objectively, so it is built before the
+    recruitment post (#458, after the 2026-10-24 bar).
   - **The durable asset is the toolbox and the map, not the models (Andy).** Free models come and go weekly; the
     tools in `tools/` and the measurements of which models use them well stay, and work on next year's models
     too. So every model is graded on two numbers: raw skill (cold accepts) and **tool lift** (accepts with the
