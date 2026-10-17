@@ -183,8 +183,14 @@ class RoundTests(unittest.TestCase):
 
     def test_five_answers_by_others_open_a_new_round_and_four_do_not(self):
         mine = [row("x", m) for m in (1, 2, 3)]
-        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i) for i in range(4)], "x", "m1"), 0)
-        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i) for i in range(5)], "x", "m1"), relay.RELAY_TRIES)
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i, mode="cold") for i in range(4)], "x", "m1"), 0)
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i, mode="cold") for i in range(5)], "x", "m1"), relay.RELAY_TRIES)
+
+    def test_others_relay_tries_are_not_news(self):
+        mine = [row("x", m) for m in (1, 2, 3)]
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i) for i in range(20)], "x", "m1"), 0)
+        self.assertEqual(relay.tries_left(mine + [row(f"o{i}", 10 + i, mode="volunteer") for i in range(5)], "x", "m1"),
+                         relay.RELAY_TRIES)
 
     def test_others_errors_are_not_news(self):
         prow = [row("x", m) for m in (1, 2, 3)] + [row(f"o{i}", 10 + i, verdict="error") for i in range(9)]
@@ -200,7 +206,7 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(relay.tries_left(prow, "x", "m2"), relay.RELAY_TRIES)
 
     def test_the_round_counts_only_tries_since_the_last_news(self):
-        prow = ([row("x", m) for m in (1, 2, 3)] + [row(f"o{i}", 10 + i) for i in range(5)] + [row("x", 20)])
+        prow = ([row("x", m) for m in (1, 2, 3)] + [row(f"o{i}", 10 + i, mode="cold") for i in range(5)] + [row("x", 20)])
         self.assertEqual(relay.tries_left(prow, "x", "m1"), 2)
 
 
@@ -264,6 +270,15 @@ class EmptyLaneTests(unittest.TestCase):
         self.assertFalse(relay.relay_benched(rows, "d", "2026-10-11T00:00:00+00:00"))   # three days on, back in
         self.assertFalse(relay.relay_benched(self.rows("d", ["error"] * 5 + ["reject"]), "d", "2026-10-08T00:00:00+00:00"))
         self.assertFalse(relay.relay_benched(self.rows("d", ["error"] * 6, mode="cold"), "d", "2026-10-08T00:00:00+00:00"))
+
+    def test_timeouts_bench_a_lane_like_empty_answers(self):
+        timed_out = "KumoriAPIError: kumori /api/v1/llm/chat HTTP 504 : unknown"
+        rows = self.rows("d", ["error"] * 6)
+        for r in rows[::2]:
+            r["reason"] = timed_out
+        self.assertTrue(relay.relay_benched(rows, "d", "2026-10-08T00:00:00+00:00"))
+        rows[-1]["reason"] = "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 : pacing"
+        self.assertFalse(relay.relay_benched(rows, "d", "2026-10-08T00:00:00+00:00"), "a pacing refusal is not the lane's")
 
     def test_a_dry_thinking_model_is_asked_for_low_effort(self):
         import attempt

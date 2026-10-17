@@ -53,12 +53,15 @@ REPO = "kumori-ai/sparebrains"
 
 
 EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
+TIMED_OUT = re.compile(r"HTTP 504")          # the lane did not answer in time
 DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
-BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty: out of the relay for 3 days
+BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty or timed out: out of the relay for 3 days
 FAIL_LAST, FAIL_MIN, FAIL_HOURS = 12, 8, 24    # 8+ of a lane's last 12 relay calls in 24 h were errors: it sits out
                                               # the job (2026-10-09: openrouter lanes failed 9-11 of 12, often after
                                               # hanging 260 s, as their account's daily share ran out)
 NEWS_MIN = 5                                  # others' answered tries on a problem since a lane's last: a new round
+NEWS_MODES = ("cold", "repair", "volunteer")  # tries from outside the relay; relay tries are never news (2026-10-17: rounds
+                                              # fed on each other, ~1,000 calls a day for 3 accepts in 2,682 answers)
 PROBLEM_CEILING = 1000                        # relay tries on one problem since a person last spoke on it (Andy:
                                               # assume nobody shows up; the swarm keeps trying)
 LADDER_DUD_LAST, LADDER_DUD_SHARE = 20, 0.6   # a lane's last 20 ladder calls on a rung, 60%+ empty: off that rung
@@ -80,12 +83,18 @@ def running_dry(rows, backend):
     return len(last) == DRY_LAST and sum(map(is_empty, last)) >= DRY_SHARE * DRY_LAST
 
 
+def is_timed_out(r):
+    return r.get("verdict") == "error" and bool(TIMED_OUT.search(r.get("reason") or ""))
+
+
 def relay_benched(rows, backend, now_iso):
-    """Every one of the lane's last BENCH_LAST relay calls came back empty, the latest within BENCH_DAYS:
-    skip it in the relay until then. A bench that expires lets the lane back in to be measured again."""
+    """Every one of the lane's last BENCH_LAST relay calls came back empty or timed out, the latest within
+    BENCH_DAYS: skip it in the relay until then. A bench that expires lets the lane back in to be measured
+    again. Timeouts count since 2026-10-17: openrouter-dots-3-note timed out on 33 of 33 relay calls from
+    10-11, a few a day, too spread out for relay_failing's 24 hours to catch."""
     from datetime import datetime, timedelta
     last = _calls(rows, backend, relay_only=True)[-BENCH_LAST:]
-    if len(last) < BENCH_LAST or not all(map(is_empty, last)):
+    if len(last) < BENCH_LAST or not all(is_empty(r) or is_timed_out(r) for r in last):
         return False
     latest = datetime.fromisoformat(last[-1]["ts"].replace("Z", "+00:00"))
     return datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - latest < timedelta(days=BENCH_DAYS)
@@ -175,8 +184,9 @@ def spent(h):
 # ── Rounds: the swarm (DECISIONS.md 2026-10-08) ───────────────────────────────────────────────────
 # Every try on a problem, by any lane, a volunteer's agent or a person's hint, is a new angle in its
 # dossier. A lane's three relay tries on a problem are a round; it earns another round when there is
-# news since its last try: NEWS_MIN answered tries by others, a person's comment, or a different model
-# behind the lane. The relay works breadth-first (a fresh comment first, then the problem with the
+# news from outside the relay since its last try: NEWS_MIN answered cold, repair or volunteer tries by
+# others, a person's comment, or a different model behind the lane (2026-10-17: relay tries stopped
+# counting, because rounds fed on each other's tries and never ran out). The relay works breadth-first (a fresh comment first, then the problem with the
 # fewest relay tries), so every open problem gets a round before any gets another, and a problem
 # rests once it has had PROBLEM_CEILING relay tries since a person last said anything about it.
 
@@ -201,7 +211,7 @@ def _news(prow, backend, after, before, people):
     if any(after < c and (before is None or c < before) for c in people):
         return True
     others = sum(1 for r in prow if r.get("backend") != backend and r.get("verdict") in ("accept", "reject")
-                 and after < _ts(r) and (before is None or _ts(r) < before))
+                 and r.get("try_mode") in NEWS_MODES and after < _ts(r) and (before is None or _ts(r) < before))
     return others >= NEWS_MIN
 
 

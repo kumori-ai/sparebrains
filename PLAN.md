@@ -322,7 +322,7 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
 1. **Cold and self-repair, done.** Every lane, every target, three tries, a lane only ever seeing its
    own failure (Phases A and B). 263 of 378 targets proved; the stall rule tripped (5 first-time
    solves in 2026-09-22..09-28, floor 7).
-2. **The relay, now.** Each open problem gets a dossier (every attempt by every lane, the best near
+2. **The relay, 2026-10-06 to 10-17.** Each open problem gets a dossier (every attempt by every lane, the best near
    misses with the kernel's complaint, the dead ends) and a public thread anyone can add to. The
    strongest live lanes try from the dossier (`relay`), and from the dossier plus the thread
    (`relay+thread`), each its own try mode. One problem first (the top of the open list at `/targets#open`) to prove the
@@ -346,15 +346,23 @@ measured number, never a date (`DECISIONS.md` 2026-10-06).
    the result is logged by strength and drafter. So far: outline, Claude-drafted, #11, solved in one
    run; idea, Claude-drafted, #8, not solved in one run (11 calls, 3 answers). Small numbers; the
    point is to collect enough to say which strength turns near misses into proofs.
-3. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
+   *Verdict 2026-10-17:* 27 first-time solves since 10-06, 6 of them by the relay alone; from 10-09
+   the relay accepted 3 of about 2,682 answered tries. It now runs only on news from outside the
+   relay (`DECISIONS.md` 2026-10-17).
+3. **Stronger provers and plans, on free cloud compute, now.** An open-weight Lean prover
+   (Goedel-Prover-V2) on a free cloud GPU, 32 tries on each open AMC 12, MATH L5 and AIME problem,
+   judged by the same kernel as its own try mode; then a strong model's plain-math plan for the
+   problems it misses. Pre-registered bar in `DECISIONS.md` 2026-10-17. Kumori tasks #427 to #435.
+4. **Our own spare machines.** The same outbound-only pipe on home machines (kumori task #426).
+5. **Open the doors.** Volunteers spend leftover quota on a problem and post Lean, checked
    automatically with no secret in reach (#6); proofs in blocks, open parts as their own targets (#4).
-   Design, not built (2026-10-07): [`STAGE3.md`](STAGE3.md), a check job holding nothing and a separate
+   Design, not built (2026-10-07): [`STAGE5.md`](STAGE5.md), a check job holding nothing and a separate
    poster job that never runs a stranger's Lean.
-4. **Ready for real problems.** Sources and references (step 10), the per-problem folder (12), the
+6. **Ready for real problems.** Sources and references (step 10), the per-problem folder (12), the
    scout (13).
-5. **Unsolved mathematics.** formal-conjectures, Erdős subset first, humans in the loop for every
+7. **Unsolved mathematics.** formal-conjectures, Erdős subset first, humans in the loop for every
    submission (14); the counterexample hunt as the fallback.
-6. **The record as the gift.** The licensed dataset of every attempt, failure and repair pair (15,
+8. **The record as the gift.** The licensed dataset of every attempt, failure and repair pair (15,
    licensing done 2026-09-02; the dataset itself still open).
 
 **Phase A: finish the measurement** — superseded 2026-09-02 by the ladder (every set, every lane,

@@ -1,7 +1,9 @@
-# Stage 3 design: anyone's own AI on an open problem, checked automatically
+# Stage 5 design: anyone's own AI on an open problem, checked automatically
 
 **Status: design only, 2026-10-07. Nothing here is built.** It starts when the relay's first pass and
-the pilot verdict are in (`PLAN.md` §7, stage 3) and Andy says go. The idea and its rules are issue #6.
+the pilot verdict are in (`PLAN.md` §7, stage 5) and Andy says go. The idea and its rules are issue #6.
+Written as stage 3; renumbered 2026-10-17, when stronger provers on free cloud compute became stage 3
+and our own spare machines stage 4 (`DECISIONS.md` 2026-10-17).
 
 ## What a volunteer does
 1. Opens a problem's thread (label `problem`), copies its prompt pack into their own model or agent.

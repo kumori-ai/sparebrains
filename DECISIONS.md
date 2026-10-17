@@ -3,6 +3,59 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-17
+
+- **Stage 2's verdict: more tries stopped helping (Andy and Claude, from the ledger).** Measured on the
+  committed ledger as of 2026-10-17: 27 first-time solves since 2026-10-06 (290 of 378 targets solved,
+  88 open, all `minif2f/test`). Where they came from: 15 `fixer+loop` (Lean's automation on stored near
+  misses, no model call, all on 10-08), 5 `volunteer` (agents, 10-08), 1 `relay+thread` (#11), 6 `relay`
+  alone (3 on 10-08, then 10-09, 10-10, 10-14). From 10-09 the relay made about 3,600 calls for 2,682
+  rejects, about 930 errors and 3 accepts, about 0.1% of answered tries; the lanes still answering went
+  from 14 to 9 or 10. Every open problem already has 149 to 257 answered tries (median 189). Published
+  results put general models' miniF2F numbers at thousands of tries a problem (Kimina-Prover's 80.7% is
+  pass@8192, arXiv 2504.11354), which the free pool cannot reach. The loop's shape matched APOLLO
+  (arXiv 2505.05758): large gains for weak general models from fixing form and filling holes, little from
+  asking the model for the rest. No sign that the dossier made the models better: relay accepts did not
+  rise, and the one dossier that clearly helped (#11) carried a hint that laid out the proof. The analysis
+  in this entry was done by Claude (Opus) reading the ledger and the papers, with Andy.
+- **Relay rounds open only on news from outside the relay.** A lane's new round needed 5 answered tries
+  by others since its last, and relay tries counted, so the relay's own tries kept reopening rounds and
+  it never ran out (`tools/relay.py` `NEWS_MODES`: cold, repair, volunteer tries, a person's comment, or
+  a new model behind the lane). Cold intake and the nightly retro are unchanged.
+- **A lane whose last 6 relay calls were all empty or timed out sits out the relay for 3 days.**
+  `openrouter-dots-3-note` timed out (HTTP 504) on 33 of 33 relay calls from 10-11 and
+  `openrouter-laguna-s-2-1` on 50 of 54, a few a day, too spread out for the 24-hour failing rule.
+  The Mistral lanes timed out on 11 to 30% of calls and mostly answered, so they stay.
+- **The stages are renumbered (Andy).** Stage 3 is now stronger provers and plans on free cloud compute;
+  stage 4 our own spare machines (kumori task #426); stage 5 is the outside-volunteer design written as
+  stage 3 (`STAGE5.md`, its done-line unchanged); then real problems, unsolved mathematics and the
+  record, as before (`PLAN.md` §7). Entries above this one that say "stage 3" mean the old one.
+- **Stage 3, the bet: a specialized open prover where general free models stalled.** Goedel-Prover-V2
+  reports 84.6% (8B) and 88.1% (32B) on miniF2F at pass@32 (arXiv 2508.03613); Kimina-Prover-Distill-8B
+  77.9% at pass@32 (its model card). Run on a free cloud GPU (Kaggle, 30 GPU hours a week per its own
+  GPU docs, 2026-10-17; GitHub's hosted runners are kept to one benchmark job, because GitHub's Actions
+  terms bar a "burden ... disproportionate to the benefits" and llama.cpp's own CI keeps real models off
+  them), 32 tries on each open AMC 12, MATH L5 and AIME problem, every answer judged by `tools/check.py`
+  as its own try mode. Then, on about 10 problems it misses, a strong model's plain-math plan in the
+  dossier and the prover again (Hilbert, arXiv 2509.22819, found the reasoner mattered more than the
+  prover). What a solve would show: that a specialized prover does what the general free models did not,
+  not that free general models learned; these provers were trained on competition Lean, and no
+  decontamination audit against miniF2F was found.
+- **The bar, written before the prover's first job: at least 5 first-time solves from the prover lane on
+  those open AMC 12, MATH L5 and AIME problems within 7 days of its first job** (50 problems; the
+  statement audit below removed none). The comparison: the relay made 2 first-time solves in 2026-10-10..10-16.
+  Missing it is a finding too: the leftover problems are past what this prover does at 32 tries, and the
+  plans or bigger models are next.
+- **The 88 open statements against miniF2F-v2s: none found false.** v2s (github.com/roozbeh-mohit/miniF2F_v2,
+  `datasets/miniF2F_v2s.jsonl`, read 2026-10-17) labels our 244 as its `valid` split, not `test` (243
+  shared names). 31 of the 88 are identical to v2s, 14 differ only in form (parentheses, hypothesis names,
+  `Real.pi`), and the other 43 were read one by one by a Claude reviewer with numeric checks: 36 say the
+  same as the problem, 7 are true but differ from it (`algebra_ineq_nto1onlt2m1on` drops n = 1,
+  `amc12a_2019_p12` drops x, y > 0 and still holds, `amc12a_2020_p7` encodes the solution's arithmetic,
+  `imo_1962_p2` is the real IMO problem where v2s's informal text is not, `imo_1981_p6` proves only the
+  recurrence, `imo_1983_p6` only the inequality, `mathd_numbertheory_227` an abstracted model), none
+  vacuous. This is a careful reading, not a proof; the kernel is still the only judge of a solve.
+
 ## 2026-10-09
 
 - **The loop's verdict; the ladder back to full (Andy).** As of 2026-10-09 the ablation covered 9,848 of
