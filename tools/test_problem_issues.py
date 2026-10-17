@@ -135,21 +135,30 @@ class CatchupTests(unittest.TestCase):
             self.assertIn("kumori_agents.md", text)
 
 
+class LedgerDayTests(unittest.TestCase):
+    def test_day_is_found_whether_or_not_ts_leads_the_row(self):
+        self.assertEqual(pi.row_day('{"ts": "2026-10-17T22:08:00+00:00", "run_id": "1"}'), "2026-10-17")
+        self.assertEqual(pi.row_day('{"run_id": "volunteer-6241938187", "ts": "2026-10-17T22:08:00+00:00"}'), "2026-10-17")
+        self.assertEqual(pi.row_day('{"run_id": "x"}'), "")
+
+
 class DailyLogTests(unittest.TestCase):
     def test_counts_first_time_solves_and_actions_runs(self):
         rows = [dict(target_set="s", target="a", backend="x", verdict="accept", try_mode="relay"),
                 dict(target_set="s", target="b", backend="y", verdict="accept", try_mode="prover"),
                 dict(target_set="s", target="c", backend="y", verdict="reject", try_mode="prover"),
                 dict(target_set="s", target="c", backend="y", verdict="error", try_mode="relay")]
-        runs = [dict(name="attempt", conclusion="success"), dict(name="attempt", conclusion="success"),
-                dict(name="prover", conclusion="failure")]
+        runs = [dict(name="schedule", path=".github/workflows/attempt.yml", conclusion="success"),
+                dict(name="workflow_dispatch", path=".github/workflows/attempt.yml", conclusion="success"),
+                dict(name="prover", path=".github/workflows/prover.yml", conclusion="failure"),
+                dict(name="bench", path=".github/workflows/bench.yml", conclusion="skipped")]
         text = pi.daily_log(rows, {"s/a"}, runs, "2026-10-17")
         self.assertTrue(text.startswith(pi.LOG_MARKER))
         self.assertIn("4 tries judged by the Lean kernel, 3 answered, **2 accepted**, by 2 lanes on 3 problems", text)
         self.assertIn("**First-time solves:** [`s/b`]", text)                 # s/a was solved before the window
         self.assertNotIn("`s/a`]", text)
         self.assertIn("| `prover` | 2 | 1 |", text)
-        self.assertIn("attempt 2 success; prover 1 failure", text)
+        self.assertIn("**GitHub Actions runs:** attempt 2 success; prover 1 failure\n", text)   # by workflow file, skipped left out
         self.assertIn("kumori_agents.md", text)
 
 

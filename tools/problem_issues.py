@@ -150,12 +150,18 @@ def pending_runs(rows, since, done):
     return sorted(first, key=first.get)
 
 
+def row_day(line):
+    """A ledger line's YYYY-MM-DD, read without parsing it. Most rows open with ts; volunteer rows open with run_id."""
+    i = line.find('"ts": "')
+    return line[i + 7:i + 17] if i >= 0 else ""
+
+
 def load_rows(since_day):
-    """Every ledger row from `since_day` (YYYY-MM-DD) on; rows open with their ts, so older lines are skipped unparsed."""
+    """Every ledger row from `since_day` (YYYY-MM-DD) on; older lines are skipped unparsed."""
     out = []
     for f in (ROOT / "ledger").glob("**/*.jsonl"):
         for l in f.read_text().splitlines():
-            if l[8:18] >= since_day:
+            if l.strip() and row_day(l) >= since_day:
                 out.append(json.loads(l))
     return out
 
@@ -181,7 +187,9 @@ def daily_log(rows, solved_before, runs, day):
     if runs:
         by = defaultdict(lambda: defaultdict(int))
         for r in runs:
-            by[r["name"]][r.get("conclusion") or r.get("status")] += 1
+            state = r.get("conclusion") or r.get("status")
+            if state != "skipped":                   # a comment wakes bench and volunteer; a skipped run did nothing
+                by[Path(r.get("path") or r["name"]).stem][state] += 1
         lines += ["", "**GitHub Actions runs:** " + "; ".join(
             f"{n} " + ", ".join(f"{c} {k}" for k, c in sorted(v.items())) for n, v in sorted(by.items()))]
     lines += ["", f"Every try, transcript and verdict: {relay.SITE}. Every accepted proof: "
@@ -269,6 +277,7 @@ def main():
     ap.add_argument("--max-new", type=int, default=0, help="with --refill: open at most this many this run")
     ap.add_argument("--catchup", action="store_true", help="post every judged try no bot comment has reported, on its thread")
     ap.add_argument("--daily", action="store_true", help="post today's log comment, once a UTC day")
+    ap.add_argument("--redo", action="store_true", help="with --daily: rewrite today's log comment in place, marked corrected")
     ap.add_argument("--open", action="store_true", help="open an issue from OPEN_TITLE / OPEN_BODY / OPEN_LABELS (env)")
     ap.add_argument("--gate-note", default="", help="post NOTE_BODY (env) on the open gate issue of this stage, e.g. stage3")
     args = ap.parse_args()
@@ -393,7 +402,8 @@ def main():
               f"kernel and published. {PITCH}\n\nOnce a day kumori-ai[bot] posts the last 24 hours below: tries "
               "judged by the Lean kernel, accepts, first-time solves and the GitHub Actions runs behind them. Counts "
               f"only, every one from the public ledger. The live view: {relay.SITE}."})
-        if any(c["created_at"][:10] == day and (c.get("user") or {}).get("type") == "Bot" for c in gh.comments(log["number"])):
+        today = [c for c in gh.comments(log["number"]) if c["created_at"][:10] == day and (c.get("user") or {}).get("type") == "Bot"]
+        if today and not args.redo:
             print(f"daily log: {day} already posted on #{log['number']}")
         else:
             since = (now - timedelta(hours=24)).isoformat()
@@ -405,7 +415,12 @@ def main():
             except Exception as e:                   # the Actions line is a nicety; the log posts without it
                 print(f"actions runs unavailable ({type(e).__name__}); log without them")
                 runs = []
-            gh.write("POST", f"/issues/{log['number']}/comments", {"body": daily_log(rows, solved_before, runs, day)})
+            text = daily_log(rows, solved_before, runs, day)
+            if today:                                # a correction is said out loud, never silent
+                text += f"\n\n_Corrected {now:%H:%M} UTC: the first version missed rows that do not open with their timestamp (volunteer hand-offs)._"
+                gh.write("PATCH", f"/issues/comments/{today[-1]['id']}", {"body": text})
+            else:
+                gh.write("POST", f"/issues/{log['number']}/comments", {"body": text})
             print(f"daily log: {day} on #{log['number']}")
     if args.sync:
         from utilities.kumori_api_client import init as kumori_init, sparebrains_thread

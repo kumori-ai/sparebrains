@@ -31,6 +31,10 @@ on:
       note_body:
         description: "the note's text (markdown)"
         default: ""
+      daily_redo:
+        description: "rewrite today's daily log comment in place (marked corrected)"
+        type: boolean
+        default: false
       note_close:
         description: "close that issue as completed after the note"
         type: boolean
@@ -72,6 +76,7 @@ jobs:
           OPEN_TITLE: ${{ inputs.open_title }}
           OPEN_BODY: ${{ inputs.open_body }}
           OPEN_LABELS: ${{ inputs.open_labels }}
+          DAILY_REDO: ${{ inputs.daily_redo }}
         run: |
           if [ -n "$OPEN_TITLE" ]; then
             python3 tools/problem_issues.py --open
@@ -86,5 +91,5 @@ jobs:
           if [ -n "$POST" ]; then python3 tools/problem_issues.py --post --only "$POST"; fi
           python3 tools/problem_issues.py --refill 1000 --max-new 25
           python3 tools/problem_issues.py --catchup
-          python3 tools/problem_issues.py --daily
+          python3 tools/problem_issues.py --daily $( [ "$DAILY_REDO" = "true" ] && echo --redo )
           python3 tools/problem_issues.py --sync
