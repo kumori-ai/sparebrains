@@ -20,7 +20,8 @@ every try is published, the misses included. We aim to spend nothing (free model
 quota, free GPUs), and so far it has cost $0.
 
 We start with mathematics because it has a perfect judge: the Lean proof checker accepts a proof or it
-doesn't. The aim is science that matters, with cancer research as the flagship, one verifiable piece at a time:
+doesn't. The aim is verified pieces of work that cancer researchers can use, delivered through doors they already
+trust (benchmarks, papers, a partner lab), one verifiable stretch at a time:
 
 | the road | judge | as of 2026-10-17 |
 |---|---|---|
@@ -28,7 +29,7 @@ doesn't. The aim is science that matters, with cancer research as the flagship, 
 | 2. Harder math | the Lean kernel | next |
 | 3. Code | hidden tests | running nightly |
 | 4. Science with answer keys | held-out answers | planned |
-| 5. Biomed and cancer challenges | the challenges' own scoring | the goal |
+| 5. Verified pieces for cancer researchers | the challenges' scoring, then a partner lab | the goal |
 
 **Our bet: with the right tools, smaller free models can do what only big ones do alone.** So far the
 evidence agrees. The same free answers, run through our

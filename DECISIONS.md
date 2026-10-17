@@ -5,6 +5,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-17
 
+- **The north star, made concrete: verified pieces of work that cancer researchers can use, delivered through
+  doors they already trust (Andy).** This refines the entry below ("cancer research as the flagship"). A scout on
+  2026-10-17 found that outside contributions reached cancer researchers through a named lab, a published paper
+  or a benchmark with a metric, and found no example of an unsolicited AI-generated hypothesis being used; Google's
+  Co-Scientist (Nature 2026-05) works because labs ask it their own questions (Nature feature, 2026-09-21), and an
+  unvalidated AI biology claim was called "preliminary" by experts (CNN, 2026-10-08). Precedents that used donated
+  tumour tissue (Cell Slider, Reverse the Odds) are outside the no-personal-data filter. Candidates for the science
+  stretches, scouted, not chosen: (1) openproblems.bio, single-cell benchmarks where anyone contributes a method that
+  is re-run and scored automatically (14 tasks, 127 public datasets; the tools idea in another field); (2) DREAM
+  challenges on Synapse with no patient data (each one's terms checked first); (3) cancer drug response on public
+  cell-line data (DepMap, GDSC) with our own held-out split and scorer, which needs a partner lab before anyone uses it.
+  Finding one named cancer lab willing to receive the work is a milestone of its own. Kumori tasks #459, #464.
 - **The north star and how we get there (Andy, with Claude).** Sparebrains exists to show that people plus
   freely available AI, coordinated and judged by machines, can solve hard problems in the open, aiming at science
   and eventually cancer research; the labs' math results of 2024-2026 (IMO golds, Erdos problems) came almost
