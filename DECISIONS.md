@@ -58,7 +58,7 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   alone; each rejected answer (up to 6 a problem) gets the fixer's name repair and Lean's automation, recorded as
   `fixer+loop` beside the raw `prover` row. The answer's last complete block is judged, never the earlier
   `sorry` sketch the model also writes (the old extractor took the longest block, which was the sketch). **The
-  bar's 7 days start at the first batch's push**, written here when it happens.
+  bar's 7 days start at the first batch's push**: batch `20261017T1830` (50 problems, 1,600 samples) was pushed 2026-10-17 18:30 UTC (11:30 PT) by prover run 39058392786, so the bar is graded at 2026-10-24 18:30 UTC.
 - **The 88 open statements against miniF2F-v2s: none found false.** v2s (github.com/roozbeh-mohit/miniF2F_v2,
   `datasets/miniF2F_v2s.jsonl`, read 2026-10-17) labels our 244 as its `valid` split, not `test` (243
   shared names). 31 of the 88 are identical to v2s, 14 differ only in form (parentheses, hypothesis names,
