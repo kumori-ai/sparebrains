@@ -5,6 +5,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-17
 
+- **We show our work on GitHub too (Andy): every open problem gets a thread, and every judged try reaches it.**
+  The threads had gone quiet since 10-09 while the relay kept making 450 to 750 tries a day: most went to
+  problems with no thread, and GitHub fired the `issues` workflow for only 22 of 60 attempt runs from 10-16
+  (self-chained `workflow_dispatch` runs do not reliably raise `workflow_run`), so 12 relay runs on threaded
+  problems were never posted. Now `issues.yml` also runs hourly and `tools/problem_issues.py --catchup` posts
+  every judged try (any mode: relay, cold, the loop, the prover, volunteers) that no bot comment has reported,
+  found by a run marker in each digest; threads open for every open problem, 25 a run at most; a `log`
+  issue gets a daily roll-up of tries, accepts, first-time solves and Actions runs; the prover posts what
+  Kaggle said on the stage 3 gate issue at every check, running or not; and the bot can open gate and plan
+  issues (`--open`). Every post says what the project is trying to do and points to `kumori_agents.md`.
+  Writes are paced 1 s apart and capped at 150 digests a run, under GitHub's 80 a minute and 500 an hour
+  (its REST rate-limit docs, read 2026-10-17). Machine output is authored by kumori-ai[bot]; a person's
+  solve carries that person's login.
 - **Stage 2's verdict: more tries stopped helping (Andy and Claude, from the ledger).** Measured on the
   committed ledger as of 2026-10-17: 27 first-time solves since 2026-10-06 (290 of 378 targets solved,
   88 open, all `minif2f/test`). Where they came from: 15 `fixer+loop` (Lean's automation on stored near

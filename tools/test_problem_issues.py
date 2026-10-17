@@ -60,7 +60,7 @@ class QuoteReplyTests(unittest.TestCase):
                 dict(run_id="9", target_set="mil", target="a", backend="y", attempt_no=1, try_mode="relay+thread",
                      comment_ids=[77], verdict="reject", reason="unsolved goals")]
         text = dict(pi.digest("9", rows, {77: ("tillo13", "Idea: take logs\nof both sides")}))["mil/a"]
-        self.assertTrue(text.startswith("> **@tillo13** wrote:\n> Idea: take logs\n> of both sides"))
+        self.assertTrue(text.split("\n", 1)[1].startswith("> **@tillo13** wrote:\n> Idea: take logs\n> of both sides"))
         self.assertIn("2 of this run's answers came from models that read the comment above", text)
 
     def test_a_run_that_read_no_comment_quotes_nothing(self):
@@ -100,6 +100,57 @@ class RefillTests(unittest.TestCase):
     def test_never_more_than_n_even_with_a_long_order(self):
         opened, _ = self.run_refill({}, [str(i) for i in range(50)], n=5)
         self.assertEqual(len(opened), 5)
+
+    def test_max_new_paces_a_large_n_across_runs(self):
+        gh = self.GH()
+        opened = pi.refill(gh, {}, self.targets(*[str(i) for i in range(50)]), lambda ts, t: {"solved": False}, 1000,
+                           render_fn=lambda d, o: ("t", "b"), max_new=25)
+        self.assertEqual(len(opened), 25)
+
+
+class CatchupTests(unittest.TestCase):
+    """Every judged try reaches its thread once, whether or not GitHub fired the run's workflow_run event."""
+    BOT, PERSON = {"type": "Bot"}, {"type": "User"}
+
+    def test_reported_runs_come_from_the_marker_and_the_older_heading_in_bot_comments_only(self):
+        comments = [dict(user=self.BOT, body="<!-- sparebrains:digest run=11 -->\n**Run [11](x)**"),
+                    dict(user=self.BOT, body="**Run [10](https://sparebrains.kumori.ai/runs/10)** (relay): 3 tries"),
+                    dict(user=self.PERSON, body="<!-- sparebrains:digest run=12 -->")]
+        self.assertEqual(pi.digested_runs(comments), {"10", "11"})
+
+    def test_pending_runs_are_unreported_after_the_thread_opened_any_mode_oldest_first(self):
+        rows = [dict(run_id="3", ts="2026-10-17T05:00", verdict="reject", try_mode="prover"),
+                dict(run_id="2", ts="2026-10-17T04:00", verdict="accept", try_mode="fixer+loop"),
+                dict(run_id="1", ts="2026-10-16T00:00", verdict="reject"),         # before the thread opened
+                dict(run_id="4", ts="2026-10-17T06:00", verdict="reject"),         # already reported
+                dict(run_id="5", ts="2026-10-17T07:00", verdict="skipped")]        # never judged
+        self.assertEqual(pi.pending_runs(rows, "2026-10-17T00:00", {"4"}), ["2", "3"])
+
+    def test_every_digest_carries_its_run_marker_and_the_pitch(self):
+        rows = [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1, verdict="reject", reason="r"),
+                dict(run_id="9", target_set="mil", target="b", backend="x", attempt_no=1, verdict="accept", reason="ok")]
+        out = dict(pi.digest("9", rows))
+        self.assertTrue(out["mil/a"].startswith("<!-- sparebrains:digest run=9 -->"))
+        for text in out.values():                                  # solved or not, every post points at kumori_agents.md
+            self.assertIn("kumori_agents.md", text)
+
+
+class DailyLogTests(unittest.TestCase):
+    def test_counts_first_time_solves_and_actions_runs(self):
+        rows = [dict(target_set="s", target="a", backend="x", verdict="accept", try_mode="relay"),
+                dict(target_set="s", target="b", backend="y", verdict="accept", try_mode="prover"),
+                dict(target_set="s", target="c", backend="y", verdict="reject", try_mode="prover"),
+                dict(target_set="s", target="c", backend="y", verdict="error", try_mode="relay")]
+        runs = [dict(name="attempt", conclusion="success"), dict(name="attempt", conclusion="success"),
+                dict(name="prover", conclusion="failure")]
+        text = pi.daily_log(rows, {"s/a"}, runs, "2026-10-17")
+        self.assertTrue(text.startswith(pi.LOG_MARKER))
+        self.assertIn("4 tries judged by the Lean kernel, 3 answered, **2 accepted**, by 2 lanes on 3 problems", text)
+        self.assertIn("**First-time solves:** [`s/b`]", text)                 # s/a was solved before the window
+        self.assertNotIn("`s/a`]", text)
+        self.assertIn("| `prover` | 2 | 1 |", text)
+        self.assertIn("attempt 2 success; prover 1 failure", text)
+        self.assertIn("kumori_agents.md", text)
 
 
 if __name__ == "__main__":

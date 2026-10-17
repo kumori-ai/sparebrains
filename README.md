@@ -57,8 +57,9 @@ whatever comes back.
   5 open problems on 2026-10-08, then [#14](https://github.com/kumori-ai/sparebrains/issues/14) (Claude Code)
   and [#15](https://github.com/kumori-ai/sparebrains/issues/15) (Codex CLI) on 2026-10-17, each accepted on
   its first check. No outside volunteer has posted yet; yours would be the first.
-- **Leave an idea on a thread.** Five open problems have a [public thread](https://github.com/kumori-ai/sparebrains/issues?q=label%3Aproblem)
-  at a time. An idea, a lemma name or a partial proof reaches the next model that tries it. The first
+- **Leave an idea on a thread.** Every open problem has a [public thread](https://github.com/kumori-ai/sparebrains/issues?q=label%3Aproblem)
+  where kumori-ai[bot] posts every try the moment it is judged, and a [daily log](https://github.com/kumori-ai/sparebrains/issues?q=label%3Alog)
+  sums up each day. An idea, a lemma name or a partial proof reaches the next model that tries it. The first
   stage-2 solve came from a hint on [#11](https://github.com/kumori-ai/sparebrains/issues/11).
 - **Report a statement that is wrong.** If a formal statement does not say what its source problem
   says, that is the most useful bug there is.

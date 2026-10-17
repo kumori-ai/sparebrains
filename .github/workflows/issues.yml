@@ -1,6 +1,7 @@
-# Stage 2's public threads (DECISIONS.md 2026-10-06), posted as kumori-ai[bot]. After every attempt
-# run: a digest on each problem a relay run touched, the first post refreshed, and every comment
-# copied into the problem's dossier so the next model reads it. By hand: open or refresh threads.
+# The public threads (DECISIONS.md 2026-10-06, 2026-10-17), posted as kumori-ai[bot]. Every hour and after
+# attempt runs: a thread for every open problem (25 new a run at most), every judged try not yet reported
+# posted on its thread (any mode; GitHub drops most workflow_run events for self-chained runs), the daily
+# log once a UTC day, and every comment copied into the problem's dossier so the next model reads it.
 # Comments are only ever read as text here; nothing from an issue is executed.
 name: issues
 
@@ -8,8 +9,19 @@ on:
   workflow_run:
     workflows: [attempt]
     types: [completed]
+  schedule:
+    - cron: "23 * * * *"      # the heartbeat: workflow_run fired for 22 of 60 attempt runs, 2026-10-16..17
   workflow_dispatch:
     inputs:
+      open_title:
+        description: "open a new issue as the bot: its title (a gate or plan issue)"
+        default: ""
+      open_body:
+        description: "the new issue's body (markdown)"
+        default: ""
+      open_labels:
+        description: "the new issue's labels, comma-separated"
+        default: ""
       post:
         description: "<set>/<target> keys to open or refresh, comma-separated"
         default: ""
@@ -34,7 +46,7 @@ concurrency:
 jobs:
   threads:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,7 +69,14 @@ jobs:
           NOTE_ISSUE: ${{ inputs.note_issue }}
           NOTE_BODY: ${{ inputs.note_body }}
           NOTE_CLOSE: ${{ inputs.note_close }}
+          OPEN_TITLE: ${{ inputs.open_title }}
+          OPEN_BODY: ${{ inputs.open_body }}
+          OPEN_LABELS: ${{ inputs.open_labels }}
         run: |
+          if [ -n "$OPEN_TITLE" ]; then
+            python3 tools/problem_issues.py --open
+            exit 0
+          fi
           if [ -n "$NOTE_ISSUE" ]; then
             case "$NOTE_ISSUE" in *[!0-9]*) echo "note_issue must be a number"; exit 1;; esac
             python3 tools/problem_issues.py --note "$NOTE_ISSUE" $( [ "$NOTE_CLOSE" = "true" ] && echo --close )
@@ -65,6 +84,7 @@ jobs:
           fi
           python3 -m pip install -q requests
           if [ -n "$POST" ]; then python3 tools/problem_issues.py --post --only "$POST"; fi
-          if [ -n "$RUN_ID" ]; then python3 tools/problem_issues.py --digest "$RUN_ID"; fi
-          python3 tools/problem_issues.py --refill 5
+          python3 tools/problem_issues.py --refill 1000 --max-new 25
+          python3 tools/problem_issues.py --catchup
+          python3 tools/problem_issues.py --daily
           python3 tools/problem_issues.py --sync

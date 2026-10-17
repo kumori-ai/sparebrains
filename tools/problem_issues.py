@@ -6,12 +6,16 @@ reading the dossier and the ledger. Everything here is rendered from the public 
     python3 tools/problem_issues.py --post --only ...         (GH_TOKEN: the app's installation token)
     python3 tools/problem_issues.py --digest RUN_ID            one comment per problem a relay run touched
     python3 tools/problem_issues.py --sync                     every comment back into the dossier
-    python3 tools/problem_issues.py --refill 5                 keep 5 threads open: when one is solved, open the next
+    python3 tools/problem_issues.py --refill 1000 --max-new 25 a thread for every open problem, 25 more a run at most
+    python3 tools/problem_issues.py --catchup                  every judged try no bot comment has reported yet, any mode
+    python3 tools/problem_issues.py --daily                    the daily log: one comment a UTC day on the log issue
+    python3 tools/problem_issues.py --open                     a new issue from OPEN_TITLE / OPEN_BODY / OPEN_LABELS (env)
 
 The issue body is the bot's and is regenerated in place (it opens with MARKER); people write in
 the comments, and those comments reach the next model through the dossier.
 """
-import argparse, json, os, sys, urllib.request
+import argparse, json, os, re, sys, time, urllib.request
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from pathlib import Path
 
@@ -23,6 +27,14 @@ REPO = "kumori-ai/sparebrains"
 API = f"https://api.github.com/repos/{REPO}"
 LABEL = "problem"
 MARKER = "<!-- sparebrains:problem {key} -->"
+DIGEST_MARK = "<!-- sparebrains:digest run={run} -->"
+LOG_LABEL, LOG_MARKER = "log", "<!-- sparebrains:log -->"
+GATE_MARKER = "<!-- sparebrains:gate {stage} -->"   # the open gate issue a stage's workflow reports on
+PACE_S = 1.0          # between writes: GitHub allows 80 content writes a minute and 500 an hour (its REST rate-limit docs, 2026-10-17)
+AGENTS_URL = f"https://github.com/{REPO}/blob/main/kumori_agents.md"
+PITCH = ("**Help solve it:** tell any coding agent (Claude Code, Codex, Cline, ...) *\"read "
+         f"[kumori_agents.md]({AGENTS_URL}) and start\"*. Your quota, your machine, and the Lean kernel is the only judge.")
+MAX_POSTS = 150       # digest comments a run at most; the next hourly run takes the rest
 
 
 def key_of(target_set, target):
@@ -99,7 +111,7 @@ def digest(run_id, rows, comments=None):
             head += [f"{n_read} of this run's answers came from models that read the comment above (`relay+thread`); "
                      "every try, answered or not, is below:", ""]
         kinds = ", ".join(sorted({r.get("try_mode") or "cold" for r in rs}))
-        lines = head + [f"**Run [{run_id}]({relay.SITE}/runs/{run_id})** ({kinds}): {len(rs)} tries, {len(answered)} answers, "
+        lines = [DIGEST_MARK.format(run=run_id)] + head + [f"**Run [{run_id}]({relay.SITE}/runs/{run_id})** ({kinds}): {len(rs)} tries, {len(answered)} answers, "
                  f"{len(accepted)} accepted by the kernel.", "", "| model | lane | try | verdict | what Lean said first |", "|---|---|---|---|---|"]
         for r in rs:
             reason = (r.get("reason") or "").replace("|", "\\|").replace("\n", " ")[:140]
@@ -112,13 +124,89 @@ def digest(run_id, rows, comments=None):
         else:
             lines += ["", "_Spot what they missed? A lemma that exists, a different route, a partial proof: comment "
                       "below and the next run's models read it, as one did for `mathd_algebra_756` (#11)._"]
+        lines += ["", PITCH]
         out.append((key, "\n".join(lines)))
     return out
+
+
+def digested_runs(comments):
+    """Run ids the bot's comments on a thread already reported: the marker, or the older '**Run [id](' heading."""
+    out = set()
+    for c in comments:
+        if (c.get("user") or {}).get("type") == "Bot":
+            body = c.get("body") or ""
+            out.update(re.findall(r"sparebrains:digest run=(\d+)", body) + re.findall(r"\*\*Run \[(\d+)\]\(", body))
+    return out
+
+
+def pending_runs(rows, since, done):
+    """Run ids with a judged try on this problem after `since` (the thread's opening) that no bot comment has
+    reported, oldest first. Every mode counts: relay, cold, the loop, the prover, volunteers."""
+    first = {}
+    for r in rows:
+        run = str(r.get("run_id") or "")
+        if run and run not in done and (r.get("ts") or "") > since and r.get("verdict") in ("accept", "reject", "error"):
+            first[run] = min(first.get(run, r["ts"]), r["ts"])
+    return sorted(first, key=first.get)
+
+
+def load_rows(since_day):
+    """Every ledger row from `since_day` (YYYY-MM-DD) on; rows open with their ts, so older lines are skipped unparsed."""
+    out = []
+    for f in (ROOT / "ledger").glob("**/*.jsonl"):
+        for l in f.read_text().splitlines():
+            if l[8:18] >= since_day:
+                out.append(json.loads(l))
+    return out
+
+
+def daily_log(rows, solved_before, runs, day):
+    """The daily log comment for the 24 hours ending now, from ledger rows and Actions runs: counts only."""
+    judged = [r for r in rows if r.get("verdict") in ("accept", "reject", "error")]
+    answered = [r for r in judged if r["verdict"] in ("accept", "reject")]
+    accepted = [r for r in judged if r["verdict"] == "accept"]
+    first = sorted({key_of(r["target_set"], r["target"]) for r in accepted} - solved_before)
+    modes = defaultdict(lambda: [0, 0])
+    for r in answered:
+        m = modes[r.get("try_mode") or "cold"]
+        m[0] += 1
+        m[1] += r["verdict"] == "accept"
+    lines = [LOG_MARKER, f"**{day}** (the 24 hours to {datetime.now(timezone.utc):%H:%M} UTC)", "",
+             f"{len(judged)} tries judged by the Lean kernel, {len(answered)} answered, **{len(accepted)} accepted**, by "
+             f"{len({r['backend'] for r in judged})} lanes on {len({(r['target_set'], r['target']) for r in judged})} problems.", ""]
+    if first:
+        lines += ["**First-time solves:** " + ", ".join(f"[`{k}`]({relay.SITE}/problems/{k})" for k in first), ""]
+    lines += ["| try mode | answered | accepted |", "|---|---:|---:|"]
+    lines += [f"| `{m}` | {a} | {k} |" for m, (a, k) in sorted(modes.items(), key=lambda x: -x[1][0])]
+    if runs:
+        by = defaultdict(lambda: defaultdict(int))
+        for r in runs:
+            by[r["name"]][r.get("conclusion") or r.get("status")] += 1
+        lines += ["", "**GitHub Actions runs:** " + "; ".join(
+            f"{n} " + ", ".join(f"{c} {k}" for k, c in sorted(v.items())) for n, v in sorted(by.items()))]
+    lines += ["", f"Every try, transcript and verdict: {relay.SITE}. Every accepted proof: "
+              f"[verified/](https://github.com/{REPO}/tree/main/verified).", "", PITCH]
+    return "\n".join(lines)
 
 
 class GitHub:
     def __init__(self, token):
         self.token = token
+
+    def write(self, method, path, data=None):
+        """A content write, paced to stay under GitHub's per-minute limit."""
+        out = self.call(method, path, data)
+        time.sleep(PACE_S)
+        return out
+
+    def comments(self, number):
+        out, page = [], 1
+        while True:
+            batch = self.call("GET", f"/issues/{number}/comments?per_page=100&page={page}")
+            out += batch
+            if len(batch) < 100:
+                return out
+            page += 1
 
     def call(self, method, path, data=None):
         req = urllib.request.Request(API + path, method=method, data=json.dumps(data).encode() if data is not None else None,
@@ -142,14 +230,15 @@ class GitHub:
             page += 1
 
 
-def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=None):
-    """Keep n problem threads open (Andy, 2026-10-08). A solved problem's thread closes in the digest;
-    its place goes to the next problem in the stage-2 order that has never had a thread. A closed thread
-    is never reopened, and no more than n are ever open, so a run opens at most n. Returns opened keys."""
+def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=None, max_new=None):
+    """Keep n problem threads open (Andy, 2026-10-08; every open problem from 2026-10-17). A solved problem's
+    thread closes in the digest; its place goes to the next problem in the stage-2 order that has never had a
+    thread. A closed thread is never reopened, no more than n are ever open, and a run opens at most max_new
+    (default n). Returns opened keys."""
     render_fn = render_fn or render
     open_now, opened = sum(1 for i in issues.values() if i["state"] == "open"), []
     for t in open_targets:
-        if open_now >= n:
+        if open_now >= n or len(opened) >= (max_new or n):
             break
         k = key_of(t["target_set"], t["target"])
         if k in issues:
@@ -158,7 +247,7 @@ def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=Non
         if d.get("solved"):
             continue
         title, body = render_fn(d, (order or {}).get(k))
-        i = gh.call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
+        i = (gh.write if hasattr(gh, "write") else gh.call)("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
         issues[k] = i
         open_now += 1
         opened.append(k)
@@ -177,6 +266,11 @@ def main():
     ap.add_argument("--close", action="store_true", help="with --note: close the issue as completed")
     ap.add_argument("--refill", type=int, default=0, help="open threads for the next unsolved problems in the "
                     "stage-2 order until this many are open")
+    ap.add_argument("--max-new", type=int, default=0, help="with --refill: open at most this many this run")
+    ap.add_argument("--catchup", action="store_true", help="post every judged try no bot comment has reported, on its thread")
+    ap.add_argument("--daily", action="store_true", help="post today's log comment, once a UTC day")
+    ap.add_argument("--open", action="store_true", help="open an issue from OPEN_TITLE / OPEN_BODY / OPEN_LABELS (env)")
+    ap.add_argument("--gate-note", default="", help="post NOTE_BODY (env) on the open gate issue of this stage, e.g. stage3")
     args = ap.parse_args()
     try:
         order = {key_of(t["target_set"], t["target"]): t["order"] for t in relay.fetch_json("/targets.json")["open"]}
@@ -196,6 +290,23 @@ def main():
         return 0
 
     gh = GitHub(os.environ["GH_TOKEN"])
+    if args.open:                                    # a gate or plan issue, opened as the bot
+        title, body = os.environ.get("OPEN_TITLE", "").strip(), os.environ.get("OPEN_BODY", "").strip()
+        if not title or not body:
+            sys.exit("--open needs OPEN_TITLE and OPEN_BODY")
+        labels = [l.strip() for l in os.environ.get("OPEN_LABELS", "").split(",") if l.strip()]
+        i = gh.write("POST", "/issues", {"title": title, "body": body, "labels": labels})
+        print(f"opened #{i['number']} {i['html_url']}")
+        return 0
+    if args.gate_note:                               # a stage's workflow reporting on its own gate issue
+        body, mark = os.environ.get("NOTE_BODY", "").strip(), GATE_MARKER.format(stage=args.gate_note)
+        gates = [i for i in gh.call("GET", "/issues?labels=gate&state=open&per_page=20") if (i.get("body") or "").startswith(mark)]
+        if not body or not gates:
+            print(f"gate note: {'no body' if not body else 'no open gate issue for ' + args.gate_note}; nothing posted")
+            return 0
+        c = gh.write("POST", f"/issues/{gates[0]['number']}/comments", {"body": f"{body}\n\n{PITCH}"})
+        print(f"gate note on #{gates[0]['number']}: {c['html_url']}")
+        return 0
     if args.note:                                    # a status note on a plan issue, written by a person
         body = os.environ.get("NOTE_BODY", "").strip()
         if not body:
@@ -244,7 +355,58 @@ def main():
                 gh.call("PATCH", f"/issues/{n}", {"state": "closed", "state_reason": "completed"})
             print(f"{k}: digest on #{n}")
     if args.refill:
-        refill(gh, issues, relay.fetch_json("/targets.json")["open"], relay.fetch_dossier, args.refill, order)
+        refill(gh, issues, relay.fetch_json("/targets.json")["open"], relay.fetch_dossier, args.refill, order,
+               max_new=args.max_new or None)
+    if args.catchup:                                 # robust to the workflow_run events GitHub drops (2026-10-17: 22 of 60)
+        live = {k: i for k, i in issues.items() if i["state"] == "open"}
+        since_day = min((i["created_at"][:10] for i in live.values()), default="9999")
+        by_key = defaultdict(list)
+        for r in load_rows(since_day):
+            by_key[key_of(r["target_set"], r["target"])].append(r)
+        posted = 0
+        for k, i in sorted(live.items(), key=lambda x: x[1]["number"]):
+            n, since = i["number"], i["created_at"].replace("Z", "+00:00")
+            for run in pending_runs(by_key.get(k, []), since, digested_runs(gh.comments(n))):
+                if posted >= MAX_POSTS:
+                    print(f"catch-up: {MAX_POSTS} posted; the rest wait for the next run")
+                    break
+                (_, text), = digest(run, by_key[k])
+                gh.write("POST", f"/issues/{n}/comments", {"body": text})
+                posted += 1
+                print(f"{k}: run {run} on #{n}")
+                if "**Solved.**" in text:
+                    gh.write("PATCH", f"/issues/{n}", {"state": "closed", "state_reason": "completed"})
+                    break
+            else:
+                continue
+            if posted >= MAX_POSTS:
+                break
+        print(f"catch-up: {posted} digest comments")
+    if args.daily:
+        now = datetime.now(timezone.utc)
+        day = f"{now:%Y-%m-%d}"
+        logs = [i for i in gh.call("GET", f"/issues?labels={LOG_LABEL}&state=open&per_page=10")
+                if (i.get("body") or "").startswith(LOG_MARKER)]
+        log = logs[0] if logs else gh.write("POST", "/issues", {"title": "sparebrAIns daily log: what the bots did today",
+              "labels": [LOG_LABEL], "body": f"{LOG_MARKER}\n**What we are trying to do:** prove every open problem on the "
+              "ladder (competition mathematics in Lean 4) with spare free-tier AI compute, every answer judged by the Lean "
+              f"kernel and published. {PITCH}\n\nOnce a day kumori-ai[bot] posts the last 24 hours below: tries "
+              "judged by the Lean kernel, accepts, first-time solves and the GitHub Actions runs behind them. Counts "
+              f"only, every one from the public ledger. The live view: {relay.SITE}."})
+        if any(c["created_at"][:10] == day and (c.get("user") or {}).get("type") == "Bot" for c in gh.comments(log["number"])):
+            print(f"daily log: {day} already posted on #{log['number']}")
+        else:
+            since = (now - timedelta(hours=24)).isoformat()
+            rows = [r for r in load_rows(f"{now - timedelta(hours=24):%Y-%m-%d}") if (r.get("ts") or "") > since]
+            solved_before = {key_of(r["target_set"], r["target"]) for r in load_rows("0000")
+                             if r.get("verdict") == "accept" and (r.get("ts") or "") <= since}
+            try:
+                runs = gh.call("GET", f"/actions/runs?created=>={since[:19]}&per_page=100")["workflow_runs"]
+            except Exception as e:                   # the Actions line is a nicety; the log posts without it
+                print(f"actions runs unavailable ({type(e).__name__}); log without them")
+                runs = []
+            gh.write("POST", f"/issues/{log['number']}/comments", {"body": daily_log(rows, solved_before, runs, day)})
+            print(f"daily log: {day} on #{log['number']}")
     if args.sync:
         from utilities.kumori_api_client import init as kumori_init, sparebrains_thread
         kumori_init()
