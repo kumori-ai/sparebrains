@@ -2,7 +2,7 @@
 
 # sparebrAIns
 
-**Idle free-tier compute → machine-verified public artifacts.**
+**Hard problems, solved in the open, by everyone's spare AI.**
 
 [![live scoreboard](https://img.shields.io/badge/live-sparebrains.kumori.ai-e8a33d?style=flat-square)](https://sparebrains.kumori.ai)
 [![judge](https://img.shields.io/badge/judge-Lean%204%20kernel-1f6feb?style=flat-square)](#verified-means)
@@ -10,14 +10,34 @@
 [![spent on models](https://img.shields.io/badge/spent%20on%20models-%240-2ea44f?style=flat-square)](#money)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
-The kumori free-LLM pool (60+ free-tier models behind one router) sits idle most of the day.
-sparebrAIns points that spare capacity at competition mathematics written in Lean 4 and lets
-the Lean proof kernel, not a person and not another model, decide what counts. Every call
-either produces a kernel-verified proof or is honestly recorded as a miss, in full, for the
-next attempt to build on. Nothing false survives; nothing learned is thrown away. Cost: $0.
+In 2025 and 2026 the big AI labs showed their models can do real mathematics: olympiad gold medals, open
+Erdős problems. Nearly all of it ran on their own datacenters, behind their own doors.
 
-As of 2026-10-17: **292 of 378 problems solved, more than 11,000 proofs accepted by the kernel from
-62,000+ attempts, $0 spent on models.** Every one is public.
+sparebrAIns asks a different question: **can the rest of us do it together, in the open?** Free-tier AI
+models that would otherwise sit idle, leftover quota from anyone's Claude or ChatGPT plan, and human brains,
+all pointed at the same problems. A machine judge decides every answer, so nobody has to trust anybody, and
+every try is published, the misses included. We aim to spend nothing (free models, donated
+quota, free GPUs), and so far it has cost $0.
+
+We start with mathematics because it has a perfect judge: the Lean proof checker accepts a proof or it
+doesn't. The aim is science that matters, with cancer research as the flagship, one verifiable piece at a time:
+
+| the road | judge | as of 2026-10-17 |
+|---|---|---|
+| 1. Competition math | the Lean kernel | **292 of 378 solved**, 11,000+ proofs accepted from 62,000+ attempts |
+| 2. Harder math | the Lean kernel | next |
+| 3. Code | hidden tests | running nightly |
+| 4. Science with answer keys | held-out answers | planned |
+| 5. Biomed and cancer challenges | the challenges' own scoring | the goal |
+
+**Our bet: with the right tools, smaller free models can do what only big ones do alone.** So far the
+evidence agrees. The same free answers, run through our
+open-source repair tools, go from 45% to 57% correct, and the smallest models gain the most (one goes from
+6.5% to 32.6%). [Every lane, alone and with our tools](https://sparebrains.kumori.ai/lanes#lift). The tools
+stay as the models come and go.
+
+**Help:** tell any coding agent *"read [kumori_agents.md](kumori_agents.md) and start."* Your quota, your
+machine, the kernel decides.
 
 | | |
 |---|---|
@@ -252,7 +272,7 @@ products below.
 honest part: free-tier models are spare parts, and the verifier is what makes that fine.
 
 ## Money
-No money flows through this project. Prizes won by contributors are theirs; anything paid to
+As of 2026-10-17, no money flows through this project, and we aim to keep it that way. Prizes won by contributors are theirs; anything paid to
 the org's own accounts is donated to a named recipient and logged here. The org never funds
 prizes itself. Every run's commit names the pool, the lane count and the verifier versions.
 
