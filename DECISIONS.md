@@ -11,7 +11,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   or a benchmark with a metric, and found no example of an unsolicited AI-generated hypothesis being used; Google's
   Co-Scientist (Nature 2026-05) works because labs ask it their own questions (Nature feature, 2026-09-21), and an
   unvalidated AI biology claim was called "preliminary" by experts (CNN, 2026-10-08). Precedents that used donated
-  tumour tissue (Cell Slider, Reverse the Odds) are outside the no-personal-data filter. Candidates for the science
+  tumour tissue (Cell Slider, Reverse the Odds: 4.5 million slides) show that patient-derived data can be used
+  legitimately. The project's "no personal data" filter (TARGETS.md) is a working choice as of 2026-10-17, not a
+  law, and it is challenged here: much open cancer data is patient-derived but de-identified and published for open
+  use (TCGA's open-access tier, the NCI Imaging Data Commons' public collections), so the real constraints are
+  consent, de-identification and each dataset's terms, decided per dataset. Candidates for the science
   stretches, scouted, not chosen: (1) openproblems.bio, single-cell benchmarks where anyone contributes a method that
   is re-run and scored automatically (14 tasks, 127 public datasets; the tools idea in another field); (2) DREAM
   challenges on Synapse with no patient data (each one's terms checked first); (3) cancer drug response on public
