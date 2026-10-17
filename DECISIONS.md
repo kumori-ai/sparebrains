@@ -46,6 +46,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   statement audit below removed none). The comparison: the relay made 2 first-time solves in 2026-10-10..10-16.
   Missing it is a finding too: the leftover problems are past what this prover does at 32 tries, and the
   plans or bigger models are next.
+- **The prover lane, as built (`tools/prover.py`, `tools/prover_kernel.py`, `.github/workflows/prover.yml`).**
+  Kaggle (account `kumoriai`, Andy's choice, its "personal, non-commercial" clause read first) runs
+  Goedel-Prover-V2-8B on GPU T4 x2 under vLLM, 32 samples a problem at temperature 1.0, top-p 0.95, up to 16,000
+  tokens, the model card's own prompt, our target file as the statement. The workflow (every 2 h) keeps one batch
+  going, downloads a finished one, and judges it here as the sandbox user; a problem stops at its first accept, and
+  a failed batch is never re-pushed on its own. Measured by a canary on 2026-10-17: vLLM needs Kaggle's torchaudio
+  removed (CUDA 12.8 against vLLM's 13.0); the model loads in 5.6 minutes; 8 samples of `mathd_algebra_478` came
+  back in 67 s (108 tokens/s together, 810 to 1,076 tokens each). Known risk, not a reason to move the bar: the
+  model was trained on Lean 4.9's mathlib and the judge pins v4.33.1, so a proof can fail on a renamed lemma
+  alone; each rejected answer (up to 6 a problem) gets the fixer's name repair and Lean's automation, recorded as
+  `fixer+loop` beside the raw `prover` row. The answer's last complete block is judged, never the earlier
+  `sorry` sketch the model also writes (the old extractor took the longest block, which was the sketch). **The
+  bar's 7 days start at the first batch's push**, written here when it happens.
 - **The 88 open statements against miniF2F-v2s: none found false.** v2s (github.com/roozbeh-mohit/miniF2F_v2,
   `datasets/miniF2F_v2s.jsonl`, read 2026-10-17) labels our 244 as its `valid` split, not `test` (243
   shared names). 31 of the 88 are identical to v2s, 14 differ only in form (parentheses, hypothesis names,

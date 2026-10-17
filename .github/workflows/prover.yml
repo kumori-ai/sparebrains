@@ -1,0 +1,107 @@
+# Stage 3, the prover lane (DECISIONS.md 2026-10-17). Kaggle's free GPUs write the answers (tools/prover_kernel.py);
+# this job keeps one Kaggle batch going at a time and judges each finished batch here, with tools/check.py as the
+# sandbox user, like every other try. Every two hours: if the batch is still running, nothing happens; if it is done,
+# its answers are judged (resumable: a job that runs out of time leaves the rest for the next); when every answer is
+# judged, the next batch is pushed, until the bar's problems each have their 32 samples.
+name: prover
+
+on:
+  schedule:
+    - cron: "45 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "push the next batch now, whatever the last one did (after reading its log)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write        # publish the ledger rows and verified proofs
+
+concurrency:
+  group: prover
+  cancel-in-progress: false
+
+jobs:
+  prover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests "kaggle>=1.8"
+
+      # The Kaggle token lives only in this step and the push step; neither runs Lean.
+      - name: the Kaggle batch
+        id: kaggle
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          if [ "${{ inputs.push }}" = "true" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
+          status=$(kaggle kernels status kumoriai/sparebrains-prover 2>&1 | tail -1 || true)
+          echo "kaggle: $status"
+          case "$status" in
+            *RUNNING*|*QUEUED*) echo "state=running" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *404*|*"Not Found"*|*"not found"*) echo "no batch yet"; echo "state=push" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *COMPLETE*) ;;
+            # A failed or cancelled batch is never pushed again on its own: that would spend the week's GPU
+            # hours on the same failure every two hours. A person reads its log and dispatches by hand.
+            *) echo "::error::Kaggle batch ended without completing: $status"; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/kout"
+          kaggle kernels output kumoriai/sparebrains-prover -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
+          tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+          if [ ! -s "$RUNNER_TEMP/kout/answers.jsonl" ]; then
+            echo "::error::the batch completed with no answers; read its log on Kaggle before pushing again"; exit 1
+          fi
+          pending=$(python3 tools/prover.py pending --answers "$RUNNER_TEMP/kout/answers.jsonl")
+          echo "answers still to judge: $pending"
+          if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
+
+      - name: lean + mathlib cache + build
+        if: steps.kaggle.outputs.state == 'judge'
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        if: steps.kaggle.outputs.state == 'judge'
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge the answers
+        id: judge
+        if: steps.kaggle.outputs.state == 'judge'
+        env:
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          python3 tools/prover.py judge --answers "$RUNNER_TEMP/kout/answers.jsonl" --max-minutes 270 | tee "$RUNNER_TEMP/judge.txt"
+          echo "summary=$(tail -1 "$RUNNER_TEMP/judge.txt")" >> "$GITHUB_OUTPUT"
+
+      - name: publish the ledger
+        if: always() && steps.judge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.judge.outputs.summary }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "prover batch judged: $SUMMARY
+
+          Generated-by: Goedel-Prover-V2-8B on Kaggle (GPU T4 x2), cost \$0, via tools/prover_kernel.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)"
+
+      - name: push the next batch
+        if: steps.kaggle.outputs.state == 'push'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel")
+          if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
+          kaggle kernels push -p "$RUNNER_TEMP/kernel"
+          echo "pushed batch $batch"
