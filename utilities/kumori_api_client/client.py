@@ -276,7 +276,9 @@ def _request(method, path, body=None, timeout=(5, 60), retry_on_5xx=True,
             reset = data.get('reset_in_human')
             if reset:
                 parts.append(f'resets in {reset}')
-            verbatim = data.get('error') or data.get('detail') or 'unknown'
+            # 'raw' is a body that was not JSON. Cloudflare swaps an origin 502/504 body for
+            # 'error code: 50x', and before 2026-10-15 that read as "unknown".
+            verbatim = data.get('error') or data.get('detail') or data.get('raw') or 'unknown'
             parts.append(f': {verbatim}')
             msg = ' '.join(parts)
         else:
@@ -458,6 +460,24 @@ def llm_chat_eval(prompt, system=None, caller=None):
         body['system'] = system
     data = _request('POST', '/api/v1/llm/chat-eval', body)
     return data.get('text'), data.get('backend')
+
+
+def research_company(name):
+    """Ask kumori for a company's shared dossier (#349). {'status': 'ready', 'dossier'} when every
+    section is fresh, else {'status': 'queued'|'running', 'job', 'status_url', 'dossier'}, where the
+    dossier is the stale copy or None. Poll research_job(job['id']) for the refresh."""
+    return _request('POST', '/api/v1/research/company', {'name': name}, timeout=(5, 30), accepted_ok=True)
+
+
+def research_job(job_id):
+    """A research job's status: queued, running, done or failed (unmetered)."""
+    return _request('GET', f'/api/v1/research/jobs/{int(job_id)}', timeout=(5, 15)).get('job')
+
+
+def research_dossier(name):
+    """A company's dossier as it stands, or None (unmetered)."""
+    from urllib.parse import quote
+    return _request('GET', f'/api/v1/research/company?name={quote(name)}', timeout=(5, 15)).get('dossier')
 
 
 def lane_status(names):
