@@ -316,6 +316,19 @@ there is no row where the pool is its own judge.
 Four phases, in order. Each step names what it produces and what decides the next one.
 Nothing is promised on a date; everything is gated on a measured number.
 
+**The road to the north star (Andy, 2026-10-17).** The north star is science that matters, cancer research
+above all; competition math is the first stretch because it is the one field with a perfect free judge. Each
+stretch has a real judge and a real "done", and progress is shown per stretch, never as an invented "percent
+of cancer" (no honest formula links a solved problem to a cure):
+
+| stretch | what it shows | judge | as of 2026-10-17 |
+|---|---|---|---|
+| 1. Competition math | free AI plus a crowd can produce verified results | the Lean kernel | 292 of 378 |
+| 2. Harder math (PutnamBench, formal-conjectures) | it reaches research-level problems | the Lean kernel | not started |
+| 3. Code with hidden tests | the method works beyond math | hidden tests (Kumori Code nightly) | running |
+| 4. Science with answer keys (`TARGETS.md` Tier 4) | it works on science | held-out answers, leaderboards | not started |
+| 5. Biomed and cancer challenges (DREAM, NCI) | it contributes to the north star | the challenges' own scoring | the goal |
+
 **The stages (2026-10-06).** Phases A to D below are kept as the record, but their step numbers
 overlap (C and D both run 12 to 15), so the plan is now named by stage. Each stage starts on a
 measured number, never a date (`DECISIONS.md` 2026-10-06).

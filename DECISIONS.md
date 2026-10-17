@@ -5,6 +5,31 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-17
 
+- **The north star and how we get there (Andy, with Claude).** Sparebrains exists to show that people plus
+  freely available AI, coordinated and judged by machines, can solve hard problems in the open, aiming at science
+  and eventually cancer research; the labs' math results of 2024-2026 (IMO golds, Erdos problems) came almost
+  entirely from the labs or people with frontier access, and a 2025-10 claim that GPT-5 "solved 10 Erdos problems"
+  was walked back. The road and its judges are in `PLAN.md` §7. Settled today:
+  - **Free and open models are the headline; frontier models are the coach, not the player.** Claude or Codex
+    write plans and outlines (disclosed, "drafted with ___"); free models write the proofs. A frontier model
+    solving directly is kept for problems the free swarm has exhausted, labeled, and counted apart. Every problem
+    we solve directly is one the free swarm can never solve first. Volunteers bringing their own AI quota is the
+    pitch, and the ledger keeps it in its own column (`volunteer`).
+  - **Tools over prompts.** Every measured gain came from tools around the models (the loop: +11.3 points, tiny
+    lanes 6.0% to 30.2%), none from re-prompting (the relay: 3 accepts in ~2,682 answers from 10-09). New ideas
+    are tried as tools first, each with a bar written before it runs.
+  - **The wall, measured:** 5,203 loop repairs on the 86 open problems; 1,384 stopped with one goal left, which
+    is 350 distinct sketches and 241 distinct goals across 83 problems (some goals are the whole problem
+    restated, e.g. `imo_1962_p2`). The sketches and goals are kept in the ledger (`tools.sketch`,
+    `tools.subgoals.goals`) for the lemma queue. Free chat lanes proved 0 of 176 such goals.
+  - **The next recipe is APOLLO's and Hilbert's.** APOLLO (arXiv 2505.05758, 84.9% on miniF2F under 8B) sends
+    leftover goals to a small Lean-trained prover, not a chat model; Hilbert (arXiv 2509.22819, 99.2% miniF2F,
+    462/660 PutnamBench) has a reasoner split the goals the prover misses, recursively, with lemma retrieval.
+    After the stage-3 bar (2026-10-24): the 241 goals to Goedel-Prover-V2-8B on Kaggle as their own try mode,
+    then recursive plans. Kumori task #461.
+  - **A weekly retro and tool challenge**: the bot posts where the swarm got stuck and one tool to build, with
+    its scorer and bar; a Kumori Code session builds candidates; the next week grades it in public. Coders who
+    are not mathematicians can help there. Kumori task #460.
 - **We show our work on GitHub too (Andy): every open problem gets a thread, and every judged try reaches it.**
   The threads had gone quiet since 10-09 while the relay kept making 450 to 750 tries a day: most went to
   problems with no thread, and GitHub fired the `issues` workflow for only 22 of 60 attempt runs from 10-16
