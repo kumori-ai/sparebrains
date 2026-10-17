@@ -102,5 +102,36 @@ class ProverTests(unittest.TestCase):
             compile(src, "prover_kernel.py", "exec")
 
 
+class BatchTimingTests(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.old = prover.BATCHES
+        prover.BATCHES = Path(self.d.name) / "prover-batches.jsonl"
+
+    def tearDown(self):
+        prover.BATCHES = self.old
+        self.d.cleanup()
+
+    def test_exact_times_from_the_scripts_timing_file(self):
+        from datetime import datetime, timezone
+        k = Path(self.d.name) / "k1"
+        k.mkdir()
+        (k / "timing.json").write_text(json.dumps({"started_at": "2026-10-17T20:30:41+00:00", "load_s": 330,
+                                                   "finished_at": "2026-10-18T02:30:41+00:00"}))
+        rec = prover.batch_record(k, "20261017T1830", datetime(2026, 10, 18, 4, tzinfo=timezone.utc),
+                                  [{"tokens": 3600}] * 10)
+        self.assertEqual((rec["queued_min"], rec["ran_min"], rec["tok_per_s"]), (120.7, 360.0, 1.7))
+        self.assertIsNone(prover.batch_record(k, "20261017T1830", datetime.now(timezone.utc)), "written once per batch")
+
+    def test_without_a_timing_file_the_queue_is_an_upper_bound(self):
+        from datetime import datetime, timezone
+        k = Path(self.d.name) / "k2"
+        k.mkdir()
+        (k / "sparebrains-prover.log").write_text('[{"time":0.7,"data":"x"}\n,{"time":3600.0,"data":"y"}]')
+        rec = prover.batch_record(k, "20261017T1830", datetime(2026, 10, 17, 22, 30, tzinfo=timezone.utc))
+        self.assertEqual((rec["ran_min"], rec["queued_min_at_most"]), (60.0, 180.0))
+        self.assertIn("upper bound", rec["source"])
+
+
 if __name__ == "__main__":
     unittest.main()

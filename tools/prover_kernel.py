@@ -8,6 +8,7 @@ CUDA 12.8, vLLM's PyTorch for 13.0, and transformers imports it); the model load
 samples of an easy problem came back in 67 s, 108 tokens/s together.
 """
 import json, subprocess, sys, time
+from datetime import datetime, timezone
 
 PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}]
 BATCH = ""             # filled by tools/prover.py
@@ -16,12 +17,20 @@ MAX_TOKENS, TEMPERATURE, TOP_P = 16000, 1.0, 0.95
 BUDGET_S = 9 * 3600    # no new problem starts after this; Kaggle ends a session at 12 h
 CHUNK = 4              # problems per generate call: answers are written after each chunk
 OUT = "/kaggle/working/answers.jsonl"
+TIMING = "/kaggle/working/timing.json"   # when the GPUs came, the model loaded, each chunk, the end (UTC)
 # The model card's prompt (huggingface.co/Goedel-LM/Goedel-Prover-V2-8B, section 6), unchanged.
 PROMPT = ("Complete the following Lean 4 code:\n```lean4\n{}```\nBefore producing the Lean 4 code to formally prove "
           "the given theorem, provide a detailed proof plan outlining the main proof steps and strategies.\nThe plan "
           "should highlight key ideas, intermediate lemmas, and proof structures that will guide the construction of "
           "the final formal proof.")
 
+def stamp(**kw):
+    timing.update(kw)
+    json.dump(timing, open(TIMING, "w"))
+
+
+timing = {"batch": BATCH, "chunks": []}
+stamp(started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))   # the first line run: the queue is over
 t0 = time.time()
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "vllm"], check=True)
 subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchaudio"], check=False)
@@ -31,6 +40,7 @@ llm = LLM(model=MODEL, dtype="half", tensor_parallel_size=2, max_model_len=MAX_T
           gpu_memory_utilization=0.92, trust_remote_code=True)
 tok = llm.get_tokenizer()
 print(json.dumps({"batch": BATCH, "problems": len(PROBLEMS), "load_s": round(time.time() - t0, 1)}), flush=True)
+stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
 
 with open(OUT, "a") as out:
     for i in range(0, len(PROBLEMS), CHUNK):
@@ -55,3 +65,6 @@ with open(OUT, "a") as out:
         out.flush()
         print(json.dumps({"chunk": i // CHUNK, "problems": [p["target"] for p in chunk], "seconds": round(secs, 1),
                           "tokens": n_tokens, "tok_per_s": round(n_tokens / secs, 1)}), flush=True)
+        timing["chunks"].append({"problems": len(chunk), "seconds": round(secs, 1), "tokens": n_tokens})
+        stamp()
+stamp(finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))

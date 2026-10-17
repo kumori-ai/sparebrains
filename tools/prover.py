@@ -211,6 +211,47 @@ class Recorder:
         out.write_text(candidate)
 
 
+BATCHES = ROOT / "ledger" / "prover-batches.jsonl"
+
+
+def _iso(dt):
+    return dt.isoformat(timespec="seconds") if dt else None
+
+
+def batch_record(kout, batch, observed_at, answers=()):
+    """One line per batch in ledger/prover-batches.jsonl: when it was pushed, when Kaggle gave it GPUs, when it
+    finished, minutes queued and running, tokens per second. From the script's own timing.json when it has one
+    (exact); otherwise from its log, whose times are seconds since the script started: the run length is exact,
+    and the queue is an upper bound up to when this job first saw the batch complete. Written once per batch."""
+    if BATCHES.exists() and any(json.loads(l).get("batch") == batch for l in BATCHES.read_text().splitlines() if l.strip()):
+        return None
+    kout = Path(kout)
+    pushed = datetime.strptime(batch, "%Y%m%dT%H%M").replace(tzinfo=timezone.utc)
+    rec = {"batch": batch, "pushed_at": _iso(pushed), "answers": len(answers),
+           "tokens": sum(a.get("tokens") or 0 for a in answers)}
+    t = kout / "timing.json"
+    if t.exists():
+        tm = json.loads(t.read_text())
+        start = datetime.fromisoformat(tm["started_at"])
+        end = datetime.fromisoformat(tm["finished_at"]) if tm.get("finished_at") else None
+        rec.update(source="timing.json", started_at=tm["started_at"], finished_at=tm.get("finished_at"),
+                   load_s=tm.get("load_s"), queued_min=round((start - pushed).total_seconds() / 60, 1),
+                   ran_min=round((end - start).total_seconds() / 60, 1) if end else None)
+    else:
+        ran_s = 0.0
+        for log in kout.glob("*.log"):
+            for m in re.finditer(r'"time"\s*:\s*([0-9.]+)', log.read_text(errors="ignore")):
+                ran_s = max(ran_s, float(m.group(1)))
+        rec.update(source="log (run length exact; queue is an upper bound)", ran_min=round(ran_s / 60, 1),
+                   observed_complete_at=_iso(observed_at),
+                   queued_min_at_most=round(((observed_at - pushed).total_seconds() - ran_s) / 60, 1))
+    if rec.get("ran_min") and rec["tokens"]:
+        rec["tok_per_s"] = round(rec["tokens"] / (rec["ran_min"] * 60), 1)
+    with BATCHES.open("a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+    return rec
+
+
 def read_answers(path):
     out = []
     for line in Path(path).read_text().splitlines():
@@ -223,7 +264,8 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge"])
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record"])
+    ap.add_argument("--dir")
     ap.add_argument("--out")
     ap.add_argument("--answers")
     ap.add_argument("--max-minutes", type=float, default=300)
@@ -239,6 +281,11 @@ def main():
         print(f"batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)
         return 0
     answers = read_answers(args.answers)
+    if args.cmd == "batch-record":
+        batch = answers[0]["batch"] if answers else None
+        rec = batch_record(args.dir, batch, datetime.now(timezone.utc), answers) if batch else None
+        print(json.dumps(rec) if rec else "batch already recorded")
+        return 0
     open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
     if args.cmd == "pending":
         print(sum(len(v) for v in to_judge(answers, prover_rows(), open_now).values()))

@@ -85,6 +85,12 @@ jobs:
           python3 tools/prover.py judge --answers "$RUNNER_TEMP/kout/answers.jsonl" --max-minutes 270 | tee "$RUNNER_TEMP/judge.txt"
           echo "summary=$(tail -1 "$RUNNER_TEMP/judge.txt")" >> "$GITHUB_OUTPUT"
 
+      # Queue and run times, once per batch (DECISIONS.md 2026-10-17): Kaggle publishes no wait times, so we
+      # keep our own in ledger/prover-batches.jsonl.
+      - name: record the batch's timing
+        if: always() && steps.judge.outcome == 'success'
+        run: python3 tools/prover.py batch-record --answers "$RUNNER_TEMP/kout/answers.jsonl" --dir "$RUNNER_TEMP/kout"
+
       - name: publish the ledger
         if: always() && steps.judge.outcome == 'success'
         env:
