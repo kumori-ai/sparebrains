@@ -139,12 +139,17 @@ jobs:
           PUSHED: ${{ steps.push.outputs.batch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          case "$STATE" in
-            running) what="the batch is still on Kaggle's GPUs: \`$KSTATUS\`" ;;
-            judge)   what="the batch finished on Kaggle; this run judged answers with the Lean kernel: ${SUMMARY:-see the run log}" ;;
-            push)    what="${PUSHED:+pushed batch \`$PUSHED\` to Kaggle's free T4 x2}${PUSHED:-every bar problem has its samples; nothing new to push}" ;;
-            *)       what="the check on Kaggle did not finish cleanly (\`${KSTATUS:-no status}\`); a person reads the log before anything is pushed again" ;;
-          esac
+          if [ "$STATE" = "running" ]; then
+            what="the batch is still on the free GPUs: $KSTATUS"
+          elif [ "$STATE" = "judge" ]; then
+            what="the batch finished; this run judged its answers with the Lean kernel: ${SUMMARY:-see the run log}"
+          elif [ "$STATE" = "push" ] && [ -n "$PUSHED" ]; then
+            what="pushed batch $PUSHED to the free T4 x2"
+          elif [ "$STATE" = "push" ]; then
+            what="every bar problem has its samples; nothing new to push"
+          else
+            what="the check did not finish cleanly (${KSTATUS:-no status}); a person reads the log before anything is pushed again"
+          fi
           export NOTE_BODY="**Prover check, $(date -u '+%Y-%m-%d %H:%M') UTC.** Goedel-Prover-V2-8B: $what.
 
           [This run]($RUN_URL) · [the notebook, its code and log](https://www.kaggle.com/code/kumoriai/sparebrains-prover) · [every judged answer](https://sparebrains.kumori.ai/lanes)"
