@@ -46,7 +46,9 @@ jobs:
           echo "kaggle: $status"
           case "$status" in
             *RUNNING*|*QUEUED*) echo "state=running" >> "$GITHUB_OUTPUT"; exit 0 ;;
-            *404*|*"Not Found"*|*"not found"*) echo "no batch yet"; echo "state=push" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            # A kernel that was never pushed reads as "Cannot access kernel ... (Permission 'kernels.get' was denied)",
+            # not a 404 (first run, 2026-10-17). A bad token would still fail loudly at the push.
+            *404*|*"Not Found"*|*"not found"*|*"Cannot access kernel"*) echo "no batch yet"; echo "state=push" >> "$GITHUB_OUTPUT"; exit 0 ;;
             *COMPLETE*) ;;
             # A failed or cancelled batch is never pushed again on its own: that would spend the week's GPU
             # hours on the same failure every two hours. A person reads its log and dispatches by hand.
