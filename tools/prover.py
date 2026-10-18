@@ -25,6 +25,7 @@ SAMPLES = 32
 BACKEND = "kaggle-goedel-prover-v2-8b"
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 KERNEL_ID = "kumoriai/sparebrains-prover"
+KERNEL_ID_TPU = "kumoriai/sparebrains-prover-tpu"   # the same prover on Kaggle's TPU hours (task #479)
 LOOP_MAX = 6                               # rejected answers per problem that get the loop's Lean-only pass
 GOAL_SAMPLES = 8                           # tries per one-step goal in a goal batch (task #461)
 # A lane is who wrote the answers. The judging below is shared: tools/leanstral.py hands its answers to the same
@@ -65,7 +66,7 @@ def todo(open_list, rows):
     return out
 
 
-def build(out_dir, work, batch, goals=False):
+def build(out_dir, work, batch, goals=False, tpu=False):
     """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
     everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17)."""
     out = Path(out_dir)
@@ -75,16 +76,18 @@ def build(out_dir, work, batch, goals=False):
                 {"target_set": t["target_set"], "target": t["target"], "n": owed,
                  "statement": (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()}
                 for t, owed in work]
-    src = (ROOT / "tools" / "prover_kernel.py").read_text()
+    src = (ROOT / "tools" / ("prover_kernel_tpu.py" if tpu else "prover_kernel.py")).read_text()
     for old, new in (("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
                      ('BATCH = ""', f"BATCH = {json.dumps(batch)}")):
         assert src.count(old) == 1, old
         src = src.replace(old, new, 1)
     (out / "prover_kernel.py").write_text(src)
+    accel = ({"enable_gpu": "false", "enable_tpu": "true"} if tpu else
+             {"enable_gpu": "true", "machine_shape": "NvidiaTeslaT4"})
     (out / "kernel-metadata.json").write_text(json.dumps({
-        "id": KERNEL_ID, "title": "sparebrains-prover", "code_file": "prover_kernel.py", "language": "python",
-        "kernel_type": "script", "is_private": "false", "enable_gpu": "true", "enable_internet": "true",
-        "machine_shape": "NvidiaTeslaT4", "dataset_sources": [], "model_sources": [], "competition_sources": [],
+        "id": KERNEL_ID_TPU if tpu else KERNEL_ID, "title": "sparebrains-prover-tpu" if tpu else "sparebrains-prover",
+        "code_file": "prover_kernel.py", "language": "python", "kernel_type": "script", "is_private": "false",
+        "enable_internet": "true", **accel, "dataset_sources": [], "model_sources": [], "competition_sources": [],
         "kernel_sources": []}, indent=1))
     return len(problems)
 
@@ -328,7 +331,8 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record"])
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "smoke-tpu"])
+    ap.add_argument("--n", type=int, default=4, help="smoke-tpu: samples per problem")
     ap.add_argument("--dir")
     ap.add_argument("--out")
     ap.add_argument("--answers")
@@ -336,6 +340,15 @@ def main():
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     args = ap.parse_args()
     import relay
+    if args.cmd == "smoke-tpu":                   # a speed check on SOLVED problems only: no bar, no first solve to take
+        solved = relay.fetch_json("/targets.json").get("solved") or []
+        pick = [t for t in solved if t.get("rung") in RUNGS][:6]
+        work = [({**t, "order": 0}, args.n) for t in pick]
+        batch = "tpu-smoke-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+        build(args.out, work, batch, tpu=True)
+        print(batch)
+        print(f"tpu smoke {batch}: {len(work)} solved problems x {args.n}", file=sys.stderr)
+        return 0
     if args.cmd == "next" and args.goals:
         import goal_closer
         goals = json.loads(goal_closer.QUEUE.read_text()) if goal_closer.QUEUE.exists() else []
