@@ -382,7 +382,8 @@ def llm_chat(backend_name, messages, max_tokens=500, temperature=0.3, system=Non
 def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature=0.3,
                        system=None, min_chars=1, debug=False, app_name=None,
                        min_quality_tier=None, require_capabilities=None,
-                       budget_ms=None, allow_degrade=None, retry_on_5xx=True, max_attempts=None):
+                       budget_ms=None, allow_degrade=None, retry_on_5xx=True, max_attempts=None,
+                       task=None):
     """Server-side fallback chat. Returns (text, winning_backend,
     attempt_log_list, debug_info). Pick models ONE of two ways:
 
@@ -397,6 +398,10 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
         allow_degrade: True → drop below the tier if it's exhausted rather than fail
         max_attempts: cap on live lanes tried (server default 5). 2 at 'high' stops after the two
             groq lanes, so a full minute comes back at once as 503 pool_gated with its reset time
+        task: what the job is, which picks the lane kind: 'classify', 'extract', 'json', 'rewrite',
+            'summarize', 'translate', 'chat' exclude reasoning lanes (a tier is a floor, so without
+            this 'low' still ranks groq's reasoning lane first); 'prove', 'math', 'plan', 'code',
+            'analyze' require them. The server answers 400 with the list for an unknown task.
 
     EXPLICIT MODE — pin the exact fallback order yourself:
         backends: list of backend names, tried in order.
@@ -419,6 +424,8 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
         body['allow_degrade'] = bool(allow_degrade)
     if max_attempts is not None:
         body['max_attempts'] = int(max_attempts)
+    if task:
+        body['task'] = task
     if system:
         body['system'] = system
     if debug:

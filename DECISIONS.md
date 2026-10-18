@@ -11,6 +11,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   visibility per row, so what we show and what we hold back sit in one place (task #473). The public rows open
   https://sparebrains.kumori.ai/next and are served as `/roadmap.json`; partner-lab names stay private. PLAN.md §7
   now points there. Windows move when gates are missed, and a missed gate is published as a finding.
+- **The Leanstral lane's bar, written before its first run (Andy, task #476): at least 3 first-time solves within 7
+  days of its first job, on the 32 open problems outside the prover's 50, at 8 tries a problem.** Mistral's open Lean
+  prover Leanstral 1.5 (`labs-leanstral-1-5-1`, 588 of 672 on PutnamBench against 86 for Goedel-Prover-V2), on
+  Mistral's Labs API at $0 (LiteLLM's price table, checked 2026-10-10). Its limit is its own line on the kumori_team
+  org's Limits page, 38 requests and 5,000,000 tokens a minute, separate from Kumori Chat's models; we pace at 0.5
+  requests a second or less. Labs needed the org admin's switch (on, 2026-10-18; training on the org's other API calls
+  was switched off the same minute), and Mistral may train on Labs inputs and outputs, which are public here anyway.
+  Its own key, `SPAREBRAINS_LEANSTRAL_KEY` (shared-connectors-only scope, expires 2027-10-18). The probe on a solved
+  problem: `mathd_algebra_17` proved on the first try, kernel-accepted, 45 s, about 7,800 tokens. Kept off the
+  prover's 50 until its bar is graded on 2026-10-24, so neither lane's count includes the other's solves; its own try
+  mode `leanstral`. The comparison: the prover made 4 first-time solves in its first day on its 50.
+
 - **What the science and math tracks can stand on, as of 2026-10-18** (three scouts with the rebuilt deep-search,
   checked against primary pages where noted):
   - **No cancer DREAM challenge is open.** dreamchallenges.org lists four (a cell map, a digital pen, two
