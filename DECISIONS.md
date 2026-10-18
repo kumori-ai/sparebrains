@@ -12,7 +12,9 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   https://sparebrains.kumori.ai/next and are served as `/roadmap.json`; partner-lab names stay private. PLAN.md §7
   now points there. Windows move when gates are missed, and a missed gate is published as a finding.
 - **The Leanstral lane's bar, written before its first run (Andy, task #476): at least 3 first-time solves within 7
-  days of its first job, on the 32 open problems outside the prover's 50, at 8 tries a problem.** Mistral's open Lean
+  days of its first job, on the open problems outside the prover's 50, at 8 tries a problem.** That is 36 problems
+  on 2026-10-18 (18 IMO, 17 miniF2F custom, 1 MATH L4), the hardest of the open list; the first version of this entry
+  said 32, a miscount corrected the same day before any run. Mistral's open Lean
   prover Leanstral 1.5 (`labs-leanstral-1-5-1`, 588 of 672 on PutnamBench against 86 for Goedel-Prover-V2), on
   Mistral's Labs API at $0 (LiteLLM's price table, checked 2026-10-10). Its limit is its own line on the kumori_team
   org's Limits page, 38 requests and 5,000,000 tokens a minute, separate from Kumori Chat's models; we pace at 0.5

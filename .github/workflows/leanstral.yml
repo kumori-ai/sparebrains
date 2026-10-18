@@ -1,0 +1,75 @@
+# The Leanstral lane (DECISIONS.md 2026-10-18, task #476): Mistral's open Lean prover on the open problems outside the
+# prover lane's 50, 8 tries each, judged here by tools/check.py as the sandbox user like every other try. Each run is
+# one round: one more try on every problem still open here (tools/leanstral.py). Its bar was written before its first
+# run. No status comment per run (the r/aiwars review, 2026-10-18): results reach the threads through the daily digest.
+name: leanstral
+
+on:
+  schedule:
+    - cron: "15 1-23/2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # publish the ledger rows and verified proofs
+
+concurrency:
+  group: leanstral
+  cancel-in-progress: false
+
+jobs:
+  leanstral:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests
+
+      # The Mistral key lives only in this step, and no Lean runs in it.
+      - name: one round of tries from Leanstral
+        id: gen
+        env:
+          SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
+        run: |
+          python3 tools/leanstral.py generate --out "$RUNNER_TEMP/answers.jsonl" | tee "$RUNNER_TEMP/gen.txt"
+          if [ -s "$RUNNER_TEMP/answers.jsonl" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=none" >> "$GITHUB_OUTPUT"; fi
+
+      - name: lean + mathlib cache + build
+        if: steps.gen.outputs.state == 'judge'
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        if: steps.gen.outputs.state == 'judge'
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge the answers
+        id: judge
+        if: steps.gen.outputs.state == 'judge'
+        env:
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          python3 tools/leanstral.py judge --answers "$RUNNER_TEMP/answers.jsonl" --max-minutes 120 | tee "$RUNNER_TEMP/judge.txt"
+          echo "summary=$(tail -1 "$RUNNER_TEMP/judge.txt")" >> "$GITHUB_OUTPUT"
+
+      - name: publish the ledger
+        if: always() && steps.judge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.judge.outputs.summary }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
+          python3 tools/publish.py --message "leanstral round judged: $SUMMARY
+
+          Generated-by: Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral's Labs API, cost \$0, via tools/leanstral.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Judged on: $MACHINE"

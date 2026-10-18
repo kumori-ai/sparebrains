@@ -26,25 +26,28 @@ BACKEND = "kaggle-goedel-prover-v2-8b"
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 KERNEL_ID = "kumoriai/sparebrains-prover"
 LOOP_MAX = 6                               # rejected answers per problem that get the loop's Lean-only pass
+# A lane is who wrote the answers. The judging below is shared: tools/leanstral.py hands its answers to the same
+# judge, fixer and loop under its own lane (DECISIONS.md 2026-10-18).
+PROVER = {"backend": BACKEND, "provider": "kaggle", "model": MODEL, "mode": "prover", "file": "prover"}
 
 
-def prover_rows(ledger_root=ROOT / "ledger"):
+def prover_rows(ledger_root=ROOT / "ledger", lane=PROVER):
     rows = []
     for f in Path(ledger_root).glob("**/*.jsonl"):
         for line in f.open():
-            if BACKEND in line:
+            if lane["backend"] in line:
                 try:
                     r = json.loads(line)
                 except ValueError:
                     continue
-                if r.get("backend") == BACKEND:
+                if r.get("backend") == lane["backend"]:
                     rows.append(r)
     return rows
 
 
-def judged(rows):
+def judged(rows, mode="prover"):
     """(batch, set, target, sample) of every answer already judged, and (set, target) → answers judged."""
-    keys = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no")) for r in rows if r.get("try_mode") == "prover"}
+    keys = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no")) for r in rows if r.get("try_mode") == mode}
     per = Counter((s, t) for _, s, t, _ in keys)
     return keys, per
 
@@ -90,23 +93,24 @@ def final_proof(text, name):
     return extract_proof("```lean\n" + blocks[-1] + "```", name) if blocks else None
 
 
-def base_row(a, run_id, prefix):
+def base_row(a, run_id, prefix, lane=PROVER):
     rung, rank = rung_of(a["target_set"], a["target"])
     cfg = a.get("config") or {}
     return {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, "batch": a["batch"],
             "target_set": a["target_set"], "target": a["target"], "rung": rung, "rung_rank": rank,
             "statement_sha": hashlib.sha256(prefix.encode()).hexdigest(),
-            "backend": BACKEND, "provider": "kaggle", "model": cfg.get("model", MODEL), "quality_tier": "unknown",
-            "tier_rank": -1, "attempt_no": a["sample"] + 1, "sample_no": a["sample"], "mode": "prover",
+            "backend": lane["backend"], "provider": lane["provider"], "model": cfg.get("model", lane["model"]),
+            "quality_tier": "unknown", "tier_rank": -1, "attempt_no": a["sample"] + 1, "sample_no": a["sample"],
+            "mode": lane["mode"],
             "request_config": {k: cfg.get(k) for k in ("max_tokens", "temperature", "top_p", "dtype", "gpus")},
             "inference": {"tokens": a.get("tokens"), "finish": a.get("finish")},
             "call_seconds": a.get("seconds"), "response_chars": len(a.get("text") or "")}
 
 
-def to_judge(answers, rows, still_open=None):
-    """(set, target) → answers still to judge: not judged yet, on a problem the prover has not solved and
+def to_judge(answers, rows, still_open=None, mode="prover"):
+    """(set, target) → answers still to judge: not judged yet, on a problem the lane has not solved and
     that is still open. A problem stops at its first accept, so its later answers are never owed."""
-    done_keys, _ = judged(rows)
+    done_keys, _ = judged(rows, mode)
     solved = {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"}
     by_problem = defaultdict(list)
     for a in answers:
@@ -117,11 +121,12 @@ def to_judge(answers, rows, still_open=None):
     return by_problem
 
 
-def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, deadline=None, still_open=None):
+def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, deadline=None, still_open=None,
+                  lane=PROVER):
     """Judge every answer still owed (to_judge). Stops a problem at its first accept. Returns a summary."""
     solved = set()
     stats = Counter()
-    for key, items in to_judge(answers, rows, still_open).items():
+    for key, items in to_judge(answers, rows, still_open, lane["mode"]).items():
         tset, name = key
         target_text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
         prefix = target_text[:PROOF_SEP.search(target_text).end()]
@@ -130,8 +135,8 @@ def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, dea
             if deadline and time.time() > deadline:
                 stats["left_for_next_job"] += 1
                 continue
-            row = base_row(a, run_id, prefix)
-            row["try_mode"] = "prover"
+            row = base_row(a, run_id, prefix, lane)
+            row["try_mode"] = lane["mode"]
             proof = final_proof(a.get("text"), name)
             if not proof:
                 row.update(verdict="reject", reason="no complete proof of the theorem in the answer", lean_seconds=0.0,
@@ -179,7 +184,7 @@ def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, dea
                 final = rep.get("accepted")
             stats["loop_tried"] += 1
             if final:
-                row = {**base_row(a, run_id, prefix), "try_mode": "fixer+loop", "verdict": "accept", "fixes": fixes,
+                row = {**base_row(a, run_id, prefix, lane), "try_mode": "fixer+loop", "verdict": "accept", "fixes": fixes,
                        "reason": ("kernel accepted after the fixer (" + "+".join(fixes) + ")") if not rep else
                                  f"kernel accepted after Lean's automation closed {rep.get('closed_by_lean', 0)} failing step(s)",
                        "failure_kind": None, "lean_seconds": 0.0, "proof_sha": hashlib.sha256(final.encode()).hexdigest()}
@@ -192,12 +197,12 @@ def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, dea
 
 
 class Recorder:
-    """Ledger rows to ledger/<set>/prover-<batch>.jsonl, accepted proofs to verified/, transcripts to the site."""
-    def __init__(self, batch, post=None):
-        self.batch, self.post = batch, post
+    """Ledger rows to ledger/<set>/<lane file>-<batch>.jsonl, accepted proofs to verified/, transcripts to the site."""
+    def __init__(self, batch, post=None, lane=PROVER):
+        self.batch, self.post, self.lane = batch, post, lane
 
     def __call__(self, row, response, proof, candidate, lean_out):
-        path = ROOT / "ledger" / row["target_set"] / f"prover-{self.batch}.jsonl"
+        path = ROOT / "ledger" / row["target_set"] / f"{self.lane['file']}-{self.batch}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as fh:
             fh.write(json.dumps(row) + "\n")
@@ -206,7 +211,7 @@ class Recorder:
                        "lean_output": (lean_out or "")[-20000:]})
 
     def verified(self, tset, name, candidate):
-        out = ROOT / "verified" / tset / name / f"{BACKEND}.lean"
+        out = ROOT / "verified" / tset / name / f"{self.lane['backend']}.lean"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(candidate)
 
