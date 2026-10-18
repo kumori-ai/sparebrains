@@ -1,0 +1,1 @@
+{"batch": "20261017T1830", "pushed_at": "2026-10-17T18:30:00+00:00", "answers": 384, "tokens": 2869089, "source": "log (run length exact; queue is an upper bound)", "ran_min": 659.4, "observed_complete_at": "2026-10-18T13:09:33+00:00", "queued_min_at_most": 460.2, "tok_per_s": 72.5}
