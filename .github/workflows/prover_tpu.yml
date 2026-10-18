@@ -59,4 +59,18 @@ jobs:
           print(f"answers: {len(rows)} | tokens: {sum(toks)} | mean per answer: {sum(toks) // max(len(rows), 1)} | "
                 f"finished by length: {sum(r['finish'] == 'length' for r in rows)}")
           EOF
-          tail -20 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+          # Kaggle's log is a JSON stream; print the lines around the first error, not just the tail
+          python3 - "$RUNNER_TEMP"/kout/*.log <<'EOF'
+          import json, sys
+          lines = []
+          for path in sys.argv[1:]:
+              txt = open(path).read().strip().lstrip("[").rstrip("]")
+              for chunk in txt.split("\n,"):
+                  try:
+                      lines += json.loads(chunk.lstrip(","))["data"].splitlines()
+                  except Exception:
+                      pass
+          hits = [i for i, l in enumerate(lines) if any(w in l for w in ("Error", "error:", "Traceback", "ERROR", "Exception"))]
+          start = max(hits[0] - 25, 0) if hits else max(len(lines) - 40, 0)
+          print("\n".join(lines[start:start + 80]))
+          EOF
