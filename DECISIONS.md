@@ -11,6 +11,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   visibility per row, so what we show and what we hold back sit in one place (task #473). The public rows open
   https://sparebrains.kumori.ai/next and are served as `/roadmap.json`; partner-lab names stay private. PLAN.md §7
   now points there. Windows move when gates are missed, and a missed gate is published as a finding.
+- **The goal closer's bar, written before its first goal batch (Andy, task #461): at least 3 first-time solves
+  through goals within 7 days of the first goal batch.** A solve counts when the prover's proof of a one-step goal
+  is accepted alone, spliced into that goal's sketch, and the whole problem is kernel-accepted (`goal_closer.close`,
+  try mode `goal-closer`). 8 tries per goal on the same Kaggle prover; goals come from `ledger/goal-queue.json`,
+  only those whose own file Lean can read, real steps before restatements. It starts only when the repository
+  variable `PROVER_MODE` is set to `goals`, after the stage-3 bar is graded, so the prover's measured week is
+  untouched. The comparison is the prover's own rate on whole problems.
+
 - **The Leanstral lane's bar, written before its first run (Andy, task #476): at least 3 first-time solves within 7
   days of its first job, on the open problems outside the prover's 50, at 8 tries a problem.** That is 36 problems
   on 2026-10-18 (18 IMO, 17 miniF2F custom, 1 MATH L4), the hardest of the open list; the first version of this entry

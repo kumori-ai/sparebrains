@@ -162,9 +162,6 @@ class DailyLogTests(unittest.TestCase):
         self.assertIn("kumori_agents.md", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class FakeGitHub:
     """Records writes; POST returns a comment with an id so the daily comment can be found again."""
@@ -221,3 +218,15 @@ class AiwarsRulesTests(unittest.TestCase):
                                           try_mode="relay", verdict="reject", reason="r")])
         pi.post_daily(gh, 7, text, thread, day="2026-10-18")
         self.assertIn("9", pi.digested_runs(thread))                  # so --catchup never posts it twice
+
+
+class GateNotes(unittest.TestCase):
+    def test_status_checks_share_one_comment_a_day(self):
+        gh, thread = FakeGitHub(), []
+        pi.post_daily(gh, 23, "Prover check 1", thread, day="2026-10-18")
+        pi.post_daily(gh, 23, "Prover check 2", thread, day="2026-10-18")
+        self.assertEqual([m for m, _, _ in gh.writes], ["POST", "PATCH"])
+
+
+if __name__ == "__main__":
+    unittest.main()

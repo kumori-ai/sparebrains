@@ -359,8 +359,9 @@ def main():
         if not body or not gates:
             print(f"gate note: {'no body' if not body else 'no open gate issue for ' + args.gate_note}; nothing posted")
             return 0
-        c = gh.write("POST", f"/issues/{gates[0]['number']}/comments", {"body": f"{body}\n\n{PITCH}"})
-        print(f"gate note on #{gates[0]['number']}: {c['html_url']}")
+        n = gates[0]["number"]
+        how = post_daily(gh, n, body, gh.comments(n))   # one comment a day, edited as checks run (2026-10-18)
+        print(f"gate note on #{n}: {how}")
         return 0
     if args.note:                                    # a status note on a plan issue, written by a person
         body = os.environ.get("NOTE_BODY", "").strip()

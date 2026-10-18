@@ -385,7 +385,9 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
                        budget_ms=None, allow_degrade=None, retry_on_5xx=True, max_attempts=None,
                        task=None):
     """Server-side fallback chat. Returns (text, winning_backend,
-    attempt_log_list, debug_info). Pick models ONE of two ways:
+    attempt_log_list, debug_info). The contract (how lanes are chosen, key tiers,
+    every error_code and what to do) is kumori/shared/kumori_api_client/README.md
+    §4 and §8; read it before asking kumori. Pick models ONE of two ways:
 
     INTENT MODE (recommended) — ask for a capability tier, kumori resolves the
     best available free lane; you never name a provider:
