@@ -41,7 +41,9 @@ stamp(started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
 t0 = time.time()
 PY = f"{VENV}/bin/python"
 ok = (sh([sys.executable, "-m", "pip", "install", "-q", "uv"]) == 0
-      and sh([sys.executable, "-m", "uv", "venv", VENV, "--python", sys.executable, "-q"]) == 0
+      # Python 3.12, fetched by uv: Kaggle's TPU image runs 3.13, and vllm-tpu 0.28.0 needs nixl 0.3.0, which has
+      # no cp313 wheel (the first smoke, 2026-10-18, failed resolving dependencies in 9 s).
+      and sh([sys.executable, "-m", "uv", "venv", VENV, "--python", "3.12", "-q"]) == 0
       and sh([sys.executable, "-m", "uv", "pip", "install", "--python", PY, "--torch-backend=cpu", f"vllm-tpu=={VLLM_TPU}"]) == 0)
 if not ok:
     stamp(failed="vllm-tpu install")
