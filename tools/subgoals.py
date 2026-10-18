@@ -172,13 +172,13 @@ def _segments(out):
     return segs
 
 
-def _executed(line_text, line_no, msgs):
+def _executed(line_text, line_no, msgs, tactics=AUTO_TACTICS):
     """Which AUTO alternative ran on this line: the last one Lean did not call never-executed."""
     never = {c for l, c, k, t in msgs if l == line_no and NEVER_RUN in t}
     if not never:
         return None
     start, ran = line_text.index("first | ") + len("first | "), None
-    for tac in AUTO_TACTICS:
+    for tac in tactics:
         col = line_text.index(tac, start)
         if col not in never:
             ran = tac
@@ -186,10 +186,12 @@ def _executed(line_text, line_no, msgs):
     return ran
 
 
-def automate_and_goals(text, top_line, run_lean):
+def automate_and_goals(text, top_line, run_lean, tactics=AUTO_TACTICS):
     """Two Lean runs. The first gives every hole AUTO and learns which ones it closes; the second keeps
     AUTO on those (to learn which closer ran, so the proof is concrete) and prints the rest with
-    `extract_goal`. Returns (text with closed holes filled, {hole line: lemma statement}, log)."""
+    `extract_goal`. Returns (text with closed holes filled, {hole line: lemma statement}, log). `tactics`
+    is the closers tried, in order (the tool scoreboard leaves one out, tools/toolscore.py)."""
+    AUTO = "first | " + " | ".join(tactics)
     hs = holes(text, top_line)
     trial = _with_tactics(text, {i: [AUTO] for i in hs})
     out1, _ = run_lean(trial)
@@ -222,7 +224,7 @@ def automate_and_goals(text, top_line, run_lean):
             tt = TRY_THIS.search(seg)
             line_no = next((k + 1 for k, l in enumerate(probe_lines) if l.strip().endswith(AUTO)
                             and probe_lines[k - 1].strip().endswith(f'trace "sb_auto {n}"')), None)
-            ran = tt.group(1).strip() if tt else (_executed(probe_lines[line_no - 1], line_no, msgs) if line_no else None)
+            ran = tt.group(1).strip() if tt else (_executed(probe_lines[line_no - 1], line_no, msgs, tactics) if line_no else None)
             if ran and ran.startswith("(") and ran.endswith("; done)"):
                 ran = ran[1:-len("; done)")]
             fill[i] = [ran if ran and ran != "exact?" else AUTO]
@@ -289,7 +291,8 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, na
     return None, tries
 
 
-def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=None, fix=None, names=None):
+def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=None, fix=None, names=None,
+           tactics=AUTO_TACTICS):
     """APOLLO's loop on one rejected candidate. Returns a summary dict; `accepted` holds the final file
     when the kernel accepted it. `on_lemma(statement, try)` is called for every lemma ask, for the ledger.
     `fix(proof, lean_output)` -> (proof, [passes]) repairs form first; a parse error leaves Lean nothing
@@ -338,7 +341,7 @@ def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=N
     if len(hs) > 2 * MAX_HOLES:
         log["stopped"] = f"{len(hs)} failing steps: not close"
         return log
-    text, goals, auto_log = automate_and_goals(text, top, run_lean)
+    text, goals, auto_log = automate_and_goals(text, top, run_lean, tactics)
     log.update(auto_log)
     if ask is None and goals:                           # the fixer's pass: no model, so open steps stay open
         log["stopped"] = f"{len(goals)} step(s) left for a model"

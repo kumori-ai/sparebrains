@@ -5,6 +5,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-17
 
+- **The tool scoreboard grades each tool by leaving it out (task #463).** `tools/toolscore.py` takes every stored
+  cold reject the chain touched (a fixer pass, a closer, or a turn: 4,730 of the ablation's 10,433 rows as of
+  2026-10-17), runs the whole chain again, then once per tool that run used with that one tool removed. Same
+  answer, same code, so the difference is the tool's: *needed* (the chain turned it, the chain without the tool
+  did not) minus *spoiled* (the other way round) is its net, shown on the loop page in points over the same cold
+  answers as A, B and C. Leave-one-out was chosen over add-one-in because the chain's tools overlap (when `omega` is
+  gone, `linarith` may close the step), and the question a tool builder asks is what is lost without it; the
+  cost of that choice is that overlapping tools score low though the chain uses them, and the page says so. A
+  closer is re-run only where the chain turned the reject (removing a closer cannot close a step), a fixer pass
+  either way (it rewrites the proof, so it can spoil one). Rows are tied to a hash of the chain's code, so a
+  changed tool is graded afresh, never mixed with old rows. Held out: odd attempt ids are the report half the
+  site shows (2,408 rejects); even ids are the tune half, for building and tuning a tool against. Model-call arms
+  (the dossier on or off with the goal closer, #461, Andy's arm) go in the same table under their own arm names.
+  The retro now runs the same chain function, so there is one copy of it. It runs nightly after the retro, in
+  the time the retro leaves (a local smoke on 2026-10-17 took 1 to 7 minutes a reject, so the first pass takes
+  several nights), and on dispatch (`attempt` workflow, `fixer_target=toolscore`, sliced). That smoke, three
+  real rejects: without `omega` the chain still turned its reject (`linarith` closed the step), and on another
+  reject `exact?` and `aesop` were each needed while the `names` pass was not.
 - **The north star, made concrete: verified pieces of work that cancer researchers can use, delivered through
   doors they already trust (Andy).** This refines the entry below ("cancer research as the flagship"). A scout on
   2026-10-17 found that outside contributions reached cancer researchers through a named lab, a published paper

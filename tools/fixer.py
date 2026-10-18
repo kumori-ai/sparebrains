@@ -98,13 +98,14 @@ def _by_last(index):
     return d
 
 
-def fix(proof, lean_output="", index=None, by_last=None):
-    """(repaired proof, [pass names that changed it]). Unchanged proof and [] when nothing applies."""
+def fix(proof, lean_output="", index=None, by_last=None, skip=()):
+    """(repaired proof, [pass names that changed it]). Unchanged proof and [] when nothing applies.
+    `skip` names passes left out (the tool scoreboard's arms, tools/toolscore.py)."""
     applied, p = [], proof.rstrip("\n") + "\n"
     # A proof that opens with its own `by` lands after the target's `:= by`: Lean stops at
     # "unexpected token 'by'" before any math (74 rejects on 50 problems to 2026-10-08).
     m = re.match(r"\s*by\b[ \t]*\n?", p)
-    if m:
+    if m and "double_by" not in skip:
         rest = p[m.end():]
         lines = [l for l in rest.splitlines() if l.strip()]
         if lines:
@@ -112,14 +113,14 @@ def fix(proof, lean_output="", index=None, by_last=None):
             p = "\n".join(("  " + l[cut:]) if l.strip() else l for l in rest.splitlines()) + "\n"
             applied.append("double_by")
     q = "\n".join(align_tactics(p.rstrip("\n").splitlines())) + "\n"
-    if q != p:
+    if q != p and "layout" not in skip:
         applied.append("layout")
         p = q
     q = lean3_to_4(p)
-    if q != p:
+    if q != p and "lean3" not in skip:
         applied.append("lean3")
         p = q
-    if index:
+    if index and "names" not in skip:
         swaps = {}
         for u in dict.fromkeys(UNKNOWN.findall(lean_output or "")):
             if "." in u and u[0].isupper():                              # library-style names only

@@ -673,6 +673,24 @@ def sparebrains_ablation(row):
         return None
 
 
+def sparebrains_toolscore_todo(chain, half, slice_spec, after_id=0, limit=50):
+    """One page of stored cold rejects the chain touched with no `full` tool-scoreboard row for `chain` yet
+    (id, target_set, target, backend, proof, lean_output), in `half` (report = odd ids, tune = even) and
+    `slice_spec` (k/N). Raises on failure, like sparebrains_ablation_todo."""
+    q = (f'/api/v1/sparebrains/toolscore/todo?chain={chain}&half={half}&slice={slice_spec}'
+         f'&after_id={int(after_id)}&limit={int(limit)}')
+    return _request('GET', q, None, timeout=(5, 60)).get('rows', [])
+
+
+def sparebrains_toolscore(row):
+    """Upsert one tool-scoreboard arm by (attempt_id, chain, tool, arm). Fire-and-forget like sparebrains_ablation."""
+    try:
+        return _request('POST', '/api/v1/sparebrains/toolscore', row, timeout=(5, 30), retry_on_5xx=True)
+    except Exception as e:
+        logger.warning(f"sparebrains_toolscore failed for attempt {row.get('attempt_id')} {row.get('tool')}: {e}")
+        return None
+
+
 def sparebrains_heartbeat(row):
     """Upsert the job's progress row (run_id, mode, status, cells_total, cells_owed, calls,
     accepts, lanes, targets). Fire-and-forget like sparebrains_attempt."""

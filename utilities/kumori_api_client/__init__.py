@@ -26,6 +26,8 @@ from .client import (
     sparebrains_attempt,
     sparebrains_ablation,
     sparebrains_ablation_todo,
+    sparebrains_toolscore,
+    sparebrains_toolscore_todo,
     sparebrains_heartbeat,
     sparebrains_previous,
     sparebrains_summary,

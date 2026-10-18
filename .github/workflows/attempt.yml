@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       fixer_target:
-        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call); lemmas = the lemma queue"
+        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call); lemmas = the lemma queue; toolscore = the tool scoreboard"
         default: ""
       fixer_slices:
         description: 'fixer_target=all as a matrix: a JSON list of slices, e.g. ["0/6","1/6","2/6","3/6","4/6","5/6"]; automation only'
@@ -135,7 +135,14 @@ jobs:
         run: |
           if [ "$CRON" = "17 10 * * *" ]; then
             # nightly: every cold reject the day added, re-run with Lean only (B, C), 6 slices side by side
+            START=$(date +%s)
             python3 tools/attempt.py --retro --slice "$SLICE" --max-minutes 320 --max-calls 1000
+            # then the tool scoreboard (task #463) with the time left: it catches up night by night, and grades
+            # the chain afresh whenever a tool's code changes
+            LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
+            if [ "$LEFT" -gt 15 ]; then
+              python3 tools/toolscore.py --half report --slice "$SLICE" --max-minutes "$LEFT"
+            fi
           elif [ "$CRON" = "30 */2 * * *" ] || [ "$RELAY_TARGET" = "next" ]; then
             # stage 2 on its own: the fixer, then the relay, on the next open problem with tries left
             # a wide swarm (DECISIONS.md 2026-10-08): the 15 strongest live lanes, so a parked lane never
@@ -149,6 +156,10 @@ jobs:
             # Lean's automation), results to kumori's sparebrains_ablation; a slice stops at 320 minutes and the
             # next dispatch picks up what is left (the queue is "not yet re-run")
             python3 tools/attempt.py --retro --slice "${SLICE:-0/1}" --max-minutes 320 --max-calls "${{ inputs.max_calls }}"
+          elif [ "$FIXER_TARGET" = "toolscore" ]; then
+            # the tool scoreboard (task #463): stored rejects the chain touched, re-run whole and then once per tool
+            # it used with that tool left out; the report half (odd ids), Lean only, results to sparebrains_toolscore
+            python3 tools/toolscore.py --half report --slice "${SLICE:-0/1}" --max-minutes 320
           elif [ "$FIXER_TARGET" = "lemmas" ]; then
             # the lemma queue: stored sketches' open steps, closest first, each to the 3 strongest live lanes
             python3 tools/attempt.py --lemmas --skip-benched --max-calls "${{ inputs.max_calls }}"

@@ -33,6 +33,7 @@ import relay                                                         # stage 2: 
 import lean_tools                                                     # real mathlib names for invented ones
 import subgoals                                                      # APOLLO's loop on a rejected relay try
 import fixer                                                         # issue #3: repairs form, no model
+import toolscore                                                      # the chain the retro and the tool scoreboard share
 from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
@@ -973,24 +974,8 @@ def main():
                 t0 = time.monotonic()
                 target_text = tfile.read_text()
                 prefix = target_text[:PROOF_SEP.search(target_text).end()]
-                said = a.get("lean_output") or ""
-                if not subgoals.errors(said):            # a stored output with no positioned error: judge it afresh
-                    said = lean_tools.judge_text(prefix + "\n" + a["proof"])["output"]
-                fixed, fixes = fixer.fix(a["proof"], said, *names_ix)
-                cand, b_verdict = prefix + "\n" + fixed, "reject"
-                if fixes:
-                    rb = lean_tools.judge_text(cand)
-                    b_verdict, said = ("accept" if rb["verdict"] == "accept" else "reject"), rb["output"]
-                rep = {}
-                if b_verdict == "accept":
-                    c_verdict, final = "accept", cand
-                else:
-                    try:
-                        rep = subgoals.repair(cand, prefix, said, ask=None, run_lean=lean_tools.run_lean,
-                                              judge_text=lean_tools.judge_text)
-                    except Exception as e:
-                        rep = {"stopped": f"loop error: {type(e).__name__}"}
-                    c_verdict, final = ("accept", rep["accepted"]) if rep.get("accepted") else ("reject", None)
+                ch = toolscore.run_chain(a["proof"], prefix, a.get("lean_output") or "", names_ix, lean_tools)
+                fixes, b_verdict, c_verdict, rep, final = ch["fixes"], ch["b_verdict"], ch["c_verdict"], ch["rep"], ch["final"]
                 solved_open = c_verdict == "accept" and (tset, name) in open_now and name not in solved
                 if solved_open:                          # a solve of an open problem is a solve: on the record
                     lane = {"backend": a["backend"], "provider": None, "model": None, "tier": a.get("quality_tier"), "rank": None}
