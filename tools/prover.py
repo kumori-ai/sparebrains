@@ -82,7 +82,9 @@ def build(out_dir, work, batch, goals=False, tpu=False):
         assert src.count(old) == 1, old
         src = src.replace(old, new, 1)
     (out / "prover_kernel.py").write_text(src)
-    accel = ({"enable_gpu": "false", "enable_tpu": "true"} if tpu else
+    # machine_shape names the accelerator (Kaggle/kaggle-cli docs/kernels_metadata.md: "TpuV5E8 for TPU v5e-8");
+    # enable_tpu alone ran the first TPU smoke on a 4-CPU machine (2026-10-18).
+    accel = ({"enable_gpu": "false", "enable_tpu": "true", "machine_shape": "TpuV5E8"} if tpu else
              {"enable_gpu": "true", "machine_shape": "NvidiaTeslaT4"})
     (out / "kernel-metadata.json").write_text(json.dumps({
         "id": KERNEL_ID_TPU if tpu else KERNEL_ID, "title": "sparebrains-prover-tpu" if tpu else "sparebrains-prover",
