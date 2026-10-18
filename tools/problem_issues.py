@@ -30,11 +30,35 @@ MARKER = "<!-- sparebrains:problem {key} -->"
 DIGEST_MARK = "<!-- sparebrains:digest run={run} -->"
 LOG_LABEL, LOG_MARKER = "log", "<!-- sparebrains:log -->"
 GATE_MARKER = "<!-- sparebrains:gate {stage} -->"   # the open gate issue a stage's workflow reports on
+DAY_MARK = "<!-- sparebrains:day {day} -->"         # one bot comment per thread per UTC day, edited as runs finish
+DAY_CAP = 60_000                                     # GitHub caps a comment at 65,536 characters
+# Where each problem comes from, said on every thread and every solve (2026-10-18, after the r/aiwars review: credit
+# the sources and say plainly that people solved these long ago; "open" means open to our free pool).
+ORIGIN = {"amc12": "an AMC 12 competition problem", "aime": "an AIME competition problem",
+          "imo": "an International Mathematical Olympiad problem", "mathd": "a problem from the MATH dataset (Hendrycks et al., 2021)"}
+SOURCES = {
+    "minif2f": "formal statement from miniF2F (OpenAI, 2021; Lean 4 port by Google DeepMind, Apache-2.0)",
+    "mil": "an exercise from Mathematics in Lean by Jeremy Avigad and Patrick Massot (Apache-2.0)",
+    "primer": "a level of the Natural Number Game (leanprover-community/NNG4, Apache-2.0)",
+}
 PACE_S = 1.0          # between writes: GitHub allows 80 content writes a minute and 500 an hour (its REST rate-limit docs, 2026-10-17)
 AGENTS_URL = f"https://github.com/{REPO}/blob/main/kumori_agents.md"
 PITCH = ("**Help solve it:** tell any coding agent (Claude Code, Codex, Cline, ...) *\"read "
          f"[kumori_agents.md]({AGENTS_URL}) and start\"*. Your quota, your machine, and the Lean kernel is the only judge.")
 MAX_POSTS = 150       # digest comments a run at most; the next hourly run takes the rest
+
+
+def credit(target_set, target):
+    """One sentence: where the problem comes from and who solved it first."""
+    origin = next((v for k, v in ORIGIN.items() if target.startswith(k)), None)
+    family = target_set.split("/")[0]                # target sets carry a split: minif2f/test
+    source = SOURCES.get(family, f"from the {target_set} set")
+    if family == "minif2f":
+        what = f"{origin or 'a competition-style problem'}, {source}"
+    else:
+        what = source
+    return (f"**Where it comes from:** {what}. People solved it long ago; it is open only to our free pool, "
+            "and every proof here is credited to the model that wrote it.")
 
 
 def key_of(target_set, target):
@@ -51,11 +75,12 @@ def render(d, order=None):
     target_text = (ROOT / "targets" / d["target_set"] / f"{d['target']}.lean").read_text()
     prompt, _ = relay.relay_prompt(target_text, d)
     parts = [MARKER.format(key=key), "",
-             f"**Open problem.** `{d['target']}` · {d.get('rung_label') or d.get('rung')}"
+             f"**Open to our free pool.** `{d['target']}` · {d.get('rung_label') or d.get('rung')}"
              + (f" · number {order} in the [stage-2 order]({relay.SITE}/targets#open)" if order else ""), "",
              f"{d['answered']} answered tries by {d['lanes_tried']} models so far, every one rejected by the Lean kernel. "
              "This first post is written by kumori-ai[bot] and regenerated from the ledger after every run; "
              "**the comments below are yours**, and the next model that tries this problem reads them.", "",
+             credit(d["target_set"], d["target"]), "",
              "### The statement", f"A proof replaces the `sorry`. [On GitHub]({d['source']}).",
              "```lean", (d.get("statement") or target_text).rstrip(), "```", "",
              "### How the tries failed", "| kind | rejects | models |", "|---|---|---|", fails, ""]
@@ -80,7 +105,7 @@ def render(d, order=None):
               "this problem from elsewhere is welcome as a link, but it is a literature find, not a new solve.", "",
               "<details><summary>Prompt pack: what the free models are shown (paste into your own)</summary>", "",
               "````", prompt, "````", "", "</details>"]
-    title = f"Open problem: {d['target']} ({d.get('rung_label') or d.get('rung')})"
+    title = f"Open to our free pool: {d['target']} ({d.get('rung_label') or d.get('rung')})"
     return title, "\n".join(parts)
 
 
@@ -120,7 +145,8 @@ def digest(run_id, rows, comments=None):
         if accepted:
             a = accepted[0]
             lines += ["", f"**Solved.** The kernel accepted `{a['backend']}`'s proof: "
-                      f"[verified/{key}/{a['backend']}.lean](https://github.com/{REPO}/blob/main/verified/{key}/{a['backend']}.lean)."]
+                      f"[verified/{key}/{a['backend']}.lean](https://github.com/{REPO}/blob/main/verified/{key}/{a['backend']}.lean).",
+                      "", credit(a["target_set"], a["target"])]
         else:
             lines += ["", "_Spot what they missed? A lemma that exists, a different route, a partial proof: comment "
                       "below and the next run's models read it, as one did for `mathd_algebra_756` (#11)._"]
@@ -238,6 +264,26 @@ class GitHub:
             page += 1
 
 
+def post_daily(gh, number, text, comments, day=None):
+    """Add a run's digest to the thread's one bot comment for this UTC day, editing it in place, so a watcher
+    gets one notification a day, not one per run (52 bot comments against 2 from people on 2026-10-18). A new
+    comment starts only for a new day, or when today's would pass GitHub's size cap. Returns 'edited' or 'posted'."""
+    day = day or f"{datetime.now(timezone.utc):%Y-%m-%d}"
+    mark = DAY_MARK.format(day=day)
+    text = text.replace("\n\n" + PITCH, "")             # the pitch goes once, at the top of the day's comment
+    mine = [c for c in comments if (c.get("user") or {}).get("type") == "Bot" and (c.get("body") or "").startswith(mark)]
+    if mine and len(mine[-1]["body"]) + len(text) < DAY_CAP:
+        body = mine[-1]["body"] + "\n\n---\n\n" + text
+        gh.write("PATCH", f"/issues/comments/{mine[-1]['id']}", {"body": body})
+        mine[-1]["body"] = body
+        return "edited"
+    head = (f"{mark}\n**Runs on {day} (UTC).** One comment a day, updated in place as runs finish; "
+            f"the newest run is at the bottom.\n\n{PITCH}")
+    c = gh.write("POST", f"/issues/{number}/comments", {"body": head + "\n\n" + text})
+    comments.append(c or {"user": {"type": "Bot"}, "body": head + "\n\n" + text, "id": None})
+    return "posted"
+
+
 def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=None, max_new=None):
     """Keep n problem threads open (Andy, 2026-10-08; every open problem from 2026-10-17). A solved problem's
     thread closes in the digest; its place goes to the next problem in the stage-2 order that has never had a
@@ -265,7 +311,7 @@ def refill(gh, issues, open_targets, fetch_dossier, n, order=None, render_fn=Non
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", default="", help="comma-separated <set>/<target> keys")
+    ap.add_argument("--only", default="", help="comma-separated <set>/<target> keys; with --post, all = every open thread")
     ap.add_argument("--dry-run", default="", help="write each rendered issue to this directory; post nothing")
     ap.add_argument("--post", action="store_true", help="create or update each --only problem's issue")
     ap.add_argument("--digest", default="", help="post a relay run's results on each problem it touched")
@@ -328,6 +374,8 @@ def main():
         return 0
     issues = gh.problem_issues()
     if args.post:
+        if keys == ["all"]:                          # re-render every open thread (a wording change, 2026-10-18)
+            keys = [k for k, i in issues.items() if i["state"] == "open"]
         for k in keys:
             d = relay.fetch_dossier(*k.rsplit("/", 1))
             if d.get("solved"):
@@ -335,7 +383,7 @@ def main():
                 continue
             title, body = render(d, order.get(k))
             if k in issues:
-                gh.call("PATCH", f"/issues/{issues[k]['number']}", {"title": title, "body": body})
+                gh.write("PATCH", f"/issues/{issues[k]['number']}", {"title": title, "body": body})
                 print(f"{k}: updated #{issues[k]['number']}")
             else:
                 i = gh.call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
@@ -355,7 +403,7 @@ def main():
                 print(f"{k}: no thread yet; digest not posted")
                 continue
             n = issues[k]["number"]
-            gh.call("POST", f"/issues/{n}/comments", {"body": text})
+            post_daily(gh, n, text, gh.comments(n))
             d = relay.fetch_dossier(*k.rsplit("/", 1))
             if not d.get("solved"):                      # keep the first post current with the newest near misses
                 title, body = render(d, order.get(k))
@@ -375,12 +423,13 @@ def main():
         posted = 0
         for k, i in sorted(live.items(), key=lambda x: x[1]["number"]):
             n, since = i["number"], i["created_at"].replace("Z", "+00:00")
-            for run in pending_runs(by_key.get(k, []), since, digested_runs(gh.comments(n))):
+            thread = gh.comments(n)
+            for run in pending_runs(by_key.get(k, []), since, digested_runs(thread)):
                 if posted >= MAX_POSTS:
                     print(f"catch-up: {MAX_POSTS} posted; the rest wait for the next run")
                     break
                 (_, text), = digest(run, by_key[k])
-                gh.write("POST", f"/issues/{n}/comments", {"body": text})
+                post_daily(gh, n, text, thread)
                 posted += 1
                 print(f"{k}: run {run} on #{n}")
                 if "**Solved.**" in text:

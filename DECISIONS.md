@@ -3,6 +3,35 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-18
+
+- **The road is now a tool, not a table (Andy, task #470).** The roadmap lives in kumori's `kumori_roadmap`
+  table: dated, gated milestones on three tracks (the engine, science with a judge, doors to researchers), each
+  with the measured bar that says it happened, a window that is an estimate and never a promise, and a
+  visibility per row, so what we show and what we hold back sit in one place (task #473). The public rows open
+  https://sparebrains.kumori.ai/next and are served as `/roadmap.json`; partner-lab names stay private. PLAN.md §7
+  now points there. Windows move when gates are missed, and a missed gate is published as a finding.
+- **What the science and math tracks can stand on, as of 2026-10-18** (three scouts with the rebuilt deep-search,
+  checked against primary pages where noted):
+  - **No cancer DREAM challenge is open.** dreamchallenges.org lists four (a cell map, a digital pen, two
+    drug-hit challenges), none on cancer; the last cancer ones (CTD2, Anti-PD1) closed in 2019-2020.
+  - **No cancer drug-response leaderboard re-runs outside work.** NCI's IMPROVE is a framework without a
+    leaderboard (core repo last pushed 2025-09-30); TDC takes self-reported scores by form; Polaris scores
+    automatically but has no oncology task. So stretch 5 starts with a partner lab, as the 10-17 scout said.
+  - **openproblems.bio is the science door that is open:** maintainers re-run every method on their own cloud,
+    repos active this week, but pull request to merge took 11 days to about 14 months (2025-2026 history), and
+    scores come later in maintainer batches. We reproduce a task's metrics ourselves first (task #477).
+  - **PutnamBench is no longer a gate for us:** four systems solve 672 of 672, and its rules ask that proofs stay
+    private, which this project cannot honour. google-deepmind/formal-conjectures accepts proofs and
+    misformalization fixes after human review (task #478).
+  - **A stronger open prover is in reach for free:** Mistral's Leanstral 1.5 (119B, 6B active; 588 of 672 on
+    PutnamBench, against 86 for Goedel-Prover-V2) is listed on kumori's free Mistral key as
+    `labs-leanstral-1-5`. Its rate limits are unknown until it runs. It starts after the 10-24 bar, with its own
+    bar first (task #476).
+  - **Stage 3 so far:** the prover made 4 first-time solves by 2026-10-18 12:00 UTC (`mathd_algebra_17`,
+    `_275`, `_289`, `mathd_numbertheory_227`), one of them only after the fixer and loop repaired its answer; the
+    bar (5 in 7 days) is graded 2026-10-24 18:30 UTC and nothing in the prover lane changes until then.
+
 ## 2026-10-17
 
 - **The goal closer's groundwork (task #461): which goals, and how a proved one goes back.** `tools/goal_closer.py`

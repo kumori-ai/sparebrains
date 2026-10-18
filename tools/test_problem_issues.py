@@ -164,3 +164,60 @@ class DailyLogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeGitHub:
+    """Records writes; POST returns a comment with an id so the daily comment can be found again."""
+    def __init__(self):
+        self.writes, self.next_id = [], 100
+
+    def write(self, method, path, data=None):
+        self.writes.append((method, path, data))
+        if method == "POST":
+            self.next_id += 1
+            return {"id": self.next_id, "user": {"type": "Bot"}, "body": data["body"]}
+        return {}
+
+
+class AiwarsRulesTests(unittest.TestCase):
+    """The 2026-10-18 r/aiwars review: credit every source, call nothing 'open problem' that people solved long
+    ago, and never flood a thread's watchers."""
+
+    def test_threads_and_solves_credit_the_source_and_say_people_solved_it(self):
+        title, body = pi.render(D)
+        self.assertTrue(title.startswith("Open to our free pool:"))
+        self.assertNotIn("Open problem", title + body)
+        self.assertIn("Mathematics in Lean by Jeremy Avigad and Patrick Massot", body)
+        self.assertIn("People solved it long ago", body)
+        amc = pi.credit("minif2f/test", "amc12a_2020_p7")          # the real target_set carries its split
+        self.assertIn("AMC 12", amc)
+        self.assertIn("miniF2F (OpenAI, 2021", amc)
+        rows = [dict(run_id="9", target_set="minif2f/test", target="mathd_algebra_17", backend="y", attempt_no=1,
+                     try_mode="prover", verdict="accept", reason="ok")]
+        solved = dict(pi.digest("9", rows))["minif2f/test/mathd_algebra_17"]
+        self.assertIn("MATH dataset", solved)
+
+    def test_one_comment_a_day_edited_in_place(self):
+        gh, thread = FakeGitHub(), []
+        a = pi.post_daily(gh, 7, "run one\n\n" + pi.PITCH, thread, day="2026-10-18")
+        b = pi.post_daily(gh, 7, "run two\n\n" + pi.PITCH, thread, day="2026-10-18")
+        self.assertEqual((a, b), ("posted", "edited"))
+        self.assertEqual([m for m, _, _ in gh.writes], ["POST", "PATCH"])
+        final = gh.writes[-1][2]["body"]
+        self.assertTrue(final.startswith("<!-- sparebrains:day 2026-10-18 -->"))
+        self.assertIn("run one", final)
+        self.assertIn("run two", final)
+        self.assertEqual(final.count(pi.PITCH), 1)                    # the pitch once, not once per run
+        self.assertEqual(pi.post_daily(gh, 7, "run three", thread, day="2026-10-19"), "posted")   # a new day
+
+    def test_a_full_day_comment_starts_a_second_one(self):
+        gh, thread = FakeGitHub(), []
+        pi.post_daily(gh, 7, "x" * (pi.DAY_CAP - 1000), thread, day="2026-10-18")
+        self.assertEqual(pi.post_daily(gh, 7, "y" * 2000, thread, day="2026-10-18"), "posted")
+
+    def test_runs_in_the_daily_comment_still_count_as_reported(self):
+        gh, thread = FakeGitHub(), []
+        (_, text), = pi.digest("9", [dict(run_id="9", target_set="mil", target="a", backend="x", attempt_no=1,
+                                          try_mode="relay", verdict="reject", reason="r")])
+        pi.post_daily(gh, 7, text, thread, day="2026-10-18")
+        self.assertIn("9", pi.digested_runs(thread))                  # so --catchup never posts it twice

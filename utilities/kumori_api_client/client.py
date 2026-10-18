@@ -53,6 +53,11 @@ class KumoriAPIError(Exception):
         # clock. Callers with their own bench/backoff (pilgrims souls) should
         # honor this instead of a fixed cooldown.
         self.retry_after = retry_after
+        # What to branch on (2026-10-18): the server's error_code (pool_gated, deadline_exceeded,
+        # all_truncated, ...) rather than the HTTP status, and the chat-resilient lane trace to log.
+        body = payload if isinstance(payload, dict) else {}
+        self.error_code = body.get('error_code')
+        self.attempts = body.get('attempts') or []
 
 
 def init(get_secret_fn=None, api_key_name=None, min_inter_call_sec=0.0):
@@ -377,7 +382,7 @@ def llm_chat(backend_name, messages, max_tokens=500, temperature=0.3, system=Non
 def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature=0.3,
                        system=None, min_chars=1, debug=False, app_name=None,
                        min_quality_tier=None, require_capabilities=None,
-                       budget_ms=None, allow_degrade=None, retry_on_5xx=True):
+                       budget_ms=None, allow_degrade=None, retry_on_5xx=True, max_attempts=None):
     """Server-side fallback chat. Returns (text, winning_backend,
     attempt_log_list, debug_info). Pick models ONE of two ways:
 
@@ -390,6 +395,8 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
         retry_on_5xx: one client-side retry on 5xx/timeout (default True); pass False for
             interactive chat where a canned fallback beats a doubled wait
         allow_degrade: True → drop below the tier if it's exhausted rather than fail
+        max_attempts: cap on live lanes tried (server default 5). 2 at 'high' stops after the two
+            groq lanes, so a full minute comes back at once as 503 pool_gated with its reset time
 
     EXPLICIT MODE — pin the exact fallback order yourself:
         backends: list of backend names, tried in order.
@@ -410,6 +417,8 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
         body['budget_ms'] = int(budget_ms)
     if allow_degrade is not None:
         body['allow_degrade'] = bool(allow_degrade)
+    if max_attempts is not None:
+        body['max_attempts'] = int(max_attempts)
     if system:
         body['system'] = system
     if debug:
