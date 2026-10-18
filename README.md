@@ -13,11 +13,12 @@
 In 2025 and 2026 the big AI labs showed their models can do real mathematics: olympiad gold medals, open
 Erdős problems. Nearly all of it ran on their own datacenters, behind their own doors.
 
-sparebrAIns asks a different question: **can the rest of us do it together, in the open?** Free-tier AI
-models that would otherwise sit idle, leftover quota from anyone's Claude or ChatGPT plan, and human brains,
-all pointed at the same problems. A machine judge decides every answer, so nobody has to trust anybody, and
-every try is published, the misses included. We aim to spend nothing (free models, donated
-quota, free GPUs), and so far it has cost $0.
+sparebrAIns asks a different question: **how far can free AI models get with tools we build, in the
+open?** Free-tier models that would otherwise sit idle and free GPUs, working through tools we keep
+building, all pointed at the same problems. A machine judge decides every answer, so nobody has to trust
+anybody, and every try is published, the misses included. We plan as if nobody else will help and show our
+work as we go; anyone who wants in can point their agent at [`kumori_agents.md`](kumori_agents.md). We aim
+to spend nothing, and so far it has cost $0.
 
 We start with mathematics because it has a perfect judge: the Lean proof checker accepts a proof or it
 doesn't. The aim is verified pieces of work that cancer researchers can use, delivered through doors they already

@@ -5,6 +5,16 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-18
 
+- **Plan as if nobody helps (Andy).** We are nobody until we deliver, so the plan stops depending on outside
+  volunteers: math and biology are ours, with the work shown, and helpers are a bonus. Receipt: no outside
+  volunteer has posted as of 2026-10-18; every volunteer-path solve was the maintainer's own sessions.
+  `kumori_agents.md` and the volunteer path stay open. The goal becomes solving faster with our tools, shown as
+  a weekly speed receipt: each week's problem set frozen, every earlier set re-run by this week's tools, compute
+  to first accept charted in public (task #191, built on the tool scoreboard #463). Recruiting posts become
+  shipping posts (#458), the weekly tool challenge is parked (#460), and lab outreach becomes finding a first
+  user, after a reproduced biology result (#465, roadmap row 15). Users still matter: a lab using a result and a
+  benchmark listing a score are doors, not help.
+
 - **The road is now a tool, not a table (Andy, task #470).** The roadmap lives in kumori's `kumori_roadmap`
   table: dated, gated milestones on three tracks (the engine, science with a judge, doors to researchers), each
   with the measured bar that says it happened, a window that is an estimate and never a promise, and a

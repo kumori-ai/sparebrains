@@ -64,6 +64,8 @@ jobs:
           import json, sys
           lines = []
           for path in sys.argv[1:]:
+              if "*" in path:  # the glob matched nothing: the kernel has not written a log yet
+                  continue
               txt = open(path).read().strip().lstrip("[").rstrip("]")
               for chunk in txt.split("\n,"):
                   try:
