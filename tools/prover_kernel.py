@@ -10,7 +10,7 @@ samples of an easy problem came back in 67 s, 108 tokens/s together.
 import json, os, subprocess, sys, time
 from datetime import datetime, timezone
 
-PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}]
+PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}], plus "goal" for a goal batch
 BATCH = ""             # filled by tools/prover.py
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 MAX_TOKENS, TEMPERATURE, TOP_P = 16000, 1.0, 0.95
@@ -71,6 +71,7 @@ with open(OUT, "a") as out:
         for p, r in zip(chunk, results):
             for k, o in enumerate(r.outputs):
                 out.write(json.dumps({"batch": BATCH, "target_set": p["target_set"], "target": p["target"], "sample": k,
+                                      **({"goal": p["goal"]} if p.get("goal") else {}),
                                       "text": o.text, "tokens": len(o.token_ids), "finish": o.finish_reason,
                                       "seconds": round(secs * len(o.token_ids) / max(n_tokens, 1), 1),
                                       "config": {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,

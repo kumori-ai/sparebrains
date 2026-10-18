@@ -26,6 +26,7 @@ BACKEND = "kaggle-goedel-prover-v2-8b"
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 KERNEL_ID = "kumoriai/sparebrains-prover"
 LOOP_MAX = 6                               # rejected answers per problem that get the loop's Lean-only pass
+GOAL_SAMPLES = 8                           # tries per one-step goal in a goal batch (task #461)
 # A lane is who wrote the answers. The judging below is shared: tools/leanstral.py hands its answers to the same
 # judge, fixer and loop under its own lane (DECISIONS.md 2026-10-18).
 PROVER = {"backend": BACKEND, "provider": "kaggle", "model": MODEL, "mode": "prover", "file": "prover"}
@@ -47,8 +48,9 @@ def prover_rows(ledger_root=ROOT / "ledger", lane=PROVER):
 
 def judged(rows, mode="prover"):
     """(batch, set, target, sample) of every answer already judged, and (set, target) → answers judged."""
-    keys = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no")) for r in rows if r.get("try_mode") == mode}
-    per = Counter((s, t) for _, s, t, _ in keys)
+    keys = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no"), r.get("goal")) for r in rows
+            if r.get("try_mode") == mode}
+    per = Counter((s, t) for _, s, t, _, _ in keys)
     return keys, per
 
 
@@ -63,12 +65,14 @@ def todo(open_list, rows):
     return out
 
 
-def build(out_dir, work, batch):
+def build(out_dir, work, batch, goals=False):
     """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
     everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    problems = [{"target_set": t["target_set"], "target": t["target"], "n": owed,
+    problems = [{"target_set": t["target_set"], "target": t["target"], "n": owed, "goal": t["goal"],
+                 "statement": t["statement"]} if goals else
+                {"target_set": t["target_set"], "target": t["target"], "n": owed,
                  "statement": (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()}
                 for t, owed in work]
     src = (ROOT / "tools" / "prover_kernel.py").read_text()
@@ -83,6 +87,18 @@ def build(out_dir, work, batch):
         "machine_shape": "NvidiaTeslaT4", "dataset_sources": [], "model_sources": [], "competition_sources": [],
         "kernel_sources": []}, indent=1))
     return len(problems)
+
+
+def goal_work(queue, open_keys, rows):
+    """Goal-batch problems: queue entries whose problem is still open and whose goal has no tries yet."""
+    tried = {r.get("goal") for r in rows if r.get("try_mode") == "goal-closer"}
+    return [q for q in queue if (q["target_set"], q["target"]) in open_keys and q["goal"] not in tried]
+
+
+def build_goals(out_dir, work, batch):
+    """The same kernel as a problem batch; each entry's statement is the goal's own file, and `goal` comes back
+    on every answer."""
+    return build(out_dir, [({**q, "order": 0}, q["n"]) for q in work], batch, goals=True)
 
 
 def final_proof(text, name):
@@ -115,7 +131,7 @@ def to_judge(answers, rows, still_open=None, mode="prover"):
     by_problem = defaultdict(list)
     for a in answers:
         key = (a["target_set"], a["target"])
-        if ((a["batch"], *key, a["sample"]) not in done_keys and key not in solved
+        if ((a["batch"], *key, a["sample"], a.get("goal")) not in done_keys and key not in solved
                 and (still_open is None or key in still_open)):
             by_problem[key].append(a)
     return by_problem
@@ -193,6 +209,49 @@ def judge_answers(answers, rows, *, judge_text, fix, repair, record, run_id, dea
                 solved.add(key)
                 stats["solved_by_loop"] += 1
                 break
+    return dict(stats)
+
+
+def judge_goals(answers, rows, goals, *, judge_text, record, run_id, deadline=None, still_open=None, lane=PROVER):
+    """Goal-batch answers: each proof of `sb_goal` goes through goal_closer.close (the goal alone, then spliced
+    into its sketches, then the whole problem). Try mode `goal-closer`, with the stage it reached. A problem
+    stops at its first accept."""
+    import goal_closer
+    done_keys, _ = judged(rows, "goal-closer")
+    solved = {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"}
+    stats = Counter()
+    for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["goal"], a["sample"])):
+        key = (a["target_set"], a["target"])
+        if key in solved or (a["batch"], *key, a["sample"], a["goal"]) in done_keys:
+            continue
+        if still_open is not None and key not in still_open:
+            continue
+        if deadline and time.time() > deadline:
+            stats["left_for_next_job"] += 1
+            continue
+        g = goals.get(a["goal"])
+        target_text = (ROOT / "targets" / key[0] / f"{key[1]}.lean").read_text()
+        prefix = target_text[:PROOF_SEP.search(target_text).end()]
+        row = {**base_row(a, run_id, prefix, lane), "try_mode": "goal-closer", "goal": a["goal"]}
+        body = final_proof(a.get("text"), "sb_goal")
+        if not g or not body:
+            row.update(verdict="reject", stage="goal", reason="goal unknown to the queue" if not g else
+                       "no complete proof of the goal in the answer", lean_seconds=0.0, proof_sha=None)
+            row["failure_kind"] = failure_kind("reject", row["reason"])
+            record(row, a.get("text"), None, None, None)
+            stats["no_proof"] += 1
+            continue
+        t = time.monotonic()
+        r = goal_closer.close(g, target_text, body, judge_text)
+        row.update(verdict=r["verdict"], stage=r["stage"], reason=(r.get("output") or "")[:300],
+                   failure_kind=failure_kind(r["verdict"], r.get("output") or ""),
+                   lean_seconds=round(time.monotonic() - t, 1), proof_sha=hashlib.sha256(body.encode()).hexdigest())
+        record(row, a.get("text"), body, r.get("candidate"), r.get("output"))
+        stats[f"{r['verdict']}@{r['stage']}"] += 1
+        if r["verdict"] == "accept":
+            record.verified(*key, r["candidate"])
+            solved.add(key)
+            stats["solved"] += 1
     return dict(stats)
 
 
@@ -274,8 +333,22 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--answers")
     ap.add_argument("--max-minutes", type=float, default=300)
+    ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     args = ap.parse_args()
     import relay
+    if args.cmd == "next" and args.goals:
+        import goal_closer
+        goals = json.loads(goal_closer.QUEUE.read_text()) if goal_closer.QUEUE.exists() else []
+        read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
+        open_keys = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+        work = goal_work(goal_closer.queue(goals, read, GOAL_SAMPLES), open_keys, prover_rows())
+        if not work:
+            return 0
+        batch = "goals-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+        n = build_goals(args.out, work, batch)
+        print(batch)
+        print(f"goal batch {batch}: {n} goals, {n * GOAL_SAMPLES} samples", file=sys.stderr)
+        return 0
     if args.cmd == "next":
         work = todo(relay.fetch_json("/targets.json")["open"], prover_rows())
         if not work:
@@ -293,7 +366,16 @@ def main():
         return 0
     open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
     if args.cmd == "pending":
-        print(sum(len(v) for v in to_judge(answers, prover_rows(), open_now).values()))
+        rows = prover_rows()
+        goal_answers = [a for a in answers if a.get("goal")]
+        if goal_answers:                             # a goal batch: owed until judged as goal-closer, or its problem closed
+            done, _ = judged(rows, "goal-closer")
+            solved = {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"}
+            print(sum(1 for a in goal_answers if (a["target_set"], a["target"]) in open_now
+                      and (a["target_set"], a["target"]) not in solved
+                      and (a["batch"], a["target_set"], a["target"], a["sample"], a["goal"]) not in done))
+            return 0
+        print(sum(len(v) for v in to_judge(answers, rows, open_now).values()))
         return 0
     import fixer, lean_tools, subgoals
     from utilities.kumori_api_client import init, sparebrains_attempt
@@ -305,6 +387,14 @@ def main():
         print(f"site recording off ({type(e).__name__}); the ledger still gets every row", flush=True)
     names_ix = lean_tools.index()
     batch = answers[0]["batch"] if answers else "none"
+    goal_answers = [a for a in answers if a.get("goal")]
+    if goal_answers:                                 # a goal batch (task #461): the goal closer judges it
+        import goal_closer
+        goals = {g["sha"]: g for g in json.loads(goal_closer.QUEUE.read_text())}
+        stats = judge_goals(goal_answers, prover_rows(), goals, judge_text=lean_tools.judge_text, record=Recorder(batch, post),
+                            run_id=f"prover-{batch}", deadline=time.time() + 60 * args.max_minutes, still_open=open_now)
+        print(json.dumps({"batch": batch, **stats}), flush=True)
+        return 0
     stats = judge_answers(
         answers, prover_rows(), judge_text=lean_tools.judge_text,
         fix=lambda proof, out: fixer.fix(proof, out, *names_ix),

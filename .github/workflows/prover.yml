@@ -114,7 +114,9 @@ jobs:
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
-          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel")
+          # Goal batches (task #461) only when the repository variable PROVER_MODE is "goals": set after the
+          # stage-3 bar is graded, so nothing changes the prover's inputs while it is measured.
+          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel" $( [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
           echo "pushed batch $batch"

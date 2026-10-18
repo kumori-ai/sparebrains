@@ -2,6 +2,7 @@
 spliced back into its sketch. No Lean here: a stand-in judge."""
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -63,6 +64,55 @@ class Close(unittest.TestCase):
         ok = gc.close(g, TARGET, "  nlinarith [sq_nonneg y]\n", judge)
         self.assertEqual((ok["verdict"], ok["stage"]), ("accept", "problem"))
         self.assertTrue(seen[-1].startswith("import Mathlib") and "theorem t" in seen[-1])
+
+
+
+class Batches(unittest.TestCase):
+    """Goal batches through the prover lane (tools/prover.py, task #461)."""
+
+    def test_only_goals_lean_can_read_become_batch_problems(self):
+        goals = [{"sha": "a1", "target_set": "s", "target": "t", "goal": STEP, "file_ok": True},
+                 {"sha": "b2", "target_set": "s", "target": "t", "goal": "bad", "file_ok": False}]
+        q = gc.queue(goals, lambda s, t: TARGET, 8)
+        self.assertEqual([(p["goal"], p["n"]) for p in q], [("a1", 8)])
+        self.assertIn("theorem sb_goal", q[0]["statement"])
+
+    def test_a_tried_goal_or_a_closed_problem_is_not_owed(self):
+        import prover
+        q = [{"target_set": "s", "target": "t", "goal": "a1"}, {"target_set": "s", "target": "t", "goal": "b2"},
+             {"target_set": "s", "target": "done", "goal": "c3"}]
+        rows = [{"try_mode": "goal-closer", "goal": "a1", "target_set": "s", "target": "t"}]
+        self.assertEqual([w["goal"] for w in prover.goal_work(q, {("s", "t")}, rows)], ["b2"])
+
+    def test_a_goal_answer_is_judged_alone_then_spliced_and_recorded(self):
+        import prover
+        rec = []
+
+        class Rec:
+            def __call__(self, row, *a):
+                rec.append(row)
+
+            def verified(self, *a):
+                rec.append(("verified",) + a[:2])
+        goal = {"sha": "a1", "goal": STEP, "sketches": [SKETCH]}
+        answer = {"batch": "goals-x", "target_set": "s", "target": "t", "sample": 0, "goal": "a1",
+                  "text": "```lean4\n" + STEP + "\n  nlinarith [sq_nonneg y]\n```"}
+        judge = lambda text: {"verdict": "accept" if "nlinarith" in text else "reject"}
+        with mock.patch.object(prover, "ROOT", FakeRoot()):
+            stats = prover.judge_goals([answer], [], {"a1": goal}, judge_text=judge, record=Rec(), run_id="r")
+        self.assertEqual(stats.get("solved"), 1)
+        self.assertEqual((rec[0]["try_mode"], rec[0]["stage"], rec[0]["verdict"], rec[0]["goal"]),
+                         ("goal-closer", "problem", "accept", "a1"))
+        self.assertEqual(rec[1], ("verified", "s", "t"))
+
+
+class FakeRoot:
+    """ROOT / "targets" / set / f"{name}.lean" reads TARGET."""
+    def __truediv__(self, other):
+        return self
+
+    def read_text(self):
+        return TARGET
 
 
 if __name__ == "__main__":

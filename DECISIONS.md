@@ -24,6 +24,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   problem: `mathd_algebra_17` proved on the first try, kernel-accepted, 45 s, about 7,800 tokens. Kept off the
   prover's 50 until its bar is graded on 2026-10-24, so neither lane's count includes the other's solves; its own try
   mode `leanstral`. The comparison: the prover made 4 first-time solves in its first day on its 50.
+  *Round 1 (run 39160239781, 2026-10-18 19:46 UTC):* 36 tries, one per problem; **`imo_1981_p6` solved**, accepted
+  after Lean's automation closed 3 failing steps in Leanstral's proof (`fixer+loop`; miniF2F's statement covers only
+  the problem's recurrence, per the 10-17 audit). 27 answers had no proof because all 27 hit our 16,000-token cap
+  mid-reasoning (`finish: length`, empty text): our setting, not the model. Raised to 40,000 from round 2; the bar
+  is unchanged and the round-1 rows stay in the ledger as run.
 
 - **What the science and math tracks can stand on, as of 2026-10-18** (three scouts with the rebuilt deep-search,
   checked against primary pages where noted):

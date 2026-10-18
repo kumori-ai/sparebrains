@@ -283,6 +283,9 @@ there is no row where the pool is its own judge.
 
 ## 6. Open (survives this rewrite)
 
+Open work lives in kumori's task tracker (project `sparebrains`) since 2026-10-18; this list is the record of what
+was settled here. The last item open only in this file moved to task #478.
+
 - [x] ~~The 20–50 targets for §2~~ `targets/minif2f/test/` (244, all well-formed). The loop
       picks a fixed sample; "already in mathlib" does not apply to competition statements.
 - [x] ~~Where the resident Lean checker runs~~ GitHub Actions (`DECISIONS.md` 2026-09-01 evening). Was: ROG (CPU-only, coexists with renders) or a Cloud
@@ -296,7 +299,7 @@ there is no row where the pool is its own judge.
       Apache-2.0 at the root (`LICENSE`); Cohere and the NVIDIA trial endpoints left the caller; rows they
       already produced are carved out in `README.md`. The clause-by-clause read is the `DECISIONS.md` entry.
 - [ ] Success metric v2: verified, upstreamed, scoreboard entries: moved to the kumori task queue as #191 (project `sparebrains`), 2026-09-23.
-- [ ] mathlib AI-contribution policy: read it before any public issue or PR flow starts ([#5](https://github.com/kumori-ai/sparebrains/issues/5)); formal-conjectures requires it. Metaculus season rules are covered in TARGETS.md (2026-09-24).
+- [ ] mathlib AI-contribution policy: read it before any public issue or PR flow starts ([#5](https://github.com/kumori-ai/sparebrains/issues/5)); formal-conjectures requires it: moved to the kumori task queue on #478, 2026-10-18. Metaculus season rules are covered in TARGETS.md (2026-09-24).
 - [x] ~~Copilot budget → $0 on the org (Andy click).~~ Retired 2026-09-02: GitHub removed $0 Copilot
       premium-request budgets for team and enterprise accounts on 2025-12-02 (changelog 2025-09-17). The
       rule is simpler: never subscribe the org to Copilot Business; a free org with public repos has no

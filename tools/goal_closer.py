@@ -134,6 +134,17 @@ def close(goal, target_text, body, judge_text):
     return last
 
 
+QUEUE = ROOT / "ledger" / "goal-queue.json"
+
+
+def queue(goals, read_target, n):
+    """Prover problems for a goal batch: one entry per goal whose own file Lean can read, real steps before
+    restatements (collect's order), each the goal's file as the statement and its sha as `goal`."""
+    return [{"target_set": g["target_set"], "target": g["target"], "goal": g["sha"], "n": n,
+             "statement": goal_file(read_target(g["target_set"], g["target"]), g["goal"])}
+            for g in goals if g.get("file_ok")]
+
+
 def _load():
     import relay
     rows = []
