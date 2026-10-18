@@ -5,6 +5,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-17
 
+- **The goal closer's groundwork (task #461): which goals, and how a proved one goes back.** `tools/goal_closer.py`
+  reads the loop's sketches from the ledger and keeps the open problems' one-step goals: as of 2026-10-17, 395
+  distinct goals on 83 of 86 open problems (deduplicated by text; the earlier count of 241 used a different
+  dedupe). 140 of them restate the theorem, since the sketch kept nothing but `sorry` (aime_1987_p5's is a comment
+  and a `sorry`); they are flagged and go last. The other 255 are real steps; imo_1962_p2's goal is one direction
+  of its set equality, the hard part, not a restatement. A proof of a goal is judged alone, then spliced into each
+  sketch it closes and judged as the whole problem. Checked with Lean on the first five real goals: all ten
+  spliced sketches compile with `sorry` in the hole, but one goal file in five does not elaborate alone
+  (amc12a_2020_p15: `‖a - b‖` printed with untyped `a`, `b`), so goals are checked first (`list --check`) and only
+  those whose own file compiles go to a prover. The prover's goal batches (Goedel-Prover-V2-8B on Kaggle, own
+  try mode) start after the 2026-10-24 bar, so the bar's runs are untouched; then Hilbert-style splitting of
+  the goals the prover misses. Anyone can try a goal today: `goal_closer.py try --goal SHA --proof FILE`.
 - **The tool scoreboard grades each tool by leaving it out (task #463).** `tools/toolscore.py` takes every stored
   cold reject the chain touched (a fixer pass, a closer, or a turn: 4,730 of the ablation's 10,433 rows as of
   2026-10-17), runs the whole chain again, then once per tool that run used with that one tool removed. Same
