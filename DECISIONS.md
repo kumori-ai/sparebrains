@@ -3,6 +3,29 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-19
+
+- **Kaggle GPU hours are used exactly (Andy).** Each push reads the week's quota from Kaggle itself (`kaggle quota`,
+  CLI 2.2.4; 20.57 of 30 h used at 01:38 UTC) and sizes the session to what is left less 15 min, at most 11.5 h;
+  under an hour left, it waits for the reset, Saturday 00:00 UTC (Kaggle staff, product-feedback 173129; the CLI
+  reported 2026-10-24T00:00). The kernel starts a chunk only if the measured seconds per answer (103 s from batch
+  20261017T1830, or the slowest chunk so far) say it still fits, and chunks are 2 problems, not 4: a 4-problem
+  chunk is ~3.7 h and could run past the quota, which Kaggle ends and the workflow treats as a failed batch.
+  Sampling (model, temperature, tokens, 32 per problem) is unchanged, so the bar's measurement is too.
+- **`grind` on the one-step goals: 2 problems solved, held until the bar is graded.** Lean's `grind`, tried as the
+  whole proof of each of the 352 readable goals the loop's automation had left (`tools/goal_closer.py tactic`,
+  Lean only, $0), closed 4 and solved 2 problems whole, kernel-accepted twice: minif2f/test/aime_1990_p4 and
+  amc12b_2021_p3. Both are among the prover's 50, so publishing them now would take two first-time solves away
+  from the bar's measurement; they are kept on Kumori task #461 and published after 2026-10-24 18:30 UTC, when
+  `grind` also joins the loop's closers and the speed receipt measures it on the frozen weeks. The other 347 goals
+  stopped at the goal itself: one tactic alone is not what most of them need.
+- **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
+  testing, deployment, or publication of the software project associated with the repository", and nothing that
+  places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a
+  job (docs.github.com, read 2026-10-19). Unlike Kaggle there is no weekly allowance to spend, so idle runners are
+  not waste. The last 24 h used 77.8 runner-hours, all of it Lean checking this repository's proofs, peaking at 10
+  of 20 jobs; the headroom goes to work like the tactic sweeps, on demand and capped.
+
 ## 2026-10-18
 
 - **Plan as if nobody helps (Andy).** We are nobody until we deliver, so the plan stops depending on outside

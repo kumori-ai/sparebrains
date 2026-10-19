@@ -65,6 +65,18 @@ class Close(unittest.TestCase):
         self.assertEqual((ok["verdict"], ok["stage"]), ("accept", "problem"))
         self.assertTrue(seen[-1].startswith("import Mathlib") and "theorem t" in seen[-1])
 
+    def test_a_tactic_is_tried_on_readable_goals_only_and_closes_whole_problems(self):
+        judge = lambda text: {"verdict": "accept" if "grind" in text else "reject"}
+        goals = [{"sha": "a", "target_set": "s", "target": "t", "restates": False, "goal": STEP,
+                  "sketches": [SKETCH], "file_ok": True},
+                 {"sha": "b", "target_set": "s", "target": "u", "restates": False, "goal": STEP,
+                  "sketches": [SKETCH], "file_ok": False}]
+        rows = gc.try_tactic(goals, "grind", lambda s, t: TARGET, judge, jobs=2)
+        self.assertEqual([(r["sha"], r["verdict"], r["stage"]) for r in rows], [("a", "accept", "problem")])
+        self.assertIn("grind", rows[0]["candidate"])
+        miss = gc.try_tactic(goals, "omega", lambda s, t: TARGET, judge, jobs=1)
+        self.assertEqual([(r["verdict"], r["stage"]) for r in miss], [("reject", "goal")])
+
 
 
 class Batches(unittest.TestCase):

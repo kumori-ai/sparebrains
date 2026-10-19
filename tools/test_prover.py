@@ -133,5 +133,39 @@ class BatchTimingTests(unittest.TestCase):
         self.assertIn("upper bound", rec["source"])
 
 
+class GpuHoursTests(unittest.TestCase):
+    """The week's GPU hours used exactly (2026-10-19): the batch is sized to what Kaggle says is left."""
+
+    def test_a_batch_gets_the_hours_left_less_the_margin_at_most_one_session(self):
+        self.assertEqual(prover.batch_hours(30, 20.57), round(30 - 20.57 - prover.MARGIN_H, 2))
+        self.assertEqual(prover.batch_hours(39, 0), prover.SESSION_H)       # a floating week above 30 h
+        self.assertEqual(prover.batch_hours(30, 29.2), 0.0)                  # under an hour: wait for the reset
+        self.assertEqual(prover.batch_hours(30, 20, reserved_h=9.5), 0.0)    # a live session holds the rest
+
+    def test_the_rate_comes_from_measured_gpu_batches_not_tpu_or_unmeasured(self):
+        with tempfile.TemporaryDirectory() as d:
+            old, prover.BATCHES = prover.BATCHES, Path(d) / "b.jsonl"
+            try:
+                self.assertEqual(prover.sec_per_sample(), prover.PRIOR_SEC_PER_SAMPLE)
+                prover.BATCHES.write_text("\n".join(json.dumps(r) for r in [
+                    {"batch": "b1", "ran_min": 100, "answers": 60}, {"batch": "b2", "ran_min": 50, "answers": 40},
+                    {"batch": "tpu-smoke-x", "ran_min": 5, "answers": 400}, {"batch": "b3", "answers": 9}]))
+                self.assertEqual(prover.sec_per_sample(), 90.0)
+            finally:
+                prover.BATCHES = old
+
+    def test_the_budget_lands_in_the_gpu_kernel_and_its_stop_rule_counts_the_next_chunk(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = {"target_set": "minif2f/test", "target": NAME, "rung": "math-L1", "order": 1}
+            prover.build(d, [(t, 32)], "b9", budget_h=9.18)
+            src = (Path(d) / "prover_kernel.py").read_text()
+            self.assertIn("BUDGET_S = 33048", src)
+            self.assertIn(f"SEC_PER_SAMPLE = {prover.sec_per_sample()}", src)
+            self.assertIn("time.time() - t0 + need > BUDGET_S", src)
+            compile(src, "prover_kernel.py", "exec")
+            prover.build(d, [(t, 32)], "b10")                                # no budget given: the template's own
+            self.assertIn("BUDGET_S = 9 * 3600", (Path(d) / "prover_kernel.py").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

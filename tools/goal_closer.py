@@ -13,6 +13,11 @@ that is the hard part of a problem (imo_1962_p2's one direction of the set equal
 
     python3 tools/goal_closer.py list [--out FILE] [--check]     # the open one-step goals, real steps first
     python3 tools/goal_closer.py try --goal SHA --proof FILE     # a proof of one goal: judge it, splice, judge
+    python3 tools/goal_closer.py tactic --tactic grind [--jobs 4] [--out FILE]   # one tactic on every readable goal
+
+`tactic` is the tactic-recipe search: no model, Lean only. Every goal here is a step the loop's automation
+(subgoals.AUTO_TACTICS) already failed, so each goal a new tactic closes, and whose splice the kernel accepts, is a
+problem that tactic solves. It is the evidence for adding a tactic to the chain; it publishes nothing.
 """
 import argparse, ast, hashlib, json, re, sys
 from pathlib import Path
@@ -134,6 +139,23 @@ def close(goal, target_text, body, judge_text):
     return last
 
 
+def try_tactic(goals, tactic, read_target, judge_text, jobs=4):
+    """[{sha, target_set, target, restates, verdict, stage, seconds}] for `tactic` as the whole proof of each
+    readable goal, judged alone and, where Lean accepts it, spliced into the goal's sketches (close())."""
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    def one(g):
+        t0 = time.monotonic()
+        r = close(g, read_target(g["target_set"], g["target"]), f"  {tactic}\n", judge_text)
+        return {"sha": g["sha"], "target_set": g["target_set"], "target": g["target"], "restates": g["restates"],
+                "verdict": r["verdict"], "stage": r["stage"], "seconds": round(time.monotonic() - t0, 1),
+                **({"candidate": r["candidate"]} if r["verdict"] == "accept" else {})}
+
+    with ThreadPoolExecutor(jobs) as pool:                       # each judge is its own Lean process
+        return list(pool.map(one, [g for g in goals if g.get("file_ok")]))
+
+
 QUEUE = ROOT / "ledger" / "goal-queue.json"
 
 
@@ -162,12 +184,29 @@ def _load():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["list", "try"])
+    ap.add_argument("cmd", choices=["list", "try", "tactic"])
+    ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
+    ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")
     ap.add_argument("--check", action="store_true", help="list: judge each goal's own file (Lean, ~20 s a goal)")
     ap.add_argument("--goal", help="try: a goal's sha from `list`")
     ap.add_argument("--proof", help="try: a file with the proof, a whole `theorem sb_goal ... := by` or tactics")
     args = ap.parse_args()
+    if args.cmd == "tactic":                       # the stored queue, file_ok already judged: no ledger rescan
+        import lean_tools
+        goals = json.loads(QUEUE.read_text())
+        read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
+        rows = try_tactic(goals, args.tactic, read, lean_tools.judge_text, args.jobs)
+        solved = sorted({(r["target_set"], r["target"]) for r in rows if r["verdict"] == "accept"})
+        stages = {s: sum(r["stage"] == s and r["verdict"] == "reject" for r in rows) for s in ("goal", "splice", "problem")}
+        print(f"{args.tactic}: {len(rows)} goals tried, {sum(r['verdict'] == 'accept' for r in rows)} closed and "
+              f"spliced, {len(solved)} problems; rejected at goal {stages['goal']}, no one-hole sketch "
+              f"{stages['splice']}, splice rejected {stages['problem']}", file=sys.stderr)
+        for s, t in solved:
+            print(f"  solved: {s}/{t}", file=sys.stderr)
+        if args.out:
+            Path(args.out).write_text(json.dumps(rows, ensure_ascii=False, indent=1))
+        return 0
     goals, read = _load()
     if args.cmd == "list":
         if args.check:

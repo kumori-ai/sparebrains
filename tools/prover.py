@@ -28,6 +28,13 @@ KERNEL_ID = "kumoriai/sparebrains-prover"
 KERNEL_ID_TPU = "kumoriai/sparebrains-prover-tpu"   # the same prover on Kaggle's TPU hours (task #479)
 LOOP_MAX = 6                               # rejected answers per problem that get the loop's Lean-only pass
 GOAL_SAMPLES = 8                           # tries per one-step goal in a goal batch (task #461)
+# The week's GPU hours, used exactly (Andy, 2026-10-19). Kaggle reports them itself (`kaggle quota`, CLI 2.2.4:
+# GetAcceleratorQuotaStatistics, the call behind its settings page); the quota resets Saturday 00:00 UTC (Kaggle
+# staff, product-feedback 173129) and can float above 30 h, so it is read, never assumed.
+SESSION_H = 11.5                           # Kaggle ends a session at 12 h
+MARGIN_H = 0.25                            # left unspent so a slow last chunk never meets the quota's end
+MIN_BATCH_H = 1.0                          # under this, the model's load and one chunk do not fit: wait for the reset
+PRIOR_SEC_PER_SAMPLE = 103.0               # batch 20261017T1830: 659.4 min for 384 answers; replaced once batches log more
 # A lane is who wrote the answers. The judging below is shared: tools/leanstral.py hands its answers to the same
 # judge, fixer and loop under its own lane (DECISIONS.md 2026-10-18).
 PROVER = {"backend": BACKEND, "provider": "kaggle", "model": MODEL, "mode": "prover", "file": "prover"}
@@ -66,7 +73,35 @@ def todo(open_list, rows):
     return out
 
 
-def build(out_dir, work, batch, goals=False, tpu=False):
+def batch_hours(total_h, used_h, reserved_h=0.0):
+    """Hours the next GPU batch may run: what the week has left, less the margin, at most one session; 0 when
+    too little is left for the model to load and finish a chunk."""
+    h = min(SESSION_H, total_h - used_h - reserved_h - MARGIN_H)
+    return round(h, 2) if h >= MIN_BATCH_H else 0.0
+
+
+def sec_per_sample():
+    """Seconds of GPU session per answer over every GPU batch with a measured run, or the prior before any."""
+    secs = n = 0
+    if BATCHES.exists():
+        for line in BATCHES.read_text().splitlines():
+            r = json.loads(line)
+            if r.get("ran_min") and r.get("answers") and not str(r.get("batch", "")).startswith("tpu"):
+                secs, n = secs + 60 * r["ran_min"], n + r["answers"]
+    return round(secs / n, 1) if n else PRIOR_SEC_PER_SAMPLE
+
+
+def gpu_quota():
+    """(total, used, reserved) GPU hours this week, from Kaggle (needs KAGGLE_API_TOKEN and kaggle>=2.2.4)."""
+    from kaggle.api.kaggle_api_extended import KaggleApi
+    api = KaggleApi()
+    api.authenticate()
+    q = api.quota_view().gpu_quota
+    h = lambda d: d.total_seconds() / 3600 if d else 0.0
+    return h(q.total_time_allowed), h(q.time_used), h(getattr(q, "time_reserved", None))
+
+
+def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None):
     """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
     everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17)."""
     out = Path(out_dir)
@@ -77,8 +112,12 @@ def build(out_dir, work, batch, goals=False, tpu=False):
                  "statement": (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()}
                 for t, owed in work]
     src = (ROOT / "tools" / ("prover_kernel_tpu.py" if tpu else "prover_kernel.py")).read_text()
-    for old, new in (("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
-                     ('BATCH = ""', f"BATCH = {json.dumps(batch)}")):
+    fills = [("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
+             ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
+    if budget_h is not None and not tpu:          # the GPU kernel's session, sized to the week's hours left
+        fills += [("BUDGET_S = 9 * 3600", f"BUDGET_S = {int(budget_h * 3600)}"),
+                  ("SEC_PER_SAMPLE = 0.0", f"SEC_PER_SAMPLE = {sec_per_sample()}")]
+    for old, new in fills:
         assert src.count(old) == 1, old
         src = src.replace(old, new, 1)
     (out / "prover_kernel.py").write_text(src)
@@ -101,10 +140,10 @@ def goal_work(queue, open_keys, rows):
     return [q for q in queue if (q["target_set"], q["target"]) in open_keys and q["goal"] not in tried]
 
 
-def build_goals(out_dir, work, batch):
+def build_goals(out_dir, work, batch, budget_h=None):
     """The same kernel as a problem batch; each entry's statement is the goal's own file, and `goal` comes back
     on every answer."""
-    return build(out_dir, [({**q, "order": 0}, q["n"]) for q in work], batch, goals=True)
+    return build(out_dir, [({**q, "order": 0}, q["n"]) for q in work], batch, goals=True, budget_h=budget_h)
 
 
 def final_proof(text, name):
@@ -334,14 +373,22 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "smoke-tpu"])
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "smoke-tpu", "hours"])
     ap.add_argument("--n", type=int, default=4, help="smoke-tpu: samples per problem")
     ap.add_argument("--dir")
     ap.add_argument("--out")
     ap.add_argument("--answers")
     ap.add_argument("--max-minutes", type=float, default=300)
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
+    ap.add_argument("--hours", type=float, help="next: the session's hours (from `hours`); the kernel stops before them")
     args = ap.parse_args()
+    if args.cmd == "hours":                       # the next GPU batch's hours, from Kaggle's own quota; 0 = wait
+        total, used, reserved = gpu_quota()
+        h = batch_hours(total, used, reserved)
+        print(h)
+        print(f"GPU quota: {used:.2f} of {total:.2f} h used, {reserved:.2f} h reserved; next batch {h} h at "
+              f"{sec_per_sample()} s an answer", file=sys.stderr)
+        return 0
     import relay
     if args.cmd == "smoke-tpu":                   # a speed check on SOLVED problems only: no bar, no first solve to take
         solved = relay.fetch_json("/targets.json").get("solved") or []
@@ -361,7 +408,7 @@ def main():
         if not work:
             return 0
         batch = "goals-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
-        n = build_goals(args.out, work, batch)
+        n = build_goals(args.out, work, batch, budget_h=args.hours)
         print(batch)
         print(f"goal batch {batch}: {n} goals, {n * GOAL_SAMPLES} samples", file=sys.stderr)
         return 0
@@ -370,7 +417,7 @@ def main():
         if not work:
             return 0
         batch = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
-        n = build(args.out, work, batch)
+        n = build(args.out, work, batch, budget_h=args.hours)
         print(batch)
         print(f"batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)
         return 0

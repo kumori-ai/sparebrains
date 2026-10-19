@@ -14,8 +14,12 @@ PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "s
 BATCH = ""             # filled by tools/prover.py
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 MAX_TOKENS, TEMPERATURE, TOP_P = 16000, 1.0, 0.95
-BUDGET_S = 9 * 3600    # no new problem starts after this; Kaggle ends a session at 12 h
-CHUNK = 4              # problems per generate call: answers are written after each chunk
+# Filled by tools/prover.py from Kaggle's own quota (Andy 2026-10-19: use the week's GPU hours exactly): the
+# session's seconds, and the measured seconds an answer takes. A chunk starts only if its estimate still fits, so
+# a batch never runs past the quota (Kaggle would end it, and the workflow stops on a batch that did not complete).
+BUDGET_S = 9 * 3600
+SEC_PER_SAMPLE = 0.0
+CHUNK = 2              # problems per generate call: answers are written after each chunk (4 overran budgets by ~3.7 h)
 OUT = "/kaggle/working/answers.jsonl"
 TIMING = "/kaggle/working/timing.json"   # when the GPUs came, the model loaded, each chunk, the end (UTC)
 # The model card's prompt (huggingface.co/Goedel-LM/Goedel-Prover-V2-8B, section 6), unchanged.
@@ -55,12 +59,14 @@ tok = llm.get_tokenizer()
 print(json.dumps({"batch": BATCH, "problems": len(PROBLEMS), "load_s": round(time.time() - t0, 1)}), flush=True)
 stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
 
+per_sample = SEC_PER_SAMPLE                       # the slowest rate seen so far, never below the measured prior
 with open(OUT, "a") as out:
     for i in range(0, len(PROBLEMS), CHUNK):
-        if time.time() - t0 > BUDGET_S:
-            print(json.dumps({"stopped": "budget", "done": i}), flush=True)
-            break
         chunk = PROBLEMS[i:i + CHUNK]
+        need = per_sample * sum(p["n"] for p in chunk)
+        if time.time() - t0 + need > BUDGET_S:
+            print(json.dumps({"stopped": "budget", "done": i, "next_chunk_s": round(need)}), flush=True)
+            break
         prompts = [tok.apply_chat_template([{"role": "user", "content": PROMPT.format(p["statement"])}],
                                            tokenize=False, add_generation_prompt=True) for p in chunk]
         params = [SamplingParams(n=p["n"], temperature=TEMPERATURE, top_p=TOP_P, max_tokens=MAX_TOKENS) for p in chunk]
@@ -81,4 +87,5 @@ with open(OUT, "a") as out:
                           "tokens": n_tokens, "tok_per_s": round(n_tokens / secs, 1)}), flush=True)
         timing["chunks"].append({"problems": len(chunk), "seconds": round(secs, 1), "tokens": n_tokens})
         stamp()
+        per_sample = max(per_sample, secs / max(sum(p["n"] for p in chunk), 1))
 stamp(finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))

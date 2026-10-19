@@ -33,7 +33,7 @@ jobs:
           persist-credentials: false        # no push token on disk while untrusted Lean runs
 
       - name: python deps
-        run: python3 -m pip install -q requests "kaggle>=1.8"
+        run: python3 -m pip install -q requests "kaggle>=2.2.4"   # 2.2.4 adds `kaggle quota`, which sizes each batch
 
       # The Kaggle token lives only in this step and the push step; neither runs Lean.
       - name: the Kaggle batch
@@ -116,7 +116,11 @@ jobs:
         run: |
           # Goal batches (task #461) only when the repository variable PROVER_MODE is "goals": set after the
           # stage-3 bar is graded, so nothing changes the prover's inputs while it is measured.
-          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel" $( [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
+          # The week's GPU hours used exactly (2026-10-19): the session is sized to what Kaggle says is left this
+          # week, and the kernel starts a chunk only if it still fits. Under an hour left: wait for Saturday's reset.
+          hours=$(python3 tools/prover.py hours)
+          if [ "$hours" = "0.0" ]; then echo "under an hour of GPU quota left this week; next push after the reset"; exit 0; fi
+          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
           echo "pushed batch $batch"
