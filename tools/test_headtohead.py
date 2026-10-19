@@ -24,6 +24,15 @@ class Fairness(unittest.TestCase):
         self.assertTrue(all(t["rung"] in h.HARD_RUNGS for t in a[2:]))           # primer and L1 never picked
         self.assertEqual([t["status"] for t in a], ["open", "open", "solved", "solved"])
 
+    def test_slices_split_the_open_list_by_name_whatever_is_solved_between_them(self):
+        opened = [{"target_set": "s", "target": f"o{i}", "order": i} for i in range(40)]
+        names = lambda ts: {t["target"] for t in ts}
+        halves = [names(h.pick({"open": opened, "solved": []}, 99, 0, lambda t: True, (k, 2))) for k in (0, 1)]
+        self.assertEqual((halves[0] & halves[1], halves[0] | halves[1]), (set(), names(opened)))
+        gone = min(halves[0])                                                    # solved by half 0's run
+        later = {"open": [t for t in opened if t["target"] != gone], "solved": []}
+        self.assertEqual(names(h.pick(later, 99, 0, lambda t: True, (1, 2))), halves[1])
+
     def test_the_goal_is_the_theorem_itself(self):
         self.assertEqual(h.theorem_as_goal(TARGET), "theorem sb_goal (x : ℝ) (h : 0 < x) : 0 < x ^ 2 := by")
 

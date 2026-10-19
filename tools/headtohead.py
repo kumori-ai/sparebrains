@@ -40,11 +40,14 @@ def theorem_as_goal(target_text):
     return re.sub(r"^(theorem|lemma)\s+\S+", "theorem sb_goal", prefix[decl:], count=1).rstrip()
 
 
-def pick(targets, n_open, n_solved, exists):
+def pick(targets, n_open, n_solved, exists, slice_=(0, 1)):
     """The fixed set: open problems in the open list's order, then solved ones from the harder rungs, ordered by
-    a hash of SEED and their name so the choice is the same on every run and owes nothing to their results."""
-    opened = [t for t in sorted(targets["open"], key=lambda t: t["order"]) if exists(t)][:n_open]
+    a hash of SEED and their name so the choice is the same on every run and owes nothing to their results.
+    Slice k/N keeps the open problems whose name hashes to k, so a solve between two slices' runs moves none."""
     key = lambda t: hashlib.sha256(f"{SEED}/{t['target_set']}/{t['target']}".encode()).hexdigest()
+    k, n = slice_
+    opened = [t for t in sorted(targets["open"], key=lambda t: t["order"])
+              if exists(t) and int(key(t), 16) % n == k][:n_open]
     solved = sorted((t for t in targets["solved"] if t.get("rung") in HARD_RUNGS and exists(t)), key=key)[:n_solved]
     return [dict(t, status="open") for t in opened] + [dict(t, status="solved") for t in solved]
 
@@ -176,6 +179,7 @@ def main():
     ap.add_argument("--open", type=int, default=15)
     ap.add_argument("--solved", type=int, default=15)
     ap.add_argument("--calls", type=int, default=CALLS)
+    ap.add_argument("--slice", default="0/1", help="k/N: the open problems whose name hashes to k (a run too long for one job)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
@@ -184,7 +188,7 @@ def main():
     import fixer, lean_tools, leanstral, relay
     targets = relay.fetch_json("/targets.json")
     path = lambda t: ROOT / "targets" / t["target_set"] / f"{t['target']}.lean"
-    problems = pick(targets, a.open, a.solved, lambda t: path(t).exists())
+    problems = pick(targets, a.open, a.solved, lambda t: path(t).exists(), tuple(int(x) for x in a.slice.split("/")))
     pacer = leanstral.Pacer(leanstral.MIN_GAP_S)
 
     def call(prompt):

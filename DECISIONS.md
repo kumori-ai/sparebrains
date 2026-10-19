@@ -23,6 +23,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   far it reaches: one flipped disagreement (7 to 2) gives p = 0.18, and 11 of the tools arm's 12 solves were on
   problems already solved; on the 15 open ones the tools arm solved 1 (mathd_numbertheory_277), the alone arm 0.
   What it shows, as of this run: a lift on problems the model can already reach, not reach into new ones.
+- **The reach run, rules written before it runs (Andy: yes, 2026-10-19).** The same head-to-head (same arms, 4
+  calls per arm, same kernel) on every problem open at dispatch (60 on 2026-10-19), none solved, in two jobs
+  (`--slice 0/2`, `1/2`, by a hash of the name, 32 and 28, so a solve between them moves none) because one would
+  run near the job's 340-minute limit (run 1 spent 77 minutes of wall time on 15 open problems). What we may say,
+  on the two jobs together: "reaches new problems" only if the problems solved by the tools arm alone outnumber
+  those solved by the alone arm alone and a two-sided sign test on those gives p < 0.05; otherwise the numbers
+  and intervals, no claim. Expected before it runs: at run 1's rate (1 tools-only solve in 15 open) about 4,
+  and 4 to 0 is p = 0.125, so a miss is the likely outcome and says the next lever is more calls or a stronger
+  prover in the tools arm. Every first-time solve is recorded and published like any other try.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,
