@@ -14,12 +14,17 @@ on:
       max_goals:
         description: "goals to try, in the queue's order (real steps first), skipping any already tried"
         default: "40"
+      lane:
+        description: "a router lane (backend name) to ask instead of Leanstral; blank is Leanstral"
+        default: ""
 
 permissions:
   contents: write        # publish the ledger rows and verified proofs
 
 concurrency:
-  group: leanstral       # one Mistral caller at a time: the Labs limit is 38 requests a minute for the org
+  # Leanstral: one Mistral Labs caller at a time (38 requests a minute for the org). A router lane runs in its own
+  # group, beside it, paced by the router (2026-10-19).
+  group: ${{ inputs.lane == '' && 'leanstral' || format('decompose-{0}', inputs.lane) }}
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +55,8 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
-          python3 tools/decompose.py run --max-goals "${{ inputs.max_goals }}" --out "ledger/decompose/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+          python3 tools/decompose.py run --max-goals "${{ inputs.max_goals }}" $( [ -n "${{ inputs.lane }}" ] && echo --lane "${{ inputs.lane }}" ) \
+            --out "ledger/decompose/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
       - name: publish the ledger
@@ -63,5 +69,5 @@ jobs:
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
           python3 tools/publish.py --message "decompose run $GITHUB_RUN_ID: $SUMMARY
 
-          Generated-by: Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral's Labs API, cost \$0, via tools/decompose.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Generated-by: ${{ inputs.lane && format('router lane {0} via Kumori', inputs.lane) || 'Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral''s Labs API' }}, cost \$0, via tools/decompose.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
           Judged on: $MACHINE"

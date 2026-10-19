@@ -80,5 +80,34 @@ class Decompose(unittest.TestCase):
                                               judge_text=lambda t: {"verdict": "accept"}))
 
 
+
+class RouterLane(unittest.TestCase):
+    """Any lane can do the asking (charter: every tool runs on any lane); Leanstral stays the default."""
+
+    def test_each_lane_skips_only_the_goals_it_tried_itself(self):
+        rows = [{"sha": "a"}, {"sha": "b", "backend": "groq-gptoss-decompose"}]
+        self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"a"})     # old rows are Leanstral's
+        self.assertEqual(decompose.tried_by(rows, "groq-gptoss-decompose"), {"b"})
+
+    def test_a_router_lane_waits_out_its_pacing_then_says_why_it_gave_up(self):
+        class Err(Exception):
+            retry_after = 0.01
+        calls = []
+        def chat(backend, messages, **kw):
+            calls.append(backend)
+            if len(calls) == 1:
+                raise Err("per-lane RPM spacing")
+            return "```lean4\nx\n```", {}, {}
+        ask, _ = decompose.router_ask("groq-gptoss", chat=chat)
+        self.assertEqual(ask("p"), "```lean4\nx\n```")
+        self.assertEqual(calls, ["groq-gptoss", "groq-gptoss"])
+        bad, _ = decompose.router_ask("groq-gptoss", chat=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 503")))
+        self.assertEqual(bad("p"), {"error": "RuntimeError: HTTP 503"})
+
+    def test_a_lane_names_its_rows_and_tries(self):
+        lane = decompose.lane_of("groq-gptoss")
+        self.assertEqual((lane["backend"], lane["mode"], lane["file"]), ("groq-gptoss-decompose", "goal-closer", "decompose"))
+        self.assertIs(decompose.lane_of(None), decompose.LANE)
+
 if __name__ == "__main__":
     unittest.main()

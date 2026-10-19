@@ -125,6 +125,46 @@ def leanstral_ask(key):
     return ask, pacer
 
 
+def lane_of(backend):
+    """The lane a run records under: Leanstral's by default, else any router lane (charter: every tool, any lane)."""
+    if not backend:
+        return LANE
+    return {"backend": f"{backend}-decompose", "provider": "kumori-router", "model": backend, "mode": "goal-closer",
+            "file": "decompose"}
+
+
+def tried_by(rows, backend):
+    """Goals this lane already tried; rows from before 2026-10-19's router lanes carry no backend and are Leanstral's."""
+    return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend}
+
+
+def router_ask(backend, chat=None):
+    """ask(prompt) -> text, or {"error": why}, through Kumori's router like attempt.py's lemma asks: the router paces
+    each lane, so a short retry_after is waited out (twice at most), anything else ends the ask with its reason."""
+    if chat is None:
+        from utilities.kumori_api_client import init, llm_chat
+        init()
+        chat = llm_chat
+
+    class NoPacer:
+        stop = None
+
+    def ask(prompt):
+        for tries in (1, 2, 3):
+            try:
+                reply, _, _ = chat(backend, [{"role": "user", "content": prompt}], max_tokens=16000, temperature=0.2,
+                                   app_name="sparebrains", include_metadata=True, timeout=(10, 315), timeout_s=300,
+                                   long_call=True)
+                return reply
+            except Exception as e:
+                wait = getattr(e, "retry_after", 0) or 0
+                if tries < 3 and 0 < wait <= 60:
+                    time.sleep(wait + 0.5)
+                    continue
+                return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    return ask, NoPacer()
+
+
 def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None):
     """Each goal decomposed, then its proof spliced into its problem (goal_closer.close). Returns (rows, solves):
     rows are measurements; solves are [(goal, body)] the kernel accepted whole."""
@@ -150,30 +190,31 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["run"])
     ap.add_argument("--max-goals", type=int, default=40)
+    ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    lane = lane_of(a.lane)
     key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
-    if not key:
+    if not key and not a.lane:
         sys.exit("SPAREBRAINS_LEANSTRAL_KEY is not set")
     import lean_tools, prover, relay
     targets = relay.fetch_json("/targets.json")
     rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"]}
-    tried = set()
-    for f in (ROOT / "ledger" / "decompose").glob("*.jsonl"):
-        tried |= {json.loads(l)["sha"] for l in f.read_text().splitlines() if l.strip()}
+    tried = tried_by([json.loads(l) for f in (ROOT / "ledger" / "decompose").glob("*.jsonl")
+                      for l in f.read_text().splitlines() if l.strip()], lane["backend"])
     goals = [g for g in json.loads(goal_closer.QUEUE.read_text())
              if g.get("file_ok") and (g["target_set"], g["target"]) in rung
              and rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS and g["sha"] not in tried]
     goals = goals[:a.max_goals]                           # the queue's order: real steps first
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
-    ask, pacer = leanstral_ask(key)
+    ask, pacer = router_ask(a.lane) if a.lane else leanstral_ask(key)
     import fixer
     names_ix = lean_tools.index()
     rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
                        fix=lambda proof, out: fixer.fix(proof, out, *names_ix))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "a") as f:
-        f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+        f.writelines(json.dumps({**r, "backend": lane["backend"]}, ensure_ascii=False) + "\n" for r in rows)
     published = {}
     if solves:
         from utilities.kumori_api_client import init, sparebrains_attempt
@@ -186,11 +227,11 @@ def main():
         run_id = "decompose-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
         answers = [{"batch": run_id, "target_set": g["target_set"], "target": g["target"], "sample": i, "goal": g["sha"],
                     "text": "```lean4\n" + g["goal"] + "\n" + body + "```"} for i, (g, body) in enumerate(solves)]
-        published = prover.judge_goals(answers, prover.prover_rows(lane=LANE), {g["sha"]: g for g, _ in solves},
+        published = prover.judge_goals(answers, prover.prover_rows(lane=lane), {g["sha"]: g for g, _ in solves},
                                        judge_text=lean_tools.judge_text,
-                                       record=prover.Recorder("run", post, LANE), run_id=run_id, lane=LANE)
+                                       record=prover.Recorder("run", post, lane), run_id=run_id, lane=lane)
     asks = sum(r["asks"] for r in rows)
-    print(f"decompose: {len(rows)} goals, {asks} Leanstral asks, {len(solves)} problems solved "
+    print(f"decompose: {len(rows)} goals, {asks} {a.lane or 'Leanstral'} asks, {len(solves)} problems solved "
           f"{sorted(g['target'] for g, _ in solves)}; published {published}"
           + (f"; Leanstral stopped: {pacer.stop}" if pacer.stop else ""))
     return 0
