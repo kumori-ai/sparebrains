@@ -16,6 +16,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Leanstral calls per solve (every call it spent, over its solves) are lower; otherwise the run is reported as
   it came out, numbers and intervals, with no claim. 30 problems can miss a real difference: a miss is a
   finding about this run, not about the tools.
+- **The head-to-head's first run: better and cheaper per result, by the rules above (run 39271052543,
+  2026-10-19).** Solved of 30: tools 12 (95% CI 24.6–57.7%), alone 5 (7.3–33.6%). Disagreements: 8 solved by
+  the tools arm only, 1 by the alone arm only (induction_nfactltnexpnm1ngt3); a two-sided sign test on those 9
+  gives p = 0.039. Leanstral calls per solve: tools 5.8, alone 22.2; tokens per solve 69K against 364K. How
+  far it reaches: one flipped disagreement (7 to 2) gives p = 0.18, and 11 of the tools arm's 12 solves were on
+  problems already solved; on the 15 open ones the tools arm solved 1 (mathd_numbertheory_277), the alone arm 0.
+  What it shows, as of this run: a lift on problems the model can already reach, not reach into new ones.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,
