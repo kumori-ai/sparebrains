@@ -140,6 +140,12 @@ jobs:
             # then the tool scoreboard (task #463) with the time left: it catches up night by night, and grades
             # the chain afresh whenever a tool's code changes
             LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
+            # the speed receipt (task #191) first, capped: each week's frozen sample, whole chain only, so a
+            # tool change re-runs every earlier week (~550 rows left on 2026-10-18, about one night)
+            if [ "$LEFT" -gt 15 ]; then
+              python3 tools/toolscore.py --speed --slice "$SLICE" --max-minutes $(( LEFT < 90 ? LEFT - 5 : 90 ))
+            fi
+            LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
             if [ "$LEFT" -gt 15 ]; then
               python3 tools/toolscore.py --half report --slice "$SLICE" --max-minutes "$LEFT"
             fi

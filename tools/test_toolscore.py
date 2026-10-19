@@ -73,6 +73,13 @@ class Arms(unittest.TestCase):
         self.assertEqual([(t, arm, v) for t, arm, v, *_ in rows],
                          [("*", "full", "accept"), ("double_by", "without", "reject")])     # the turn needed double_by
 
+    def test_the_speed_receipt_runs_the_whole_chain_only(self):
+        lean = FakeLean()
+        with mock.patch.object(subgoals, "repair", return_value={"stopped": "no holes"}):
+            rows = toolscore.grade_one({"proof": "by\n  rfl\n", "lean_output": "t.lean:2:2: error: unexpected token 'by'"},
+                                       PREFIX, (None, None), lean, full_only=True)
+        self.assertEqual([(t, arm, v) for t, arm, v, *_ in rows], [("*", "full", "accept")])
+
 
 if __name__ == "__main__":
     unittest.main()
