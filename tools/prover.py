@@ -28,6 +28,11 @@ KERNEL_ID = "kumoriai/sparebrains-prover"
 KERNEL_ID_TPU = "kumoriai/sparebrains-prover-tpu"   # the same prover on Kaggle's TPU hours (task #479)
 LOOP_MAX = 6                               # rejected answers per problem that get the loop's Lean-only pass
 GOAL_SAMPLES = 8                           # tries per one-step goal in a goal batch (task #461)
+# Task #433 (DECISIONS.md 2026-10-19): the prover alone and with a plain-math plan, paired. Power comes from the
+# problems, not the tries (exact McNemar counts only the problems the arms disagree on), so every still-open bar
+# problem at 4 tries an arm rather than a few problems at 32.
+PLANS = ROOT / "ledger" / "plan-arm" / "plans.json"
+PLAN_SAMPLES = 4
 # The week's GPU hours, used exactly (Andy, 2026-10-19). Kaggle reports them itself (`kaggle quota`, CLI 2.2.4:
 # GetAcceleratorQuotaStatistics, the call behind its settings page); the quota resets Saturday 00:00 UTC (Kaggle
 # staff, product-feedback 173129) and can float above 30 h, so it is read, never assumed.
@@ -101,16 +106,18 @@ def gpu_quota():
     return h(q.total_time_allowed), h(q.time_used), h(getattr(q, "time_reserved", None))
 
 
-def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None):
+def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=None):
     """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
-    everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17)."""
+    everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17).
+    `problems` passes ready entries (a plan batch's) instead of `work`."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    problems = [{"target_set": t["target_set"], "target": t["target"], "n": owed, "goal": t["goal"],
-                 "statement": t["statement"]} if goals else
-                {"target_set": t["target_set"], "target": t["target"], "n": owed,
-                 "statement": (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()}
-                for t, owed in work]
+    problems = problems or [
+        {"target_set": t["target_set"], "target": t["target"], "n": owed, "goal": t["goal"],
+         "statement": t["statement"]} if goals else
+        {"target_set": t["target_set"], "target": t["target"], "n": owed,
+         "statement": (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()}
+        for t, owed in work]
     src = (ROOT / "tools" / ("prover_kernel_tpu.py" if tpu else "prover_kernel.py")).read_text()
     fills = [("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
              ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
@@ -144,6 +151,68 @@ def build_goals(out_dir, work, batch, budget_h=None):
     """The same kernel as a problem batch; each entry's statement is the goal's own file, and `goal` comes back
     on every answer."""
     return build(out_dir, [({**q, "order": 0}, q["n"]) for q in work], batch, goals=True, budget_h=budget_h)
+
+
+def with_plan(statement, plan):
+    """The statement with the plan as a Lean comment just above the theorem (its docstring included), so the model
+    card's prompt is unchanged and only the file the prover reads differs between the arms."""
+    m = re.search(r"^(/--|theorem |lemma )", statement, re.M)
+    note = ("/- A plan for this proof, in plain mathematics (drafted with Claude Opus; the idea only, no Lean):\n"
+            + plan.strip().replace("-/", "- /") + "\n-/\n")
+    return statement[:m.start()] + note + statement[m.start():]
+
+
+def plan_work(doc, open_keys, read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()):
+    """A plan batch's entries: for each plan on a still-open problem, the alone arm then the plan arm side by side,
+    so the kernel's chunks of 2 and its budget stop always cut both arms of a problem together."""
+    out = []
+    for p in doc["plans"]:
+        if (p["target_set"], p["target"]) not in open_keys:
+            continue
+        text = read(p["target_set"], p["target"])
+        for arm, statement in (("alone", text), ("plan", with_plan(text, p["plan"]))):
+            out.append({"target_set": p["target_set"], "target": p["target"], "n": PLAN_SAMPLES, "arm": arm,
+                        "statement": statement})
+    return out
+
+
+def plan_owed(ledger_root=ROOT / "ledger"):
+    """The plans file, while no plan-arm row carries its id; else None."""
+    if not PLANS.exists():
+        return None
+    doc = json.loads(PLANS.read_text())
+    done = any(doc["id"] in f.read_text() for f in (Path(ledger_root) / "plan-arm").glob("rows-*.jsonl"))
+    return None if done else doc
+
+
+def judge_plan(answers, *, judge_text, record, run_id, plans_id, read, out, still_open=None, lane=PROVER):
+    """Each arm of each problem judged on its own, raw (no fixer, no loop: the same for both arms), stopping at that
+    arm's first accept. Every judged answer is a measurement row (`out`); a first accept is also a try of its mode
+    (`prover` or `prover+plan`), recorded and verified like any other. Returns per arm: solved and samples judged."""
+    stats = {"alone": Counter(), "plan": Counter()}
+    by = defaultdict(list)
+    for a in answers:
+        by[(a["target_set"], a["target"], a["arm"])].append(a)
+    verified = set()
+    for (tset, name, arm), items in sorted(by.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2])):
+        text = read(tset, name)
+        prefix = text[:PROOF_SEP.search(text).end()]
+        for a in sorted(items, key=lambda a: a["sample"]):
+            proof = final_proof(a.get("text"), name)
+            r = judge_text(prefix + "\n" + proof) if proof else {"verdict": "reject", "reason": "no complete proof"}
+            row = {**base_row(a, run_id, prefix, lane), "try_mode": "prover+plan" if arm == "plan" else "prover",
+                   "arm": arm, "plans_id": plans_id, "verdict": r["verdict"], "reason": (r.get("reason") or "")[:300]}
+            out(row)
+            stats[arm]["samples"] += 1
+            if r["verdict"] == "accept":
+                stats[arm]["solved"] += 1
+                if still_open is None or (tset, name) in still_open:
+                    record(row, a.get("text"), proof, prefix + "\n" + proof, r.get("output"))
+                    if (tset, name) not in verified:
+                        record.verified(tset, name, prefix + "\n" + proof)
+                        verified.add((tset, name))
+                break
+    return {k: dict(v) for k, v in stats.items()}
 
 
 def final_proof(text, name):
@@ -335,7 +404,7 @@ def batch_record(kout, batch, observed_at, answers=()):
     if BATCHES.exists() and any(json.loads(l).get("batch") == batch for l in BATCHES.read_text().splitlines() if l.strip()):
         return None
     kout = Path(kout)
-    pushed = datetime.strptime(batch, "%Y%m%dT%H%M").replace(tzinfo=timezone.utc)
+    pushed = datetime.strptime(batch[-13:], "%Y%m%dT%H%M").replace(tzinfo=timezone.utc)   # goals-, plan- prefixes
     rec = {"batch": batch, "pushed_at": _iso(pushed), "answers": len(answers),
            "tokens": sum(a.get("tokens") or 0 for a in answers)}
     t = kout / "timing.json"
@@ -399,6 +468,15 @@ def main():
         print(batch)
         print(f"tpu smoke {batch}: {len(work)} solved problems x {args.n}", file=sys.stderr)
         return 0
+    if args.cmd == "next":                        # a plan batch (task #433) goes before any other kind
+        doc = plan_owed()
+        work = plan_work(doc, {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}) if doc else []
+        if work:
+            batch = f"plan-{doc['id']}-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+            build(args.out, None, batch, budget_h=args.hours, problems=work)
+            print(batch)
+            print(f"plan batch {batch}: {len(work) // 2} problems x 2 arms x {PLAN_SAMPLES}", file=sys.stderr)
+            return 0
     if args.cmd == "next" and args.goals:
         import goal_closer
         goals = json.loads(goal_closer.QUEUE.read_text()) if goal_closer.QUEUE.exists() else []
@@ -428,6 +506,11 @@ def main():
         print(json.dumps(rec) if rec else "batch already recorded")
         return 0
     open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+    plan_answers = [a for a in answers if a.get("arm")]
+    plan_rows = ROOT / "ledger" / "plan-arm" / f"rows-{answers[0]['batch']}.jsonl" if plan_answers else None
+    if args.cmd == "pending" and plan_answers:      # judged whole in one job: owed until its rows file exists
+        print(0 if plan_rows.exists() else len(plan_answers))
+        return 0
     if args.cmd == "pending":
         rows = prover_rows()
         goal_answers = [a for a in answers if a.get("goal")]
@@ -450,6 +533,24 @@ def main():
         print(f"site recording off ({type(e).__name__}); the ledger still gets every row", flush=True)
     names_ix = lean_tools.index()
     batch = answers[0]["batch"] if answers else "none"
+    if plan_answers:                                 # a plan batch (task #433): each arm judged on its own
+        import headtohead
+        doc = json.loads(PLANS.read_text())
+        rows = []
+        stats = judge_plan(plan_answers, judge_text=lean_tools.judge_text, record=Recorder(answers[0]["batch"], post),
+                           run_id=f"prover-{answers[0]['batch']}", plans_id=doc["id"],
+                           read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text(), out=rows.append,
+                           still_open=open_now)
+        won = {(r["target"], r["arm"]) for r in rows if r["verdict"] == "accept"}
+        names = {r["target"] for r in rows}
+        only_plan = sorted(n for n in names if (n, "plan") in won and (n, "alone") not in won)
+        only_alone = sorted(n for n in names if (n, "alone") in won and (n, "plan") not in won)
+        plan_rows.parent.mkdir(parents=True, exist_ok=True)
+        plan_rows.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        print(json.dumps({"batch": answers[0]["batch"], "problems": len(names), **stats, "only_plan": only_plan,
+                          "only_alone": only_alone, "p": round(headtohead.sign_p(len(only_plan), len(only_alone)), 4)}),
+              flush=True)
+        return 0
     goal_answers = [a for a in answers if a.get("goal")]
     if goal_answers:                                 # a goal batch (task #461): the goal closer judges it
         import goal_closer

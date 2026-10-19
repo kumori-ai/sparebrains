@@ -44,6 +44,15 @@ class Fairness(unittest.TestCase):
         self.assertEqual(names(h.pick(targets, 99, 0, lambda t: True, (1, 2))),
                          names(h.pick(targets, 99, 0, lambda t: True, (1, 2), seed="replication")))
 
+    def test_the_sign_test_matches_the_runs_we_reported(self):
+        self.assertEqual(round(h.sign_p(8, 1), 4), 0.0391)          # run 39271052543
+        self.assertEqual(round(h.sign_p(7, 2), 4), 0.1797)          # the one-flip check
+        self.assertEqual(round(h.sign_p(6, 0), 4), 0.0312)          # the plan arm's smallest pass
+        self.assertEqual(h.sign_p(0, 0), 1.0)
+        self.assertIn("p", h.summary([{"arm": "tools", "target": "a", "outcome": "solved", "calls": 1, "tokens": 1,
+                                       "seconds": 1}, {"arm": "alone", "target": "a", "outcome": "failed", "calls": 1,
+                                       "tokens": 1, "seconds": 1}]))
+
     def test_the_goal_is_the_theorem_itself(self):
         self.assertEqual(h.theorem_as_goal(TARGET), "theorem sb_goal (x : ℝ) (h : 0 < x) : 0 < x ^ 2 := by")
 

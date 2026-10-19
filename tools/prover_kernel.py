@@ -78,6 +78,7 @@ with open(OUT, "a") as out:
             for k, o in enumerate(r.outputs):
                 out.write(json.dumps({"batch": BATCH, "target_set": p["target_set"], "target": p["target"], "sample": k,
                                       **({"goal": p["goal"]} if p.get("goal") else {}),
+                                      **({"arm": p["arm"]} if p.get("arm") else {}),
                                       "text": o.text, "tokens": len(o.token_ids), "finish": o.finish_reason,
                                       "seconds": round(secs * len(o.token_ids) / max(n_tokens, 1), 1),
                                       "config": {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,

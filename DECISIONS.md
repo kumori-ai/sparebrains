@@ -40,6 +40,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   "replicated" only if the tools arm's own solves outnumber the alone arm's and a two-sided sign test on those
   disagreements gives p < 0.05; "cheaper per result replicated" only if its calls per solve are lower again.
   Otherwise the numbers and intervals, and run 1's "better" is reported beside them as not replicated.
+- **Plan plus prover, rules written before it runs (task #433, Andy: yes, 2026-10-19).** Does a plain-math plan
+  help Goedel-Prover-V2-8B on the problems it missed? Hilbert (arXiv 2509.22819) and Draft, Sketch, Prove (arXiv
+  2210.12283; model-written drafts 20.9% to 39.3%) say plans help provers; DSP reports human and model drafts as
+  separate arms, and so do we. The design, paired: every bar-rung problem still open when the batch is built (37 on
+  2026-10-19, before batch 3 was judged), each in two arms in the same Kaggle batch, the model card's prompt
+  unchanged in both: `alone` (the statement as it is) and `plan` (the same file with the plan as a Lean comment above
+  the theorem, `prover.with_plan`). 4 answers an arm: power comes from the problems (exact McNemar counts only the
+  disagreements), not the tries, and 6 problems solved by the plan arm alone against 0 is the smallest pass
+  (p = 0.031); 10 problems could not pass short of 6 of 10. Judged raw, no fixer and no loop, identically for both
+  arms, each arm stopping at its own first accept (`prover.judge_plan`), rows in ledger/plan-arm/. The plans are
+  drafted with Claude Opus in the session that set this bar, written before any plan-arm answer exists, and
+  committed (ledger/plan-arm/plans.json) before the batch is pushed; they are kept off the problem threads and
+  dossiers so no other arm reads them, and are published with the result. What we may say: "a Claude plan helps the
+  prover" only if the plan arm's own solves outnumber the alone arm's and the two-sided sign test gives p < 0.05;
+  otherwise the numbers, no claim. Never "our tools" or the free models: a frontier model's plan for a known
+  competition problem may carry a remembered solution, so every plan-arm solve is labeled `prover+plan`, its own
+  column. The first push after Kaggle's reset (2026-10-24 00:00 UTC) builds it before any goal batch, about 6.3 of
+  the week's 30 GPU hours at 94.9 s an answer.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,

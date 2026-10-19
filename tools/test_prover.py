@@ -102,6 +102,53 @@ class ProverTests(unittest.TestCase):
             compile(src, "prover_kernel.py", "exec")
 
 
+TARGET = f"import Mathlib\n\nopen Real\n\n/-- What is x? -/\ntheorem {NAME} (x : ℝ) : x = x := by\n  sorry\n"
+
+
+class PlanArmTests(unittest.TestCase):
+    """Task #433: the prover alone and with a plain-math plan, same problems, same batch, each arm judged alone."""
+
+    def test_the_plan_is_a_comment_before_the_theorem_and_nothing_else_moves(self):
+        s = prover.with_plan(TARGET, "Both sides are x.")
+        self.assertIn("/- A plan for this proof, in plain mathematics (drafted with Claude", s)
+        self.assertLess(s.index("Both sides are x."), s.index("/-- What is x? -/"))
+        self.assertEqual(s.replace(s[s.index("/- A plan"):s.index("/-- What")], ""), TARGET)
+
+    def test_both_arms_sit_side_by_side_so_a_budget_stop_cuts_them_equally(self):
+        doc = {"id": "p1", "plans": [{"target_set": "minif2f/test", "target": "a", "plan": "x"},
+                                     {"target_set": "minif2f/test", "target": "b", "plan": "y"}]}
+        work = prover.plan_work(doc, {("minif2f/test", "b")}, read=lambda s, t: TARGET)
+        self.assertEqual([(w["target"], w["arm"], w["n"]) for w in work], [("b", "alone", 4), ("b", "plan", 4)])
+        self.assertEqual(work[0]["statement"], TARGET)
+        self.assertIn("y", work[1]["statement"])
+
+    def test_each_arm_is_judged_on_its_own_and_stops_at_its_own_first_accept(self):
+        ans = [dict(answer(k, batch="plan-p1-20261024T0000"), arm=arm) for arm in ("plan", "alone") for k in range(3)]
+        rec, rows = Rec(), []
+        jt = judge_by(["reject", "accept", "reject", "reject", "accept"])
+        stats = prover.judge_plan(ans, judge_text=jt, record=rec, run_id="prover-plan", read=lambda s, t: TARGET,
+                                  out=rows.append, plans_id="p1")
+        self.assertEqual([(r["arm"], r["sample_no"], r["verdict"]) for r in rows],
+                         [("alone", 0, "reject"), ("alone", 1, "accept"),
+                          ("plan", 0, "reject"), ("plan", 1, "reject"), ("plan", 2, "accept")])
+        self.assertEqual((stats["alone"], stats["plan"]), ({"solved": 1, "samples": 2}, {"solved": 1, "samples": 3}))
+        self.assertEqual([r["try_mode"] for r in rec.rows], ["prover", "prover+plan"])   # first accepts, as tries
+        self.assertEqual(rec.proofs, [NAME], "one verified file per problem")
+        self.assertTrue(all(r["plans_id"] == "p1" for r in rows))
+
+    def test_batch_ids_with_a_prefix_parse(self):
+        from datetime import datetime, timezone
+        old = prover.BATCHES
+        with tempfile.TemporaryDirectory() as d:
+            prover.BATCHES = Path(d) / "b.jsonl"
+            try:
+                for b in ("plan-p1-20261024T0000", "goals-20261024T0000"):
+                    rec = prover.batch_record(d, b, datetime(2026, 10, 24, 6, tzinfo=timezone.utc))
+                    self.assertEqual(rec["pushed_at"], "2026-10-24T00:00:00+00:00")
+            finally:
+                prover.BATCHES = old
+
+
 class BatchTimingTests(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()

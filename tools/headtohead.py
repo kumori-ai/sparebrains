@@ -122,6 +122,12 @@ def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS
     return [r for rs, _ in out for r in rs], [s for _, ss in out for s in ss]
 
 
+def sign_p(only_a, only_b):
+    """Two-sided exact sign test (exact McNemar) on the problems only one arm solved."""
+    n, k = only_a + only_b, min(only_a, only_b)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
+
+
 def wilson(k, n, z=1.96):
     if not n:
         return (None, None)
@@ -148,6 +154,7 @@ def summary(rows):
     names = {r["target"] for r in rows}
     out["only_tools"] = sorted(n for n in names if (n, "tools") in solved and (n, "alone") not in solved)
     out["only_alone"] = sorted(n for n in names if (n, "alone") in solved and (n, "tools") not in solved)
+    out["p"] = round(sign_p(len(out["only_tools"]), len(out["only_alone"])), 4)
     return out
 
 
