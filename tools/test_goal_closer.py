@@ -50,6 +50,38 @@ class Check(unittest.TestCase):
         self.assertEqual([g["file_ok"] for g in gc.check(goals, lambda s, t: TARGET, judge)], [True, False])
 
 
+TYPED = "theorem sb_goal (x y : ℤ) (h₀ : y ^ (2 : ℕ) + (3 : ℤ) * x = (7 : ℤ)) : y ^ (2 : ℕ) ≤ (7 : ℤ) + (3 : ℤ) * x := by"
+
+
+class Retype(unittest.TestCase):
+    """Goals from rows before 2026-10-09 were printed without numeric types: extracted again from their sketches."""
+    def extract(self, results):
+        it = iter(results)
+        return mock.patch.object(gc.subgoals, "automate_and_goals", side_effect=lambda text, top, run: next(it))
+
+    def test_each_sketch_gets_its_goal_again_and_a_closed_hole_is_flagged(self):
+        g = {"sha": "old", "target_set": "s", "target": "t", "goal": STEP, "sketches": [SKETCH, SKETCH + "\n"]}
+        judge = lambda text: {"verdict": "wellformed"}
+        with self.extract([("", {5: TYPED}, {"holes": 1, "open": 1}), ("", {}, {"holes": 1, "open": 0})]):
+            rows = gc.retype([g], lambda s, t: TARGET, None, judge, slice_=(0, 1), jobs=1)
+        self.assertEqual([(r["sketch"], r["goal"], r["file_ok"], r["closed_now"]) for r in rows],
+                         [(0, TYPED, True, False), (1, None, False, True)])
+        self.assertEqual(rows[0]["sha"], gc.goal_sha(TYPED))
+        self.assertFalse(rows[0]["same"])                    # the canary: a typed goal comes back identical
+
+    def test_the_queue_is_rebuilt_from_the_rows_grouped_by_the_new_goal(self):
+        rows = [{"old": "a", "sketch": 0, "target_set": "s", "target": "t", "goal": TYPED, "file_ok": True},
+                {"old": "b", "sketch": 0, "target_set": "s", "target": "t", "goal": TYPED, "file_ok": True},
+                {"old": "b", "sketch": 1, "target_set": "s", "target": "t", "goal": None, "file_ok": False},
+                {"old": "c", "sketch": 0, "target_set": "s", "target": "t", "goal": RESTATED, "file_ok": True}]
+        queue = [{"sha": "a", "sketches": [SKETCH]}, {"sha": "b", "sketches": [SKETCH + " ", "\n  sorry"]},
+                 {"sha": "c", "sketches": ["\n  sorry"]}]
+        q = gc.requeue(rows, queue, lambda s, t: TARGET)
+        self.assertEqual([(g["goal"], len(g["sketches"]), g["restates"]) for g in q],
+                         [(TYPED, 2, False), (RESTATED, 1, True)])
+        self.assertTrue(all(g["file_ok"] for g in q))
+
+
 class Close(unittest.TestCase):
     def test_a_proof_lands_in_the_one_hole(self):
         cand = gc.splice(TARGET, SKETCH, "nlinarith [sq_nonneg y]\n")

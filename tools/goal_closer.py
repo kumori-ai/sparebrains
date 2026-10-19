@@ -14,6 +14,8 @@ that is the hard part of a problem (imo_1962_p2's one direction of the set equal
     python3 tools/goal_closer.py list [--out FILE] [--check]     # the open one-step goals, real steps first
     python3 tools/goal_closer.py try --goal SHA --proof FILE     # a proof of one goal: judge it, splice, judge
     python3 tools/goal_closer.py tactic --tactic grind [--jobs 4] [--out FILE]   # one tactic on every readable goal
+    python3 tools/goal_closer.py retype --slice 0/10 --out FILE  # every sketch's goal printed again, typed (CI)
+    python3 tools/goal_closer.py requeue --rows 'ledger/tactics/retype-*.jsonl'  # the queue rebuilt from those rows
 
 `tactic` is the tactic-recipe search: no model, Lean only. Every goal here is a step the loop's automation
 (subgoals.AUTO_TACTICS) already failed, so each goal a new tactic closes, and whose splice the kernel accepts, is a
@@ -119,6 +121,51 @@ def check(goals, read_target, judge_text):
         r = judge_text(goal_file(read_target(g["target_set"], g["target"]), g["goal"]))
         g["file_ok"] = r["verdict"] == "wellformed"
     return goals
+
+
+def retype(goals, read_target, run_lean, judge_text, slice_=(0, 1), jobs=3):
+    """Each sketch's goal extracted again by today's subgoals.automate_and_goals. Rows before 2026-10-09 stored
+    goals printed without numeric types, so `(1 / 2 : ℚ)` came back as `1 / 2` and was read in ℕ (164 of the
+    378 queued goals came only from such rows). A goal already typed comes back identical (`same`), the canary;
+    a hole today's automation closes is flagged `closed_now`. One row per sketch, slice k/N of them."""
+    from concurrent.futures import ThreadPoolExecutor
+    k, n = slice_
+    items = [(g, i, s) for g in goals for i, s in enumerate(g["sketches"])][k::n]
+
+    def one(item):
+        g, i, sketch = item
+        text = read_target(g["target_set"], g["target"])
+        prefix = prefix_of(text)
+        _, found, log = subgoals.automate_and_goals(prefix + "\n" + sketch.lstrip("\n"), prefix.count("\n") + 1,
+                                                    run_lean)
+        new = next(iter(found.values())) if len(found) == 1 else None
+        ok = bool(new) and judge_text(goal_file(text, new))["verdict"] == "wellformed"
+        return {"old": g["sha"], "sketch": i, "target_set": g["target_set"], "target": g["target"], "goal": new,
+                "sha": goal_sha(new) if new else None, "same": new == g["goal"], "file_ok": ok,
+                "closed_now": log.get("holes", 0) > 0 and log.get("open") == 0}
+
+    with ThreadPoolExecutor(jobs) as pool:
+        return list(pool.map(one, items))
+
+
+def requeue(rows, queue, read_target):
+    """The queue rebuilt from retype's rows: each readable goal with every sketch that printed it, ordered as
+    collect() orders them. A sketch with no single goal today drops out."""
+    old = {g["sha"]: g for g in queue}
+    by_goal = {}
+    for r in sorted(rows, key=lambda r: (r["old"], r["sketch"])):
+        if not (r.get("goal") and r.get("file_ok")):
+            continue
+        sha = goal_sha(r["goal"])
+        g = by_goal.setdefault(sha, {"sha": sha, "target_set": r["target_set"], "target": r["target"],
+                                     "goal": r["goal"], "sketches": [], "file_ok": True})
+        sketch = old[r["old"]]["sketches"][r["sketch"]]
+        if sketch not in g["sketches"]:
+            g["sketches"].append(sketch)
+    out = list(by_goal.values())
+    for g in out:
+        g["restates"] = restates(g["goal"], read_target(g["target_set"], g["target"]))
+    return sorted(out, key=lambda g: (g["restates"], -len(g["sketches"]), g["target"], g["sha"]))
 
 
 def close(goal, target_text, body, judge_text):
@@ -399,13 +446,14 @@ def run_sweep(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep"])
+    ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep", "retype", "requeue"])
     ap.add_argument("--recipes", help="sweep: recipes separated by `,`, steps within one by `;`")
     ap.add_argument("--slice", default="0/1", help="sweep: k/N, every Nth goal from k, for a matrix of jobs")
     ap.add_argument("--publish", action="store_true", help="sweep: record solves outside the bar (needs KUMORI_API_KEY)")
     ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
     ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")
+    ap.add_argument("--rows", help="requeue: retype's row files (a glob)")
     ap.add_argument("--check", action="store_true", help="list: judge each goal's own file (Lean, ~20 s a goal)")
     ap.add_argument("--goal", help="try: a goal's sha from `list`")
     ap.add_argument("--proof", help="try: a file with the proof, a whole `theorem sb_goal ... := by` or tactics")
@@ -427,6 +475,29 @@ def main():
         return 0
     if args.cmd == "sweep":
         return run_sweep(args)
+    if args.cmd in ("retype", "requeue"):              # the stored queue, every sketch's goal printed again
+        read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
+        queue = json.loads(QUEUE.read_text())
+        if args.cmd == "retype":
+            import lean_tools
+            rows = retype(queue, read, lean_tools.run_lean, lean_tools.judge_text,
+                          tuple(int(x) for x in args.slice.split("/")), args.jobs)
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            with open(args.out, "a") as f:
+                f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+            print(f"retype {args.slice}: {len(rows)} sketches, {sum(r['same'] for r in rows)} goals unchanged, "
+                  f"{sum(bool(r['goal']) and not r['same'] for r in rows)} printed differently, "
+                  f"{sum(not r['goal'] for r in rows)} with no single goal, {sum(r['closed_now'] for r in rows)} "
+                  f"closed by today's automation", file=sys.stderr)
+            return 0
+        import glob
+        rows = [json.loads(l) for f in sorted(glob.glob(args.rows)) for l in open(f)]
+        if not rows:
+            sys.exit(f"no retype rows match {args.rows}: the queue is left as it is")
+        new = requeue(rows, queue, read)
+        QUEUE.write_text(json.dumps(new, ensure_ascii=False, indent=1))
+        print(f"queue: {len(queue)} goals before, {len(new)} after, from {len(rows)} sketches", file=sys.stderr)
+        return 0
     goals, read = _load()
     if args.cmd == "list":
         if args.check:

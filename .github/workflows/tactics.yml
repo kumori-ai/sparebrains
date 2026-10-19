@@ -16,6 +16,11 @@ on:
       slices:
         description: "parallel jobs (at most 10)"
         default: "10"
+      mode:
+        description: "sweep: the recipes on every goal; retype: every queued sketch's goal printed again with numeric types (rows only, the queue is rebuilt from them by `goal_closer.py requeue`)"
+        type: choice
+        options: [sweep, retype]
+        default: sweep
 
 permissions:
   contents: write        # publish the ledger rows
@@ -68,6 +73,12 @@ jobs:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}     # records a solve outside the bar on the site
           SLICE: ${{ matrix.slice }}
         run: |
+          if [ "${{ inputs.mode }}" = "retype" ]; then
+            out="ledger/tactics/retype-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
+            python3 tools/goal_closer.py retype --slice "$SLICE" --jobs 3 --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
+            echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/sweep.txt" | cut -c1-300)" >> "$GITHUB_ENV"
+            exit 0
+          fi
           out="ledger/tactics/sweep-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
           # 3 Lean processes on the runner's 4 vCPU and 16 GB (each holds mathlib, ~3 GB)
           python3 tools/goal_closer.py sweep --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --publish --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
@@ -81,7 +92,7 @@ jobs:
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
-          python3 tools/publish.py --message "tactic sweep $GITHUB_RUN_ID: $SUMMARY
+          python3 tools/publish.py --message "tactic ${{ inputs.mode }} $GITHUB_RUN_ID: $SUMMARY
 
           Generated-by: tools/goal_closer.py sweep (Lean only, no model, cost \$0); verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
           Judged on: $MACHINE"
