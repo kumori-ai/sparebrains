@@ -39,6 +39,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   the first run's solves and back-checks. Finding: one-shot tactics, plain or hinted, have closed what they can
   of these 352 goals (3 problems); what is left needs a step a recipe does not write, which is the goal batches'
   job (a prover per goal, after the bar).
+- **What the 223 real-step goals need: steps, not a lemma (diagnosis, `goal_closer.diagnose`).** Kinds, from each
+  goal's text: inequality 58, divisibility 57, sets and extremes 48, functional 22, sqrt/log/trig 16, other 15,
+  complex 7, so no one specialist tool. Lean's `apply?` found a mathlib lemma that applies for 208 of 223, but
+  the ones it names are restructuring (`Set.ext`, `Eq.symm`, `and_or_right`, `refine fun ...`), and a lemma
+  closed a goal outright for 1 of 223. So lemma retrieval alone would not close these; it is a later aid to
+  whatever writes the steps. The next tool is decomposition: a model writes `have` steps into a goal, the
+  closers and recipes take the small ones, and what is left goes round again (roadmap #8), on Leanstral (free)
+  and on problems outside the bar first. Found on the way: that one "closed" goal, amc12b_2002_p4's, was
+  extracted without its ℚ types (`1 / 2 + 1 / 3 + 1 / 7 = 1 / 42`, true in ℕ where each fraction is 0); the
+  splice failed, so no false solve, but a goal that lost its number types is a different statement, and a prover
+  given it spends tries on the wrong thing.
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a

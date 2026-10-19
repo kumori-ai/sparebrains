@@ -190,6 +190,21 @@ def expand(recipe, goal):
     raise ValueError(f"unknown recipe template {recipe}")
 
 
+KINDS = (                                      # first match wins; read from the goal's own text
+    ("complex", re.compile(r"ℂ|Complex\.")),
+    ("divisibility", re.compile(r"%|∣|gcd|lcm|Prime|ZMod|\bmod\b|Nat\.digits|Odd|Even")),
+    ("sets-extremes", re.compile(r"IsLeast|IsGreatest|Finset|Set\.|\.card|\{\s*\w+\s*(:\s*\S+\s*)?\|")),
+    ("functional", re.compile(r"\(f\s*:|∀\s*\(?f\b|\bf\s*\(")),
+    ("sqrt-log-trig", re.compile(r"√|Real\.(sqrt|log|cos|sin|tan|exp|pi)|π|Real\.rpow|\^\s*\(\d+\s*/")),
+    ("inequality", re.compile(r"≤|<|≥|>")),
+)
+
+
+def kind(goal):
+    body = goal.split(":= by")[0]
+    return next((k for k, rx in KINDS if rx.search(body)), "equation-other")
+
+
 def recipe_body(recipe):
     """A recipe's tactics as a proof body: steps split on `;`, each its own line (`field_simp; ring_nf`)."""
     return "".join(f"  {s.strip()}\n" for s in recipe.split(";") if s.strip())
@@ -266,6 +281,25 @@ def sweep(goals, recipes, read_target, run_lean, judge_text, status_of, jobs=3):
     return rows, candidates
 
 
+def diagnose(goals, read_target, run_lean, jobs=4):
+    """For each goal: its kind, and the lemmas `apply?` finds in mathlib that make progress on it ("Try this").
+    The test of whether a goal's gap is a lemma we never named (retrieval would help) or a step no single lemma
+    takes. Read only: nothing is judged or recorded."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(g):
+        text, _ = recipe_file(read_target(g["target_set"], g["target"]), g["goal"], ["apply?"])
+        out, secs = run_lean(text, timeout=300)
+        tries = subgoals.TRY_THIS.findall(out)
+        return {"sha": g["sha"], "target": g["target"], "kind": kind(g["goal"]), "restates": g.get("restates"),
+                "apply_hits": len(tries), "first": tries[0][:160] if tries else None,
+                "closes": any(t.startswith("exact") for t in tries), "timeout": "timeout after" in out,
+                "lean_s": round(secs, 1)}
+
+    with ThreadPoolExecutor(jobs) as pool:
+        return list(pool.map(one, goals))
+
+
 QUEUE = ROOT / "ledger" / "goal-queue.json"
 
 
@@ -322,7 +356,9 @@ def run_sweep(args):
     k, n = (int(x) for x in args.slice.split("/"))
     targets = relay.fetch_json("/targets.json")
     rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"] + targets["solved"]}
-    open_goals = [{**g, "status": "open"} for g in json.loads(QUEUE.read_text()) if g.get("file_ok")]
+    still_open = {(t["target_set"], t["target"]) for t in targets["open"]}      # the queue is a snapshot
+    open_goals = [{**g, "status": "open"} for g in json.loads(QUEUE.read_text())
+                  if g.get("file_ok") and (g["target_set"], g["target"]) in still_open]
     solved_goals, read = _load("solved")
     goals = sorted(open_goals + [{**g, "status": "solved"} for g in solved_goals], key=lambda g: g["sha"])[k::n]
     rows, cands = sweep(goals, recipes, read, lean_tools.run_lean, lean_tools.judge_text, lambda g: g["status"],
