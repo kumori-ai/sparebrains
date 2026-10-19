@@ -93,6 +93,23 @@ class Close(unittest.TestCase):
         self.assertIn(("a", "grind"), cands)
         self.assertEqual(len(judged), 2)       # grind's goal and its splice; the filtered recipe never reaches the judge
 
+    def test_a_sweep_solve_is_recorded_as_a_goal_closer_try_by_the_recipe_lane(self):
+        import prover
+        rec = type("R", (), {"rows": [], "proofs": [],
+                             "__call__": lambda self, row, *a: self.rows.append(row),
+                             "verified": lambda self, s, t, c: self.proofs.append((t, c))})()
+        judge = lambda text: {"verdict": "accept" if "grind" in text else "reject"}
+        g = {"sha": "a", "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal (y : ℕ) : y = y := by",
+             "sketches": [SKETCH]}
+        with mock.patch.object(prover, "prover_rows", return_value=[]), \
+             mock.patch.object(Path, "read_text", return_value=TARGET):
+            stats = gc.publish_solves([("a", "grind")], {"a": g}, "tactics-0of1", rec, judge)
+        self.assertEqual(stats["solved"], 1)
+        (row,) = rec.rows
+        self.assertEqual((row["try_mode"], row["backend"], row["model"], row["verdict"]),
+                         ("goal-closer", "lean-tactic-recipe", "recipe: grind", "accept"))
+        self.assertIn("grind", rec.proofs[0][1])
+
     def test_a_tactic_is_tried_on_readable_goals_only_and_closes_whole_problems(self):
         judge = lambda text: {"verdict": "accept" if "grind" in text else "reject"}
         goals = [{"sha": "a", "target_set": "s", "target": "t", "restates": False, "goal": STEP,

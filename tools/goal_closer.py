@@ -257,6 +257,22 @@ def _load(keys="open"):
 
 
 BAR_RUNGS = ("amc12", "math-L5", "aime")             # tools/prover.py RUNGS: the stage-3 bar's 50
+# Who wrote a sweep solve: no model, a recipe of Lean tactics. Recorded through the goal batches' own path
+# (prover.judge_goals: the kernel's judge, the ledger row as try mode goal-closer, verified/, the site).
+TACTIC_LANE = {"backend": "lean-tactic-recipe", "provider": "lean", "model": "no model", "mode": "goal-closer",
+               "file": "tactic"}
+
+
+def publish_solves(solves, goals_by_sha, run_id, record, judge_text):
+    """Record each (sha, recipe) solve on a problem outside the bar as a goal-closer try: judged again by the
+    kernel on the way in. Returns judge_goals' counts."""
+    import prover
+    answers = [{"batch": run_id, "target_set": goals_by_sha[sha]["target_set"], "target": goals_by_sha[sha]["target"],
+                "sample": i, "goal": sha, "text": "```lean4\n" + goals_by_sha[sha]["goal"] + "\n" + recipe_body(recipe)
+                + "```", "config": {"model": f"recipe: {recipe}"}}
+               for i, (sha, recipe) in enumerate(solves)]
+    return prover.judge_goals(answers, prover.prover_rows(lane=TACTIC_LANE), goals_by_sha, judge_text=judge_text,
+                              record=record, run_id=run_id, lane=TACTIC_LANE)
 
 
 def run_sweep(args):
@@ -291,8 +307,18 @@ def run_sweep(args):
         for status, s, t in won:
             if status == "open":
                 held = rung.get((s, t)) in BAR_RUNGS
-                print(f"    open {s}/{t}: " + ("HELD, in the bar's 50" if held else "solved, publish with `try`"),
+                print(f"    open {s}/{t}: " + ("HELD, in the bar's 50" if held else "solved, published below"),
                       file=sys.stderr)
+    publish = [(sha, recipe) for sha, recipe in cands
+               if next(g for g in goals if g["sha"] == sha)["status"] == "open"
+               and rung.get(next((g["target_set"], g["target"]) for g in goals if g["sha"] == sha)) not in BAR_RUNGS]
+    if publish and args.publish:
+        import prover
+        from utilities.kumori_api_client import init, sparebrains_attempt
+        init()
+        stats = publish_solves(publish, {g["sha"]: g for g in goals}, f"tactics-{args.slice.replace('/', 'of')}",
+                               prover.Recorder("sweep", sparebrains_attempt, TACTIC_LANE), lean_tools.judge_text)
+        print(f"published: {stats}", file=sys.stderr)
     return 0
 
 
@@ -301,6 +327,7 @@ def main():
     ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep"])
     ap.add_argument("--recipes", help="sweep: recipes separated by `,`, steps within one by `;`")
     ap.add_argument("--slice", default="0/1", help="sweep: k/N, every Nth goal from k, for a matrix of jobs")
+    ap.add_argument("--publish", action="store_true", help="sweep: record solves outside the bar (needs KUMORI_API_KEY)")
     ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
     ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")

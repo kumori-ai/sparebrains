@@ -27,6 +27,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   count or daily log moves; no proof text, so a held bar solve stays held. Canary 2026-10-19: on the two goals
   `grind` had solved and one it had not, the sweep solved exactly the two, in 67 s for 12 recipe-goal pairs
   where one Lean run each takes ~13 min.
+  First run (39187801772, 10 jobs, 447 goals x 6 recipes): `grind` solved the two held bar problems again and
+  re-solved 7 goals of solved problems; `field_simp; ring_nf; nlinarith` solved minif2f/test/
+  algebra_absapbon1pabsapbleqsumabsaon1pabsa, outside the bar, published as a `lean-tactic-recipe` goal-closer
+  solve; `bound` re-solved 1 solved-problem goal; `norm_num at *; nlinarith`, `simp_all; omega` and
+  `field_simp; linarith` solved nothing. Kernel judge 10 to 16 s median per solve. From the next run on, the
+  sweep records its own solves outside the bar (`--publish`).
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a

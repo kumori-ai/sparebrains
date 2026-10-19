@@ -1,8 +1,8 @@
 # The tactic-recipe sweep (Kumori task #461, DECISIONS.md 2026-10-19): every recipe on every one-step goal the
 # loop left, on the open problems and, as a back-check, on the solved ones, Lean only, no model asked. One Lean run
 # per goal holds all recipes; the kernel's full judge and splice decide every solve. Rows go to the ledger
-# (ledger/tactics/), with timings; the log and the rows name solves but never carry proof text, because this
-# repository is public and a solve on the stage-3 bar's 50 waits for the bar's grading. Dispatch by hand: on
+# (ledger/tactics/), with timings, and carry no proof text; a solve outside the stage-3 bar's 50 is recorded like a
+# goal batch's (the kernel judges it again, ledger, verified/, the site), and one on the bar's 50 waits for its grading. Dispatch by hand: on
 # demand and capped (GitHub's terms: project work only, proportionate; 10 jobs is half the Free plan's 20).
 name: tactics
 
@@ -64,11 +64,12 @@ jobs:
       - name: sweep one slice
         env:
           RECIPES: ${{ inputs.recipes }}
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}     # records a solve outside the bar on the site
           SLICE: ${{ matrix.slice }}
         run: |
           out="ledger/tactics/sweep-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
           # 3 Lean processes on the runner's 4 vCPU and 16 GB (each holds mathlib, ~3 GB)
-          python3 tools/goal_closer.py sweep --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
+          python3 tools/goal_closer.py sweep --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --publish --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
           echo "SUMMARY=$(grep -c '"outcome": "solved"' "$out" || true) solved rows in slice $SLICE" >> "$GITHUB_ENV"
 
       - name: publish the ledger
