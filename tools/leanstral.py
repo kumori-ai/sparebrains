@@ -65,10 +65,15 @@ class Pacer:
 
 
 def call(key, target_text, pacer):
+    return call_prompt(key, PROMPT.format(target=target_text), pacer)
+
+
+def call_prompt(key, prompt, pacer):
+    """One Leanstral call with any prompt (tools/decompose.py asks for steps), paced, stopping at 402/429."""
     if pacer.stop:
         raise RuntimeError(f"stopped: {pacer.stop}")
     pacer.wait()
-    body = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": PROMPT.format(target=target_text)}],
+    body = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": prompt}],
                        "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE}).encode()
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()

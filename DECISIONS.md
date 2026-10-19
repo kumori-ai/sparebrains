@@ -49,7 +49,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and on problems outside the bar first. Found on the way: that one "closed" goal, amc12b_2002_p4's, was
   extracted without its ℚ types (`1 / 2 + 1 / 3 + 1 / 7 = 1 / 42`, true in ℕ where each fraction is 0); the
   splice failed, so no false solve, but a goal that lost its number types is a different statement, and a prover
-  given it spends tries on the wrong thing.
+  given it spends tries on the wrong thing. (Goals extracted since 2026-10-09 print their number types; this one
+  is an older row still in the queue.)
+- **Decomposition, built (`tools/decompose.py`, `.github/workflows/decompose.yml`).** Leanstral is asked for a
+  goal as short `have` steps; the kernel judges; on a reject the loop's Lean-only pass makes the failing steps
+  holes and closes what automation can (its closers plus `grind`, which meets only problems outside the bar
+  here); each step left goes one level down, 2 levels and 8 asks per goal at most; a proved goal is spliced
+  into its problem by `goal_closer.close`. Outside the bar's 50 only until 2026-10-24 (158 goals on 28 problems,
+  108 real steps). Each goal is one measurement row in `ledger/decompose/`; a solve is a goal-closer try under
+  lane `leanstral-decompose`. It shares the `leanstral` concurrency group, so the two Mistral callers never
+  overlap (Labs: 38 requests a minute for the org, each paced to 30). Here the key sits in the step that runs
+  Lean, unlike `leanstral.yml`: Lean runs as the sandbox user with a cleared environment, as in `attempt.yml`.
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a

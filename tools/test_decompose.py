@@ -1,0 +1,69 @@
+"""Decomposition (tools/decompose.py): a stand-in model and judge, and subgoals.repair stood in where it takes a
+proof apart, so these test the recursion, not Lean."""
+import sys, unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path[:0] = [str(Path(__file__).resolve().parent)]
+import decompose, subgoals
+
+PREFIX = "import Mathlib\n\ntheorem t (x : ℝ) : x = x := by"
+GOAL = "theorem sb_goal (x : ℝ) (h : 0 < x) : 0 < x ^ 2 := by"
+STEP = "theorem sb_goal (x : ℝ) (h : 0 < x) : x ^ 2 = x * x := by"
+
+
+def reply(body):
+    return f"```lean4\n{GOAL}\n{body}```"
+
+
+class Decompose(unittest.TestCase):
+    def test_a_proof_the_kernel_accepts_comes_back_as_the_body(self):
+        log = []
+        body = decompose.decompose(GOAL, PREFIX, ask=lambda p: reply("  positivity\n"), run_lean=None,
+                                   judge_text=lambda t: {"verdict": "accept"}, log=log)
+        self.assertEqual(body.strip(), "positivity")
+        self.assertEqual(log, [{"depth": decompose.DEPTH, "outcome": "proved"}])
+
+    def test_an_open_step_goes_one_level_down_and_its_proof_is_spliced(self):
+        head = decompose.lemma_prefix(PREFIX, GOAL)
+        sketch = head + "  have h2 : x ^ 2 = x * x := by\n    sorry\n  positivity\n"
+        asks = []
+        def ask(p):
+            asks.append(p)
+            return reply("  have h2 : x ^ 2 = x * x := by\n    ring_nf\n  positivity\n") if len(asks) == 1 else \
+                f"```lean4\n{STEP}\n  ring\n```"
+        judge = lambda t: {"verdict": "accept" if ("    ring\n" in t or t.rstrip().endswith("ring")) else "reject",
+                           "output": "x.lean:5:4: error: ring_nf failed"}
+        with mock.patch.object(subgoals, "repair", return_value={"sketch": sketch, "goals": [STEP]}):
+            body = decompose.decompose(GOAL, PREFIX, ask=ask, run_lean=None, judge_text=judge)
+        self.assertEqual(len(asks), 2)
+        self.assertIn(STEP, asks[1])                        # the open step was asked as its own goal
+        self.assertIn("    ring\n", body)
+        self.assertNotIn("sorry", body)
+
+    def test_one_unproved_step_leaves_the_goal_unproved(self):
+        head = decompose.lemma_prefix(PREFIX, GOAL)
+        sketch = head + "  have h2 : x ^ 2 = x * x := by\n    sorry\n  positivity\n"
+        judge = lambda t: {"verdict": "reject", "output": "x.lean:5:4: error: failed"}
+        with mock.patch.object(subgoals, "repair", return_value={"sketch": sketch, "goals": [STEP]}):
+            body = decompose.decompose(GOAL, PREFIX, ask=lambda p: reply("  nlinarith\n"), run_lean=None,
+                                       judge_text=judge, depth=1)
+        self.assertIsNone(body)
+
+    def test_the_ask_budget_caps_every_level_together(self):
+        head = decompose.lemma_prefix(PREFIX, GOAL)
+        sketch = head + "  have h2 : x ^ 2 = x * x := by\n    sorry\n  positivity\n"
+        asks = []
+        ask = lambda p: (asks.append(p), reply("  nlinarith\n"))[1]
+        with mock.patch.object(subgoals, "repair", return_value={"sketch": sketch, "goals": [STEP]}):
+            decompose.decompose(GOAL, PREFIX, ask=ask, run_lean=None,
+                                judge_text=lambda t: {"verdict": "reject", "output": ""}, depth=50)
+        self.assertEqual(len(asks), decompose.MAX_ASKS)
+
+    def test_no_answer_is_no_proof(self):
+        self.assertIsNone(decompose.decompose(GOAL, PREFIX, ask=lambda p: None, run_lean=None,
+                                              judge_text=lambda t: {"verdict": "accept"}))
+
+
+if __name__ == "__main__":
+    unittest.main()
