@@ -33,6 +33,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   solve; `bound` re-solved 1 solved-problem goal; `norm_num at *; nlinarith`, `simp_all; omega` and
   `field_simp; linarith` solved nothing. Kernel judge 10 to 16 s median per solve. From the next run on, the
   sweep records its own solves outside the bar (`--publish`).
+  Second run (39190138269), recipes built per goal from its own variables, as our verified proofs use them:
+  `@nlinarith-sq` (sq_nonneg hints over the real variables, 119 goals) and `@interval-cases` (the first natural or
+  integer variable, 208 goals) solved nothing. `grind`, `field_simp; ring_nf; nlinarith` and `bound` repeated
+  the first run's solves and back-checks. Finding: one-shot tactics, plain or hinted, have closed what they can
+  of these 352 goals (3 problems); what is left needs a step a recipe does not write, which is the goal batches'
+  job (a prover per goal, after the bar).
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a
