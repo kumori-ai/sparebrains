@@ -60,6 +60,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   lane `leanstral-decompose`. It shares the `leanstral` concurrency group, so the two Mistral callers never
   overlap (Labs: 38 requests a minute for the org, each paced to 30). Here the key sits in the step that runs
   Lean, unlike `leanstral.yml`: Lean runs as the sandbox user with a cleared environment, as in `attempt.yml`.
+  First run (39199785953, 40 goals, 68 asks, $0, 69 min): **4 problems solved for the first time**: imo_1960_p2,
+  algebra_amgm_sum1toneqn_prod1tonleq1, algebra_apbon2pownleqapownpbpowon2 and algebra_ineq_nto1onlt2m1on (by 3
+  of its goals), published as goal-closer solves and re-checked by tools/check.py. 28 of 40 goals went two levels
+  down; on 6, Lean's automation closed every step Leanstral wrote; 1 goal was proved but did not splice. The
+  leak: 24 of 68 asks returned nothing (16 empty, 8 dropped connections), a third of the budget before Lean saw
+  an answer. Smoke run before it (39198848367, 3 goals): 0 solved, three different first-level stops, each fixed.
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a
