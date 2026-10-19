@@ -1,0 +1,85 @@
+# The tactic-recipe sweep (Kumori task #461, DECISIONS.md 2026-10-19): every recipe on every one-step goal the
+# loop left, on the open problems and, as a back-check, on the solved ones, Lean only, no model asked. One Lean run
+# per goal holds all recipes; the kernel's full judge and splice decide every solve. Rows go to the ledger
+# (ledger/tactics/), with timings; the log and the rows name solves but never carry proof text, because this
+# repository is public and a solve on the stage-3 bar's 50 waits for the bar's grading. Dispatch by hand: on
+# demand and capped (GitHub's terms: project work only, proportionate; 10 jobs is half the Free plan's 20).
+name: tactics
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipes:
+        description: "recipes separated by `,`, steps within one by `;`"
+        default: "grind,field_simp; ring_nf; nlinarith,norm_num at *; nlinarith,simp_all; omega,bound,field_simp; linarith"
+      slices:
+        description: "parallel jobs (at most 10)"
+        default: "10"
+
+permissions:
+  contents: write        # publish the ledger rows
+
+concurrency:
+  group: tactics
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      slices: ${{ steps.s.outputs.slices }}
+    steps:
+      - id: s
+        run: |
+          n=$(( ${{ inputs.slices }} > 10 ? 10 : ${{ inputs.slices }} ))
+          echo "slices=$(python3 -c "import json; print(json.dumps([f'{k}/$n' for k in range($n)]))")" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: ${{ fromJSON(needs.plan.outputs.slices) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests
+
+      - name: lean + mathlib cache + build
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: sweep one slice
+        env:
+          RECIPES: ${{ inputs.recipes }}
+          SLICE: ${{ matrix.slice }}
+        run: |
+          out="ledger/tactics/sweep-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
+          # 3 Lean processes on the runner's 4 vCPU and 16 GB (each holds mathlib, ~3 GB)
+          python3 tools/goal_closer.py sweep --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
+          echo "SUMMARY=$(grep -c '"outcome": "solved"' "$out" || true) solved rows in slice $SLICE" >> "$GITHUB_ENV"
+
+      - name: publish the ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
+          python3 tools/publish.py --message "tactic sweep $GITHUB_RUN_ID: $SUMMARY
+
+          Generated-by: tools/goal_closer.py sweep (Lean only, no model, cost \$0); verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Judged on: $MACHINE"

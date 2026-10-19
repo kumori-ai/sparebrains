@@ -65,6 +65,34 @@ class Close(unittest.TestCase):
         self.assertEqual((ok["verdict"], ok["stage"]), ("accept", "problem"))
         self.assertTrue(seen[-1].startswith("import Mathlib") and "theorem t" in seen[-1])
 
+    def test_recipes_share_one_file_and_errors_are_placed_by_line(self):
+        text, starts = gc.recipe_file(TARGET, STEP, ["grind", "field_simp; ring_nf"])
+        self.assertEqual([n for n, _ in starts], ["sb_goal_r0", "sb_goal_r1"])
+        lines = text.split("\n")
+        self.assertTrue(lines[starts[1][1] - 1].startswith("theorem sb_goal_r1"))
+        self.assertIn("  field_simp\n  ring_nf\n", text)
+        r1 = starts[1][1]
+        out = f"proof.lean:{r1 + 1}:2: error: ring_nf failed\nproof.lean:{starts[0][1]}:8: warning: unused variable"
+        self.assertEqual(gc.recipes_passing(out, starts, len(lines)), [0])
+        sorry = f"proof.lean:{starts[0][1]}:8: warning: declaration uses 'sorry'"
+        self.assertEqual(gc.recipes_passing(sorry, starts, len(lines)), [1])
+        self.assertEqual(gc.recipes_passing("timeout after 180s", starts, len(lines)), [])
+
+    def test_the_sweep_judges_only_filter_passes_and_keeps_no_proof_text_in_rows(self):
+        judged = []
+        judge = lambda text: (judged.append(text), {"verdict": "accept" if "grind" in text else "reject"})[1]
+        def run_lean(text):                              # recipe 1 errors, recipe 0 is clean
+            _, starts = gc.recipe_file(TARGET, STEP, ["grind", "omega"])
+            return f"proof.lean:{starts[1][1] + 1}:2: error: omega could not prove the goal", 3.0
+        g = {"sha": "a", "target_set": "s", "target": "t", "goal": STEP, "sketches": [SKETCH], "status": "solved"}
+        rows, cands = gc.sweep([g], ["grind", "omega"], lambda s, t: TARGET, run_lean, judge, lambda g: g["status"], 1)
+        self.assertEqual([(r["recipe"], r["outcome"], r["stage"], r["status"]) for r in rows],
+                         [("grind", "solved", "problem", "solved"), ("omega", "failed", "goal", "solved")])
+        self.assertTrue(all("verdict" not in r and "ts" not in r for r in rows))   # never counted as a try
+        self.assertTrue(all("candidate" not in r for r in rows))
+        self.assertIn(("a", "grind"), cands)
+        self.assertEqual(len(judged), 2)       # grind's goal and its splice; the filtered recipe never reaches the judge
+
     def test_a_tactic_is_tried_on_readable_goals_only_and_closes_whole_problems(self):
         judge = lambda text: {"verdict": "accept" if "grind" in text else "reject"}
         goals = [{"sha": "a", "target_set": "s", "target": "t", "restates": False, "goal": STEP,

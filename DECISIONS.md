@@ -19,6 +19,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   from the bar's measurement; they are kept on Kumori task #461 and published after 2026-10-24 18:30 UTC, when
   `grind` also joins the loop's closers and the speed receipt measures it on the frozen weeks. The other 347 goals
   stopped at the goal itself: one tactic alone is not what most of them need.
+- **The tactic sweep, with a back-check on solved problems (Andy: our new tools must prove themselves on our own
+  earlier work, timed and logged).** `.github/workflows/tactics.yml`, dispatched by hand, 10 jobs at most: every
+  recipe on every one-step goal of the open problems (352) and of the solved ones (95 on 25 problems), one Lean
+  run per goal for all recipes, then the kernel's full judge and splice on each recipe that passed. Rows land in
+  `ledger/tactics/` with Lean and judge seconds per goal, as measurements (`outcome`, `at`), not tries, so no try
+  count or daily log moves; no proof text, so a held bar solve stays held. Canary 2026-10-19: on the two goals
+  `grind` had solved and one it had not, the sweep solved exactly the two, in 67 s for 12 recipe-goal pairs
+  where one Lean run each takes ~13 min.
 - **GitHub Actions: real project work only, never filler.** GitHub's terms allow hosted runners only for "production,
   testing, deployment, or publication of the software project associated with the repository", and nothing that
   places a burden "disproportionate to the benefits provided to users"; the Free plan runs 20 jobs at once, 6 h a

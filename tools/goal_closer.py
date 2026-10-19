@@ -156,6 +156,77 @@ def try_tactic(goals, tactic, read_target, judge_text, jobs=4):
         return list(pool.map(one, [g for g in goals if g.get("file_ok")]))
 
 
+def recipe_body(recipe):
+    """A recipe's tactics as a proof body: steps split on `;`, each its own line (`field_simp; ring_nf`)."""
+    return "".join(f"  {s.strip()}\n" for s in recipe.split(";") if s.strip())
+
+
+def recipe_file(target_text, goal, recipes):
+    """One Lean file holding the goal once per recipe (sb_goal_r0, sb_goal_r1, ...), so Lean and mathlib load once
+    for all of them, and the first line of each theorem: [(name, first line)]."""
+    text, starts = prefix_of(target_text), []
+    text = text[:subgoals.DECL.search(text).start()]
+    for i, recipe in enumerate(recipes):
+        name = f"sb_goal_r{i}"
+        starts.append((name, text.count("\n") + 1))
+        text += goal.replace("sb_goal", name, 1) + "\n" + recipe_body(recipe) + "\n"
+    return text, starts
+
+
+def recipes_passing(output, starts, n_lines):
+    """The recipe indexes whose theorem drew no error and no `sorry` in one Lean run's output. A filter only:
+    every pass is judged again by the kernel (close()) before it counts."""
+    bad = set()
+    bounds = [l for _, l in starts] + [n_lines + 1]
+    for line in output.splitlines():
+        m = subgoals.MSG.match(line)
+        if not m or not (m.group(3) == "error" or "sorry" in m.group(4)):
+            continue
+        at = int(m.group(1))
+        for i in range(len(starts)):
+            if bounds[i] <= at < bounds[i + 1]:
+                bad.add(i)
+    if "timeout after" in output:                    # no messages to place: nothing passes
+        return []
+    return [i for i in range(len(starts)) if i not in bad]
+
+
+def sweep(goals, recipes, read_target, run_lean, judge_text, status_of, jobs=3):
+    """Every recipe on every goal: one Lean run per goal for all recipes, then the kernel's full judge and splice
+    (close()) on each recipe that passed. Rows are the record (no proof text: the repository is public and a solve
+    on a measured problem waits for its bar); `candidates` maps (sha, recipe) to an accepted file, kept in memory.
+    Rows say `outcome` and `at`, never `verdict` or `ts`: they are measurements, not tries, so the ladder and the
+    daily log, which read every ledger row's verdict, never count them."""
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+    from datetime import datetime, timezone
+    candidates = {}
+
+    def one(g):
+        target_text = read_target(g["target_set"], g["target"])
+        text, starts = recipe_file(target_text, g["goal"], recipes)
+        out, secs = run_lean(text)
+        passing = set(recipes_passing(out, starts, text.count("\n") + 1))
+        rows = []
+        for i, recipe in enumerate(recipes):
+            row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "recipe": recipe, "sha": g["sha"],
+                   "target_set": g["target_set"], "target": g["target"], "status": status_of(g),
+                   "restates": g.get("restates"), "outcome": "failed", "stage": "goal", "lean_s": round(secs, 1)}
+            if i in passing:
+                t0 = time.monotonic()
+                r = close(g, target_text, recipe_body(recipe), judge_text)
+                row.update(outcome="solved" if r["verdict"] == "accept" else "failed", stage=r["stage"],
+                           judge_s=round(time.monotonic() - t0, 1))
+                if r["verdict"] == "accept":
+                    candidates[(g["sha"], recipe)] = r["candidate"]
+            rows.append(row)
+        return rows
+
+    with ThreadPoolExecutor(jobs) as pool:
+        rows = [r for rs in pool.map(one, goals) for r in rs]
+    return rows, candidates
+
+
 QUEUE = ROOT / "ledger" / "goal-queue.json"
 
 
@@ -167,7 +238,9 @@ def queue(goals, read_target, n):
             for g in goals if g.get("file_ok")]
 
 
-def _load():
+def _load(keys="open"):
+    """(goals, read): the one-step goals of the open problems, or with keys="solved" those of the solved ones (the
+    sweep's back-check: how today's recipes would have done on what is already done)."""
     import relay
     rows = []
     for f in (ROOT / "ledger").glob("**/*.jsonl"):
@@ -177,14 +250,57 @@ def _load():
                     rows.append(json.loads(line))
                 except ValueError:
                     pass
-    open_keys = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+    want = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")[keys]}
+    want = {k for k in want if (ROOT / "targets" / k[0] / f"{k[1]}.lean").exists()}
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
-    return collect(rows, open_keys, read), read
+    return collect(rows, want, read), read
+
+
+BAR_RUNGS = ("amc12", "math-L5", "aime")             # tools/prover.py RUNGS: the stage-3 bar's 50
+
+
+def run_sweep(args):
+    """`sweep`: every recipe on the open goals (the stored queue, readable ones) and on the solved problems' goals,
+    one slice of them. Rows go to --out (the ledger); solves are reported by name only, never as proof text."""
+    import lean_tools, relay
+    recipes = [r.strip() for r in args.recipes.split(",") if r.strip()]
+    k, n = (int(x) for x in args.slice.split("/"))
+    targets = relay.fetch_json("/targets.json")
+    rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"] + targets["solved"]}
+    open_goals = [{**g, "status": "open"} for g in json.loads(QUEUE.read_text()) if g.get("file_ok")]
+    solved_goals, read = _load("solved")
+    goals = sorted(open_goals + [{**g, "status": "solved"} for g in solved_goals], key=lambda g: g["sha"])[k::n]
+    rows, cands = sweep(goals, recipes, read, lean_tools.run_lean, lean_tools.judge_text, lambda g: g["status"],
+                        args.jobs)
+    for r in rows:
+        r["slice"] = args.slice
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.out, "a") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    print(f"sweep {args.slice}: {len(goals)} goals ({sum(g['status'] == 'open' for g in goals)} open), "
+          f"{len(recipes)} recipes", file=sys.stderr)
+    for recipe in recipes:
+        mine = [r for r in rows if r["recipe"] == recipe]
+        won = sorted({(r["status"], r["target_set"], r["target"]) for r in mine if r["outcome"] == "solved"})
+        times = sorted(r["judge_s"] for r in mine if r["outcome"] == "solved")
+        print(f"  {recipe!r}: {sum(r['outcome'] == 'solved' for r in mine)} goals closed and spliced, "
+              f"{len({w[1:] for w in won if w[0] == 'open'})} open problems, "
+              f"{len({w[1:] for w in won if w[0] == 'solved'})} solved ones re-solved"
+              + (f", judge {times[len(times) // 2]} s median" if times else ""), file=sys.stderr)
+        for status, s, t in won:
+            if status == "open":
+                held = rung.get((s, t)) in BAR_RUNGS
+                print(f"    open {s}/{t}: " + ("HELD, in the bar's 50" if held else "solved, publish with `try`"),
+                      file=sys.stderr)
+    return 0
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["list", "try", "tactic"])
+    ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep"])
+    ap.add_argument("--recipes", help="sweep: recipes separated by `,`, steps within one by `;`")
+    ap.add_argument("--slice", default="0/1", help="sweep: k/N, every Nth goal from k, for a matrix of jobs")
     ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
     ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")
@@ -207,6 +323,8 @@ def main():
         if args.out:
             Path(args.out).write_text(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
+    if args.cmd == "sweep":
+        return run_sweep(args)
     goals, read = _load()
     if args.cmd == "list":
         if args.check:
