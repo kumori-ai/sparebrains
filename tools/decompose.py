@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import goal_closer, subgoals
+from ladder import RUNGS
 from proof_text import extract_proof
 
 DEPTH = 2              # a goal's steps, and their steps: deeper did not pay in Hilbert's ablation past a few levels
@@ -138,7 +139,18 @@ def tried_by(rows, backend):
     return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend}
 
 
-def router_ask(backend, chat=None):
+def pick_lane(live, rows, now_iso):
+    """`--lane auto`: the strongest live lane by hard solves (relay.strongest), leaving out any lane the relay has
+    benched or that is failing now, so a lane name is never guessed from the ledger (2026-10-19: two guesses failed,
+    one at Groq's token limit, one retired from the router)."""
+    import relay
+    ok = [l for l in live if not relay.relay_benched(rows, l["backend"], now_iso)
+          and not relay.relay_failing(rows, l["backend"], now_iso)]
+    top = relay.strongest(ok, relay.lane_strength(rows, RUNGS), 1)
+    return top[0] if top else None
+
+
+def router_ask(backend, chat=None, max_tokens=16000):
     """ask(prompt) -> text, or {"error": why}, through Kumori's router like attempt.py's lemma asks: the router paces
     each lane, so a short retry_after is waited out (twice at most), anything else ends the ask with its reason."""
     if chat is None:
@@ -152,7 +164,7 @@ def router_ask(backend, chat=None):
     def ask(prompt):
         for tries in (1, 2, 3):
             try:
-                reply, _, _ = chat(backend, [{"role": "user", "content": prompt}], max_tokens=16000, temperature=0.2,
+                reply, _, _ = chat(backend, [{"role": "user", "content": prompt}], max_tokens=max_tokens, temperature=0.2,
                                    app_name="sparebrains", include_metadata=True, timeout=(10, 315), timeout_s=300,
                                    long_call=True)
                 return reply
@@ -190,9 +202,22 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["run"])
     ap.add_argument("--max-goals", type=int, default=40)
-    ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral")
+    ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral, or `auto` for the "
+                    "strongest live one")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    max_tokens = 16000
+    if a.lane == "auto":
+        import attempt
+        from utilities.kumori_api_client import init
+        init()
+        known, unknown = attempt.lanes(None, skip_benched=True)
+        rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl") for l in f.read_text().splitlines() if l.strip()]
+        picked = pick_lane(known + unknown, rows, datetime.now(timezone.utc).isoformat())
+        if not picked:
+            sys.exit("auto: no live lane has a solve above MATH level 2 in the ledger")
+        a.lane, max_tokens = picked["backend"], attempt.lane_max_tokens(picked, 4000)
+        print(f"auto: {a.lane}, {max_tokens} tokens", flush=True)
     lane = lane_of(a.lane)
     key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
     if not key and not a.lane:
@@ -207,7 +232,7 @@ def main():
              and rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS and g["sha"] not in tried]
     goals = goals[:a.max_goals]                           # the queue's order: real steps first
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
-    ask, pacer = router_ask(a.lane) if a.lane else leanstral_ask(key)
+    ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)
     import fixer
     names_ix = lean_tools.index()
     rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,

@@ -104,6 +104,15 @@ class RouterLane(unittest.TestCase):
         bad, _ = decompose.router_ask("groq-gptoss", chat=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 503")))
         self.assertEqual(bad("p"), {"error": "RuntimeError: HTTP 503"})
 
+    def test_auto_takes_the_strongest_live_lane_that_is_not_failing(self):
+        hard = lambda b, t: {"backend": b, "verdict": "accept", "rung": "aime", "target_set": "s", "target": t,
+                             "ts": "2026-10-19T00:00:00+00:00"}
+        rows = [hard("a", "x"), hard("a", "y"), hard("b", "x")]
+        live = [{"backend": "a", "provider": "p"}, {"backend": "b", "provider": "q"}, {"backend": "c", "provider": "r"}]
+        self.assertEqual(decompose.pick_lane(live, rows, "2026-10-19T12:00:00+00:00")["backend"], "a")
+        self.assertEqual(decompose.pick_lane(live[1:], rows, "2026-10-19T12:00:00+00:00")["backend"], "b")
+        self.assertIsNone(decompose.pick_lane(live[2:], rows, "2026-10-19T12:00:00+00:00"), "no hard solve, no lane")
+
     def test_a_lane_names_its_rows_and_tries(self):
         lane = decompose.lane_of("groq-gptoss")
         self.assertEqual((lane["backend"], lane["mode"], lane["file"]), ("groq-gptoss-decompose", "goal-closer", "decompose"))
