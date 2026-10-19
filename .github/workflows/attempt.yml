@@ -276,7 +276,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           since=$(date -u -d '130 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          # leanstral shares its concurrency group with decompose and headtohead, where a new pending run cancels the
+          # waiting one: never start a round while any of the three is waiting.
+          waiting=$(for g in leanstral decompose headtohead; do gh run list --workflow "$g.yml" --repo "$GITHUB_REPOSITORY" \
+                      --limit 5 --json status --jq '[.[] | select(.status == "pending" or .status == "queued" or .status == "waiting")] | length'; done | awk '{s+=$1} END {print s+0}')
+          echo "waiting in the leanstral group: $waiting"
           for w in prover leanstral; do
+            if [ "$w" = leanstral ] && [ "$waiting" != "0" ]; then continue; fi
             last=$(gh run list --workflow "$w.yml" --repo "$GITHUB_REPOSITORY" --limit 1 --json createdAt --jq '.[0].createdAt // ""')
             echo "$w: last run ${last:-none}"
             if [ -z "$last" ] || [[ "$last" < "$since" ]]; then gh workflow run "$w.yml" --ref main; echo "started $w"; fi
