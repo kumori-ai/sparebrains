@@ -156,6 +156,40 @@ def try_tactic(goals, tactic, read_target, judge_text, jobs=4):
         return list(pool.map(one, [g for g in goals if g.get("file_ok")]))
 
 
+BINDER = re.compile(r"\(([^():]+?)\s*:\s*(ℝ|ℕ|ℤ|ℚ)\)")
+
+
+def goal_vars(goal):
+    """{type: [names]} of the goal's own variables, from its binders before `:= by` (`(x y : ℝ)`)."""
+    out = {}
+    for names, ty in BINDER.findall(goal.split(":= by")[0]):
+        out.setdefault(ty, []).extend(n for n in names.split() if n.isidentifier() or n[0].isalpha())
+    return out
+
+
+def expand(recipe, goal):
+    """A recipe for this goal: plain recipes as written; a template built from the goal's own variables, the way
+    our verified proofs use these tactics (2026-10-19: nlinarith 191 times, mostly with sq_nonneg hints over the
+    problem's variables; interval_cases 40 times on a bounded natural). None when the template does not apply.
+      @nlinarith-sq    nlinarith [sq_nonneg (a - b), sq_nonneg (a + b), ..., sq_nonneg a, ...] over ℝ/ℚ variables
+      @interval-cases  interval_cases n <;> omega, for the first ℕ/ℤ variable"""
+    if not recipe.startswith("@"):
+        return recipe
+    v = goal_vars(goal)
+    if recipe == "@nlinarith-sq":
+        xs = (v.get("ℝ", []) + v.get("ℚ", []))[:4]
+        if not xs:
+            return None
+        hints = [f"sq_nonneg ({a} - {b})" for i, a in enumerate(xs) for b in xs[i + 1:]]
+        hints += [f"sq_nonneg ({a} + {b})" for i, a in enumerate(xs) for b in xs[i + 1:]]
+        hints += [f"sq_nonneg {a}" for a in xs]
+        return "nlinarith [" + ", ".join(hints) + "]"
+    if recipe == "@interval-cases":
+        ns = v.get("ℕ", []) + v.get("ℤ", [])
+        return f"interval_cases {ns[0]} <;> omega" if ns else None
+    raise ValueError(f"unknown recipe template {recipe}")
+
+
 def recipe_body(recipe):
     """A recipe's tactics as a proof body: steps split on `;`, each its own line (`field_simp; ring_nf`)."""
     return "".join(f"  {s.strip()}\n" for s in recipe.split(";") if s.strip())
@@ -204,12 +238,17 @@ def sweep(goals, recipes, read_target, run_lean, judge_text, status_of, jobs=3):
 
     def one(g):
         target_text = read_target(g["target_set"], g["target"])
-        text, starts = recipe_file(target_text, g["goal"], recipes)
+        mine = [(r, expand(r, g["goal"])) for r in recipes]
+        mine = [(r, c) for r, c in mine if c]            # a template with nothing to build from is not tried
+        if not mine:
+            return []
+        text, starts = recipe_file(target_text, g["goal"], [c for _, c in mine])
         out, secs = run_lean(text)
         passing = set(recipes_passing(out, starts, text.count("\n") + 1))
         rows = []
-        for i, recipe in enumerate(recipes):
-            row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "recipe": recipe, "sha": g["sha"],
+        for i, (template, recipe) in enumerate(mine):
+            row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "recipe": template,
+                   **({"tactics": recipe} if recipe != template else {}), "sha": g["sha"],
                    "target_set": g["target_set"], "target": g["target"], "status": status_of(g),
                    "restates": g.get("restates"), "outcome": "failed", "stage": "goal", "lean_s": round(secs, 1)}
             if i in passing:

@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       recipes:
-        description: "recipes separated by `,`, steps within one by `;`"
-        default: "grind,field_simp; ring_nf; nlinarith,norm_num at *; nlinarith,simp_all; omega,bound,field_simp; linarith"
+        description: "recipes separated by `,`, steps within one by `;`; @nlinarith-sq and @interval-cases are built per goal"
+        # 2026-10-19 first sweep: norm_num at *; nlinarith, simp_all; omega and field_simp; linarith solved nothing
+        default: "grind,field_simp; ring_nf; nlinarith,bound,@nlinarith-sq,@interval-cases"
       slices:
         description: "parallel jobs (at most 10)"
         default: "10"

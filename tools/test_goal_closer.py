@@ -65,6 +65,26 @@ class Close(unittest.TestCase):
         self.assertEqual((ok["verdict"], ok["stage"]), ("accept", "problem"))
         self.assertTrue(seen[-1].startswith("import Mathlib") and "theorem t" in seen[-1])
 
+    def test_templates_build_hints_from_the_goals_own_variables(self):
+        g = "theorem sb_goal (x y : ℝ) (n : ℕ) (h₀ : x + y = 1) (h₁ : n ≤ 5) : x * y ≤ 1 / 4 := by"
+        self.assertEqual(gc.goal_vars(g), {"ℝ": ["x", "y"], "ℕ": ["n"]})
+        self.assertEqual(gc.expand("@nlinarith-sq", g),
+                         "nlinarith [sq_nonneg (x - y), sq_nonneg (x + y), sq_nonneg x, sq_nonneg y]")
+        self.assertEqual(gc.expand("@interval-cases", g), "interval_cases n <;> omega")
+        self.assertEqual(gc.expand("grind", g), "grind")
+        bare = "theorem sb_goal : (1 / 2 : ℚ) + (1 / 3 : ℚ) = (5 / 6 : ℚ) := by"
+        self.assertIsNone(gc.expand("@nlinarith-sq", bare))       # nothing to build from: not tried
+        self.assertIsNone(gc.expand("@interval-cases", bare))
+
+    def test_a_template_row_names_the_template_and_the_tactics_it_became(self):
+        g = {"sha": "a", "target_set": "s", "target": "t", "goal": "theorem sb_goal (y : ℝ) : y = y := by",
+             "sketches": [SKETCH]}
+        run_lean = lambda text: ("", 1.0)
+        rows, cands = gc.sweep([g], ["@nlinarith-sq", "@interval-cases"], lambda s, t: TARGET, run_lean,
+                               lambda text: {"verdict": "reject"}, lambda g: "open", 1)
+        self.assertEqual([(r["recipe"], r.get("tactics")) for r in rows],
+                         [("@nlinarith-sq", "nlinarith [sq_nonneg y]")])    # no ℕ variable: interval-cases skipped
+
     def test_recipes_share_one_file_and_errors_are_placed_by_line(self):
         text, starts = gc.recipe_file(TARGET, STEP, ["grind", "field_simp; ring_nf"])
         self.assertEqual([n for n, _ in starts], ["sb_goal_r0", "sb_goal_r1"])
