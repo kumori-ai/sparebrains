@@ -61,7 +61,8 @@ class Meter:
             self.tokens += (r.get("tokens") or 0) if isinstance(r, dict) else 0
         if not isinstance(r, dict) or "error" in r:
             return r if isinstance(r, dict) else None
-        return r.get("text")
+        import leanstral
+        return leanstral.reply(r)
 
 
 def alone(target_text, ask, judge_text, calls=CALLS):

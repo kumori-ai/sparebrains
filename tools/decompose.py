@@ -119,7 +119,7 @@ def leanstral_ask(key):
 
     def ask(prompt):
         try:
-            return leanstral.call_prompt(key, prompt, pacer)["text"]
+            return leanstral.reply(leanstral.call_prompt(key, prompt, pacer))
         except Exception as e:                        # the reason goes into the goal's row, not away
             return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     return ask, pacer

@@ -12,7 +12,7 @@ present while no Lean runs (the workflow's steps keep it that way).
 Mistral's Labs API lists the model at $0; its own limit is 38 requests and 5,000,000 tokens a minute (the org's Limits
 page, 2026-10-18), separate from Kumori Chat's models. We stay at 0.5 requests a second or less and stop at the
 first 429."""
-import argparse, json, os, sys, threading, time, urllib.error, urllib.request
+import argparse, http.client, json, os, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,16 +77,31 @@ def call_prompt(key, prompt, pacer):
                        "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE}).encode()
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=600) as r:
-            d = json.load(r)
-    except urllib.error.HTTPError as e:
-        if e.code in (402, 429):          # out of pot or over the limit: stop the whole round, never hammer
-            pacer.stop = f"HTTP {e.code}"
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode(errors='replace')}")
+    for attempt in (0, 1):
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                d = json.load(r)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (402, 429):          # out of pot or over the limit: stop the whole round, never hammer
+                pacer.stop = f"HTTP {e.code}"
+            raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode(errors='replace')}")
+        # A dropped connection is retried once (8 of 68 decomposition asks, 2026-10-19); an HTTP error never is.
+        except (http.client.RemoteDisconnected, ConnectionError, TimeoutError, urllib.error.URLError):
+            if attempt or pacer.stop:
+                raise
+            pacer.wait()
     choice = d["choices"][0]
     return {"text": text_of(choice["message"]["content"]), "tokens": (d.get("usage") or {}).get("completion_tokens"),
-            "finish": choice.get("finish_reason"), "seconds": round(time.time() - t, 1), "usage": d.get("usage")}
+            "finish": choice.get("finish_reason"), "seconds": round(time.time() - t, 1), "usage": d.get("usage"),
+            "retried": bool(attempt)}
+
+
+def reply(r):
+    """A call's text, or why there is none: 16 of 68 decomposition asks came back empty with no reason kept."""
+    if (r.get("text") or "").strip():
+        return r["text"]
+    return {"error": f"empty reply (finish={r.get('finish')}, {r.get('tokens')} tokens)"}
 
 
 def generate(out_path, key, open_list, rows, batch):

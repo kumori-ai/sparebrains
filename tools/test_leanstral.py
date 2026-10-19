@@ -44,6 +44,24 @@ class Answers(unittest.TestCase):
         self.assertEqual(pacer.stop, "HTTP 429")
         self.assertEqual(calls.call_count, 1)                 # the second call never reached Mistral
 
+    def test_a_dropped_connection_is_retried_once(self):
+        import http.client, io, json
+        ok = lambda: io.BytesIO(json.dumps({"choices": [{"message": {"content": "proof"}, "finish_reason": "stop"}],
+                                            "usage": {"completion_tokens": 7}}).encode())
+        drop = http.client.RemoteDisconnected("Remote end closed connection without response")
+        with mock.patch.object(ls.urllib.request, "urlopen", side_effect=[drop, ok()]) as calls:
+            r = ls.call("k", "theorem t : True := by\n  sorry", ls.Pacer(0))
+        self.assertEqual((r["text"], r["retried"], calls.call_count), ("proof", True, 2))
+        with mock.patch.object(ls.urllib.request, "urlopen", side_effect=[drop, drop, ok()]) as calls:
+            with self.assertRaises(http.client.RemoteDisconnected):
+                ls.call("k", "theorem t : True := by\n  sorry", ls.Pacer(0))
+        self.assertEqual(calls.call_count, 2)                 # once, never a loop
+
+    def test_an_empty_reply_says_why(self):
+        self.assertEqual(ls.reply({"text": "proof", "finish": "stop", "tokens": 9}), "proof")
+        self.assertEqual(ls.reply({"text": "  ", "finish": "length", "tokens": 40000}),
+                         {"error": "empty reply (finish=length, 40000 tokens)"})
+
 
 if __name__ == "__main__":
     unittest.main()
