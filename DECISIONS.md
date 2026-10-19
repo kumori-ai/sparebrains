@@ -32,6 +32,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and intervals, no claim. Expected before it runs: at run 1's rate (1 tools-only solve in 15 open) about 4,
   and 4 to 0 is p = 0.125, so a miss is the likely outcome and says the next lever is more calls or a stronger
   prover in the tools arm. Every first-time solve is recorded and published like any other try.
+- **The replication, rules written before it runs (2026-10-19).** Run 1's "better" rested on 9 disagreements, 7
+  of its 8 tools-only solves on already-solved problems, and one flip takes it from p = 0.039 to 0.18. So the same
+  head-to-head again, after the reach run: 30 solved problems from the harder rungs that no earlier head-to-head
+  measured, drawn by a new seed (`--seed headtohead-replication-2026-10-19`, 9 custom, 7 amc12, 6 math-L5,
+  5 math-L4, 3 aime as previewed on 2026-10-19), 0 open, 4 calls per arm. What we may say, on this run alone:
+  "replicated" only if the tools arm's own solves outnumber the alone arm's and a two-sided sign test on those
+  disagreements gives p < 0.05; "cheaper per result replicated" only if its calls per solve are lower again.
+  Otherwise the numbers and intervals, and run 1's "better" is reported beside them as not replicated.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,

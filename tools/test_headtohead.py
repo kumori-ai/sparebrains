@@ -33,6 +33,17 @@ class Fairness(unittest.TestCase):
         later = {"open": [t for t in opened if t["target"] != gone], "solved": []}
         self.assertEqual(names(h.pick(later, 99, 0, lambda t: True, (1, 2))), halves[1])
 
+    def test_a_replication_draws_fresh_solved_problems_and_leaves_the_slices_alone(self):
+        targets = {"open": [{"target_set": "s", "target": f"o{i}", "order": i} for i in range(20)],
+                   "solved": [{"target_set": "s", "target": f"d{i}", "rung": "amc12"} for i in range(40)]}
+        names = lambda ts: [t["target"] for t in ts]
+        first = h.pick(targets, 0, 10, lambda t: True)
+        again = h.pick(targets, 0, 10, lambda t: True, seed="replication", used=set(names(first)))
+        self.assertEqual(len(again), 10)
+        self.assertFalse(set(names(first)) & set(names(again)))
+        self.assertEqual(names(h.pick(targets, 99, 0, lambda t: True, (1, 2))),
+                         names(h.pick(targets, 99, 0, lambda t: True, (1, 2), seed="replication")))
+
     def test_the_goal_is_the_theorem_itself(self):
         self.assertEqual(h.theorem_as_goal(TARGET), "theorem sb_goal (x : ℝ) (h : 0 < x) : 0 < x ^ 2 := by")
 

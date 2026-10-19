@@ -19,6 +19,9 @@ on:
       slice:
         description: "k/N: the open problems whose name hashes to k, for a set too long for one job (340 min)"
         default: "0/1"
+      seed:
+        description: "a replication's own seed (fresh solved problems, none an earlier run measured); the default is run 1's"
+        default: "headtohead-2026-10-19"
 
 permissions:
   contents: write        # publish the ledger rows and any verified proofs
@@ -55,7 +58,7 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
-          python3 tools/headtohead.py run --open "${{ inputs.open }}" --solved "${{ inputs.solved }}" --calls "${{ inputs.calls }}" --slice "${{ inputs.slice }}" \
+          python3 tools/headtohead.py run --open "${{ inputs.open }}" --solved "${{ inputs.solved }}" --calls "${{ inputs.calls }}" --slice "${{ inputs.slice }}" --seed "${{ inputs.seed }}" \
             --out "ledger/headtohead/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-400)" >> "$GITHUB_ENV"
 
