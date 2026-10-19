@@ -60,6 +60,21 @@ class Decompose(unittest.TestCase):
                                 judge_text=lambda t: {"verdict": "reject", "output": ""}, depth=50)
         self.assertEqual(len(asks), decompose.MAX_ASKS)
 
+    def test_a_level_that_cannot_be_taken_apart_is_asked_once_more_with_leans_error(self):
+        asks = []
+        ask = lambda p: (asks.append(p), reply("  nlinarith\n"))[1]
+        judge = lambda t: {"verdict": "reject", "output": "x.lean:4:2: error: linarith failed to find a contradiction"}
+        with mock.patch.object(subgoals, "repair", return_value={"stopped": "15 failing steps: not close"}):
+            self.assertIsNone(decompose.decompose(GOAL, PREFIX, ask=ask, run_lean=None, judge_text=judge))
+        self.assertEqual(len(asks), 2)                      # once, then once with the error; never a loop
+        self.assertIn("linarith failed", asks[1])
+
+    def test_a_failed_call_says_why_in_the_log(self):
+        log = []
+        decompose.decompose(GOAL, PREFIX, ask=lambda p: {"error": "RuntimeError: HTTP 429"}, run_lean=None,
+                            judge_text=lambda t: {"verdict": "accept"}, log=log)
+        self.assertEqual(log[0]["stopped"], "no answer: RuntimeError: HTTP 429")
+
     def test_no_answer_is_no_proof(self):
         self.assertIsNone(decompose.decompose(GOAL, PREFIX, ask=lambda p: None, run_lean=None,
                                               judge_text=lambda t: {"verdict": "accept"}))

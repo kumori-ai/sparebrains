@@ -50,18 +50,27 @@ def body_of(text, statement_prefix):
     return text[len(statement_prefix):].lstrip("\n")
 
 
-def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budget=None, log=None):
+RETRY = ("\n\nYour previous proof:\n```lean4\n{last}\n```\nLean said:\n```\n{said}\n```\nWrite it again as smaller "
+         "steps, keeping the ones Lean accepted.")
+
+
+def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budget=None, log=None, fix=None,
+              _last=None):
     """A proof body for `statement` (a `theorem sb_goal ... := by`), or None. `log` collects what happened at
-    each level: asks, how far the kernel got, the steps left."""
+    each level: asks, how far the kernel got, the steps left. A level that cannot be taken apart is asked once
+    more with Lean's error (prove_goal's second ask; APOLLO's repair loop). `fix` is the loop's form repair."""
     budget = budget if budget is not None else {"asks": 0}
     log = log if log is not None else []
     if budget["asks"] >= MAX_ASKS:
         log.append({"depth": depth, "stopped": "ask budget"})
         return None
     budget["asks"] += 1
-    reply = ask(STEPS.format(statement=statement))
-    if not reply:
-        log.append({"depth": depth, "stopped": "no answer"})
+    prompt = STEPS.format(statement=statement)
+    if _last:
+        prompt += RETRY.format(last=_last[0][-2500:], said=_last[1][-1500:])
+    reply = ask(prompt)
+    if not isinstance(reply, str) or not reply:
+        log.append({"depth": depth, "stopped": "no answer" + (f": {reply['error']}" if isinstance(reply, dict) else "")})
         return None
     body = extract_proof(re.sub(r"\blemma\s+sb_goal\b", "theorem sb_goal", reply), "sb_goal")
     if not body:
@@ -74,7 +83,7 @@ def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budg
         log.append({"depth": depth, "outcome": "proved"})
         return body
     rep = subgoals.repair(cand, head, r.get("output") or "", ask=None, run_lean=run_lean, judge_text=judge_text,
-                          tactics=TACTICS)
+                          tactics=TACTICS, fix=fix)
     if rep.get("accepted"):
         log.append({"depth": depth, "outcome": "proved by Lean's automation on its steps"})
         return body_of(rep["accepted"], head)
@@ -83,12 +92,17 @@ def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budg
     open_holes = subgoals.holes(sketch, top) if sketch else None
     entry = {"depth": depth, "steps_left": len(goals), "stopped": rep.get("stopped")}
     log.append(entry)
-    if depth <= 0 or not goals or not open_holes or len(open_holes) != len(goals) or len(goals) > subgoals.MAX_HOLES:
+    if not goals or not open_holes or len(open_holes) != len(goals) or len(goals) > subgoals.MAX_HOLES:
+        if _last is None:                                 # nothing to recurse on: one more ask, with Lean's error
+            return decompose(statement, prefix, ask=ask, run_lean=run_lean, judge_text=judge_text, depth=depth,
+                             budget=budget, log=log, fix=fix, _last=(body, r.get("output") or ""))
+        return None
+    if depth <= 0:
         return None
     plan = {}
     for hole, goal in zip(open_holes, goals):
         sub = decompose(goal, prefix, ask=ask, run_lean=run_lean, judge_text=judge_text, depth=depth - 1,
-                        budget=budget, log=log)
+                        budget=budget, log=log, fix=fix)
         if sub is None:
             return None                                   # one step unproved leaves the proof open
         lines = sub.rstrip("\n").split("\n")
@@ -108,19 +122,19 @@ def leanstral_ask(key):
     def ask(prompt):
         try:
             return leanstral.call_prompt(key, prompt, pacer)["text"]
-        except Exception:
-            return None
+        except Exception as e:                        # the reason goes into the goal's row, not away
+            return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     return ask, pacer
 
 
-def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS):
+def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None):
     """Each goal decomposed, then its proof spliced into its problem (goal_closer.close). Returns (rows, solves):
     rows are measurements; solves are [(goal, body)] the kernel accepted whole."""
     def one(g):
         t0, budget, log = time.monotonic(), {"asks": 0}, []
         target_text = read_target(g["target_set"], g["target"])
         body = decompose(g["goal"], goal_closer.prefix_of(target_text), ask=ask, run_lean=run_lean,
-                         judge_text=judge_text, budget=budget, log=log)
+                         judge_text=judge_text, budget=budget, log=log, fix=fix)
         r = goal_closer.close(g, target_text, body, judge_text) if body else None
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "sha": g["sha"],
                "target_set": g["target_set"], "target": g["target"], "kind": goal_closer.kind(g["goal"]),
@@ -155,7 +169,10 @@ def main():
     goals = goals[:a.max_goals]                           # the queue's order: real steps first
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
     ask, pacer = leanstral_ask(key)
-    rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text)
+    import fixer
+    names_ix = lean_tools.index()
+    rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
+                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "a") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
