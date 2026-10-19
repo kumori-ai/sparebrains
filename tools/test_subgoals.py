@@ -98,6 +98,17 @@ class Executed(unittest.TestCase):
         self.assertIsNone(sg._executed(line, 9, []))      # no linter output: unknown, keep the combinator
 
 
+class Automate(unittest.TestCase):
+    def test_a_hole_lean_never_reached_is_not_closed(self):
+        # amc12a_2003_p23, 2026-10-19: a parse error above the hole stops Lean before it, so the hole's line has no
+        # error and was counted closed; only its trace marker in the probe proves AUTO ran there
+        text = PREFIX + "\n  haveI : Finset.Icc 1 9 := by\n    haveI̵\n  sorry"
+        run_lean, _, _ = fake_lean(["proof.lean:6:9: error: expected token\n"] * 2)
+        filled, goals, log = sg.automate_and_goals(text, TOP, run_lean)
+        self.assertEqual((log["closed_by_lean"], log["open"], goals), (0, 1, {}))
+        self.assertTrue(filled.endswith("\n  sorry"))
+
+
 class Names(unittest.TestCase):
     def test_invented_library_names_get_real_ones_and_local_names_do_not(self):
         said = "x.lean:4:8: error(lean.unknownIdentifier): Unknown constant `Nat.coprime_pow_eq_pow_iff`\nUnknown identifier `h7`"

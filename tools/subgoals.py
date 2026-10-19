@@ -214,6 +214,12 @@ def automate_and_goals(text, top_line, run_lean, tactics=AUTO_TACTICS):
     out2, _ = run_lean(probe)
     segs, msgs = _segments(out2), messages(out2)
     probe_lines = probe.split("\n")
+    # no error on a hole's line is not proof AUTO ran there: a parse error above it stops Lean first
+    # (amc12a_2003_p23, 2026-10-19); its trace marker is. `all_goals` with no cases left prints none, so it is kept
+    unrun = [i for n, i in enumerate(hs, 1) if i in closed and ("sb_auto", n) not in segs
+             and HOLE.match(text.split("\n")[i]).group(2) != "all_goals "]
+    closed = [i for i in closed if i not in unrun]
+    still += unrun
     fill, goals, n = {}, {}, 0
     for i in hs:
         n += 1
