@@ -5,6 +5,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-19
 
+- **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
+  its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
+  05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,
+  mathd_numbertheory_227, mathd_algebra_289; batch 20261018T1609: amc12b_2021_p3, amc12b_2020_p13,
+  amc12a_2009_p7, amc12a_2020_p10, amc12b_2020_p6, amc12b_2020_p21). Verdict posted on #23, which is closed. What
+  waited on it, released the same day: the held `grind` proof of aime_1990_p4 published (amc12b_2021_p3, the other
+  one held, the prover solved itself in batch 2, which is what holding it protected); `grind` joined the loop's
+  closers (`subgoals.AUTO_TACTICS`), so the speed receipt re-runs every frozen week on the new chain; repository
+  variable `PROVER_MODE=goals`, so the push after batch 3 is a goal batch, under the goal closer's bar (at least 3
+  first-time solves through goals within 7 days of its first batch).
+
 - **Kaggle GPU hours are used exactly (Andy).** Each push reads the week's quota from Kaggle itself (`kaggle quota`,
   CLI 2.2.4; 20.57 of 30 h used at 01:38 UTC) and sizes the session to what is left less 15 min, at most 11.5 h;
   under an hour left, it waits for the reset, Saturday 00:00 UTC (Kaggle staff, product-feedback 173129; the CLI

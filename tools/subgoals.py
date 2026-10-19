@@ -22,8 +22,10 @@ from proof_text import extract_proof
 
 # Every alternative closes the goal or fails, so a hole Lean could not close always errors on its own line.
 # `aesop` alone does not: it warns "failed to prove the goal" and leaves the goal open (2026-10-08).
+# grind joined 2026-10-19 after the stage-3 bar was graded: alone it solved 2 problems the loop had left one step
+# short (DECISIONS.md 2026-10-19); before exact?, which is the slowest
 AUTO_TACTICS = ["omega", "linarith", "nlinarith", "positivity", "decide", "(norm_num; done)", "(simp; done)",
-                "(aesop; done)", "exact?"]
+                "(aesop; done)", "grind", "exact?"]
 AUTO = "first | " + " | ".join(AUTO_TACTICS)
 MAX_ROUNDS = 4                    # sorrify passes before giving up on a proof's shape
 MAX_HOLES = 3                     # open holes worth asking about; more and the proof was not close
@@ -36,7 +38,7 @@ DECL = re.compile(r"^(?:theorem|lemma)\s", re.M)
 UNKNOWN = re.compile(r"[Uu]nknown (?:identifier|constant) [`']([^`'\s]+)[`']")
 SUBGOAL = ("A proof of a Lean 4 theorem is almost done. Lean accepted every other step; this one is still "
            "open, and Lean's automation (omega, linarith, nlinarith, positivity, decide, norm_num, simp, "
-           "aesop, exact?) could not close it. Prove it as a standalone lemma.\n\n"
+           "aesop, grind, exact?) could not close it. Prove it as a standalone lemma.\n\n"
            "Reply with the whole lemma in one ```lean block: exactly the statement below, then `:= by` and "
            "tactics. No `sorry`, no other declarations. Lean 4 and current mathlib names only.\n\n")
 

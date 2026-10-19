@@ -29,9 +29,7 @@ from proof_text import extract_proof
 DEPTH = 2              # a goal's steps, and their steps: deeper did not pay in Hilbert's ablation past a few levels
 MAX_ASKS = 8           # model calls per top goal, across every level
 WORKERS = 3            # goals at once; each Leanstral call takes ~45 s, so starts stay under 0.5 a second
-# The loop's closers plus grind, which solved 2 bar problems on 2026-10-19 and so waits outside the loop until
-# the bar is graded; here it only meets problems outside the bar.
-TACTICS = subgoals.AUTO_TACTICS + ["grind"]
+TACTICS = subgoals.AUTO_TACTICS            # grind among them since the stage-3 bar was graded (2026-10-19)
 STEPS = ("Prove the following Lean 4 lemma. Write the proof as a short sequence of `have` steps, each small "
          "enough that one of linarith, nlinarith, omega, norm_num, simp, positivity or grind closes it, then "
          "finish from those steps. Reply with the whole lemma in one ```lean4 block: exactly the statement below, "
