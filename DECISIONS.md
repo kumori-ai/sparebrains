@@ -5,6 +5,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-19
 
+- **The head-to-head, rules written before its first run (Andy: prove the tools make a model better, and
+  cheaper per result).** `tools/headtohead.py`, `.github/workflows/headtohead.yml`. Leanstral alone (the whole
+  proof, the raw answer judged) against Leanstral with our tools (decomposition on the whole theorem: steps,
+  fixer, the loop's automation, recursion), 4 calls per arm per problem, the same 30 problems (15 open in the
+  open list's order, 15 solved from math-L4, math-L5, amc12, aime, imo and custom, picked by a fixed seed), the
+  arms in a seeded random order per problem, the same day. What we may say afterwards, and nothing else:
+  "better" only if the problems solved by the tools arm alone outnumber those solved by the alone arm alone and
+  a two-sided sign test on those disagreements gives p < 0.05; "cheaper per result" only if the tools arm's
+  Leanstral calls per solve (every call it spent, over its solves) are lower; otherwise the run is reported as
+  it came out, numbers and intervals, with no claim. 30 problems can miss a real difference: a miss is a
+  finding about this run, not about the tools.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,

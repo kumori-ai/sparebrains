@@ -1,0 +1,70 @@
+# The head-to-head (DECISIONS.md 2026-10-19, rules written before the first run; tools/headtohead.py): Leanstral
+# alone against Leanstral with our tools, the same problems, the same day, the same calls per problem. Dispatch by
+# hand. Its rows (ledger/headtohead/) are measurements; an open problem either arm solves is recorded and published.
+# The key and Lean share a step, Lean as the sandbox user with a cleared environment, as in decompose.yml.
+name: headtohead
+
+on:
+  workflow_dispatch:
+    inputs:
+      open:
+        description: "open problems, in the open list's order"
+        default: "15"
+      solved:
+        description: "solved problems from the harder rungs, by the fixed seed"
+        default: "15"
+      calls:
+        description: "Leanstral calls per arm per problem"
+        default: "4"
+
+permissions:
+  contents: write        # publish the ledger rows and any verified proofs
+
+concurrency:
+  group: leanstral       # one Mistral caller at a time: the Labs limit is 38 requests a minute for the org
+  cancel-in-progress: false
+
+jobs:
+  headtohead:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests
+
+      - name: lean + mathlib cache + build
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: head-to-head
+        env:
+          SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          python3 tools/headtohead.py run --open "${{ inputs.open }}" --solved "${{ inputs.solved }}" --calls "${{ inputs.calls }}" \
+            --out "ledger/headtohead/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-400)" >> "$GITHUB_ENV"
+
+      - name: publish the ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
+          python3 tools/publish.py --message "head-to-head run $GITHUB_RUN_ID: $SUMMARY
+
+          Generated-by: Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral's Labs API, cost \$0, via tools/headtohead.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Judged on: $MACHINE"

@@ -59,7 +59,7 @@ def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budg
     more with Lean's error (prove_goal's second ask; APOLLO's repair loop). `fix` is the loop's form repair."""
     budget = budget if budget is not None else {"asks": 0}
     log = log if log is not None else []
-    if budget["asks"] >= MAX_ASKS:
+    if budget["asks"] >= budget.get("max", MAX_ASKS):
         log.append({"depth": depth, "stopped": "ask budget"})
         return None
     budget["asks"] += 1
