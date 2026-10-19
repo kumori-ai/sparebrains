@@ -267,6 +267,21 @@ jobs:
               -f fixer_slices='["0/6","1/6","2/6","3/6","4/6","5/6"]'
           fi
 
+      # The same backup for the two-hourly lanes: on 2026-10-18 GitHub fired 6 of prover's 12 scheduled runs, and
+      # leanstral's 3 in the 24 hours to 14:42 on 10-19. A lane with no run (queued counts) in 130 minutes gets one, so
+      # the cadence is the one the crons meant, never more; each lane's concurrency group still runs one at a time.
+      - name: start the two-hourly lanes GitHub's schedule dropped
+        if: success() && steps.publish.outcome == 'success' && startsWith(steps.run.outputs.mode, 'relay')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '130 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          for w in prover leanstral; do
+            last=$(gh run list --workflow "$w.yml" --repo "$GITHUB_REPOSITORY" --limit 1 --json createdAt --jq '.[0].createdAt // ""')
+            echo "$w: last run ${last:-none}"
+            if [ -z "$last" ] || [[ "$last" < "$since" ]]; then gh workflow run "$w.yml" --ref main; echo "started $w"; fi
+          done
+
       # Only a ladder job hands stage 2 the next problem (2026-10-08: a retro canary, mode 'retro', dispatched a relay).
       # Stage 2 rides the ladder's own chain: GitHub fired 8 of 24 scheduled events in two days and
       # never the relay's first :30 (2026-10-06), so the cron is only a backup. Its own concurrency
