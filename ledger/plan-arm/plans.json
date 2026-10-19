@@ -1,0 +1,191 @@
+{
+ "id": "plans-2026-10-19",
+ "drafted_with": "Claude Opus (claude-opus-5-5), in the session that set the bar, before any plan-arm answer",
+ "plans": [
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_711",
+   "plan": "gcd(m,n)*lcm(m,n) = m*n, so m*n = 8*112 = 896. Both m and n are multiples of 8 and divisors of 112, so each is one of 8, 16, 56, 112. The pairs with product 896 are (8,112), (16,56) and their swaps; (16,56) really has gcd 8 and lcm 112, so 72 is attained, and every pair has sum at least 16+56 = 72."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_495",
+   "plan": "gcd(a,b) = 6 means 6 divides a and b. With a ending in 2, a is 12 mod 30 (12, 42, 72, ...); with b ending in 4, b is 24 mod 30 (24, 54, 84, ...). lcm(a,b) = a*b/6. a = 12, b = 54 has gcd 6 and lcm 108. Lower bound: if a = 12 then b = 24 is impossible (gcd(12,24) = 12), so b >= 54 and a*b/6 >= 108; if a >= 42 then a*b/6 >= 42*24/6 = 168."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_320",
+   "plan": "The positive root of 2x^2 - 4x - 9 = 0 is x = (2 + sqrt 22)/2. So (a + sqrt b)/c = (2 + sqrt 22)/2, i.e. 2*sqrt b = c*sqrt 22 + 2(c - a). Square: 4b = 22c^2 + 4(c-a)^2 + 4c(c-a)*sqrt 22; since sqrt 22 is irrational and c > 0, c = a, so 4b = 22c^2, hence c is even, c = 2k, a = 2k, b = 22k^2. Then k divides a, k^2 divides b and k divides c, so the hypothesis forces k = 1: a = 2, b = 22, c = 2, sum 26."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_552",
+   "plan": "5*(12x+7) - 12*(5x+2) = 11, so gcd(12x+7, 5x+2) divides 11 and every value of h is 1 or 11. Both occur: x = 1 gives gcd(19,7) = 1 and x = 4 gives gcd(55,22) = 11. So the range of h is exactly {1, 11} and the sum is 12."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_451",
+   "plan": "A number with exactly four divisors is p^3 (divisor sum 1+p+p^2+p^3) or p*q with distinct primes (divisor sum (1+p)(1+q)); also the divisor sum of m is at least m+1 for m > 1, so m < n <= 2019. 2016 is nice: m = 3*503 = 1509 (503 is prime) has divisors 1, 3, 503, 1509, sum 2016. No other n in 2010..2019 is: (1+p)(1+q) with p = 2 needs 3 | n and n/3 - 1 prime (2010: 669 = 3*223, 2013: 670, 2016: 671 = 11*61, 2019: 672, all composite); with p, q odd it needs 4 | n (2012 = 4*503: 503 is odd, so no split into two even factors >= 4 works; 2016 works as above); p^3 gives 1464 (p = 11) or 2380 (p = 13), both outside. So S = {2016}."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_427",
+   "plan": "500 = 2^2 * 5^3, so the divisor sum is (1+2+4)(1+5+25+125) = 7*156 = 1092. 1092 = 2^2 * 3 * 7 * 13, so its prime divisors are 2, 3, 7, 13 and their sum is 25."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_764",
+   "plan": "In ZMod p, for k and k+1 nonzero, 1/(k(k+1)) = 1/k - 1/(k+1). For k from 1 to p-2 both k and k+1 lie in 1..p-1, so they are nonzero mod p. The sum telescopes to 1 - 1/(p-1), and p-1 = -1 in ZMod p, so the sum is 1 + 1 = 2. A clean route: prove by induction on n that the sum for k = 1..n equals 1 - 1/(n+1) whenever n+1 < p, then take n = p-2."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2019_p12",
+   "plan": "Let u = log x / log 2 and v = log y / log 2. From xy = 64, log x + log y = 6 log 2, so u + v = 6 (x and y are nonzero because their product is 64). The first hypothesis is u = 4/v (log 16 = 4 log 2), so uv = 4; if log y were 0 the hypothesis would force log x = 0, so x and y would be in {1, -1} and xy = 64 fails. log(x/y) = log x - log y, so the target is (u - v)^2 = (u+v)^2 - 4uv = 36 - 16 = 20."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2002_p4",
+   "plan": "1/2 + 1/3 + 1/7 = 41/42. Denominator 1 means q = 41/42 + 1/n is an integer. Since n >= 1, 0 < 1/n <= 1, so 41/42 < q < 2, hence q = 1, so 1/n = 1/42 and n = 42."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12_2001_p21",
+   "plan": "Add 1 to each equation: (a+1)(b+1) = 525, (b+1)(c+1) = 147, (c+1)(d+1) = 105. So b+1 divides 147: b+1 is 1, 3, 7, 21, 49 or 147, and c+1 = 147/(b+1) must also divide 105. b+1 = 1 gives b = 0 and a product of 0, not 8!. b+1 = 3, 49, 147 make c+1 = 49, 3, 1 with 49 not dividing 105, or c = 0. b+1 = 7: c = 20, d = 4, a = 74, product 74*6*20*4 = 35520, not 8! = 40320. b+1 = 21: c = 6, d = 14, a = 24, product 24*20*6*14 = 40320. So a - d = 24 - 14 = 10."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p14",
+   "plan": "log base 5^k of 3^(k^2) = k^2 log 3 / (k log 5) = k * (log 3 / log 5) for k >= 1, so the first sum is (1+2+...+20)(log 3/log 5) = 210 log 3/log 5. log base 9^k of 25^k = k log 25/(k log 9) = log 5/log 3, so the second sum is 100 log 5/log 3. The product is 210*100 = 21000 because log 3 and log 5 are nonzero and cancel."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2008_p25",
+   "plan": "Think of z_n = a_n + i b_n: the step multiplies by sqrt 3 + i, and (sqrt 3 + i)^3 = 8i. In real terms, using sqrt 3 ^2 = 3, three steps give a(n+3) = -8 b(n) and b(n+3) = 8 a(n), so six steps give a(n+6) = -64 a(n) and b(n+6) = -64 b(n). From 1 to 97 is 16 blocks of six, so a 97 = 2^96 a 1 and b 97 = 2^96 b 1. Then a 100 = -8 b 97 = -2^99 b 1 = 2 and b 100 = 8 a 97 = 2^99 a 1 = 4, so a 1 = 4/2^99, b 1 = -2/2^99, and a 1 + b 1 = 2/2^99 = 1/2^98."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2009_p6",
+   "plan": "p^(2n) q^m = (2^m)^(2n) (3^n)^m = 2^(2mn) 3^(mn) = (2^2)^(mn) 3^(mn) = (4*3)^(mn) = 12^(mn). These are real powers with real exponents, so each step uses a positive base: (b^x)^y = b^(xy) for b > 0, and (xy)^t = x^t y^t for x, y >= 0."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p7",
+   "plan": "Each a k is a natural number whose cube is (k+1)^3, so a k = k+1 (cubing is injective on the naturals; or a k <= 7 and check the cases). Then the first sum is 6(1+4+9+16+25+36+49) = 840 and the second is 2(1+4+9+16+25+36) = 182, and 840 - 182 = 658."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p4",
+   "plan": "A multiple of 5 ends in 0 or 5; all digits even forces the last digit 0. The first digit is 2, 4, 6 or 8 (4 choices, not 0 for a 4-digit number) and the middle two digits are each 0, 2, 4, 6 or 8 (5 choices each). So S is exactly the numbers 1000a + 100b + 10c with a in {2,4,6,8} and b, c in {0,2,4,6,8}, and there are 4*5*5 = 100 of them."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2021_p18",
+   "plan": "Write z = x + iy and r = x^2 + y^2. Expanding: |z+2|^2 = r + 4x + 4 and |z^2+1|^2 = r^2 + 2(x^2 - y^2) + 1 = r^2 + 4x^2 - 2r + 1. The equation becomes r^2 - 12r + 4x^2 + 8x + 40 = 0, i.e. (r - 6)^2 + 4(x + 1)^2 = 0. So x = -1 and r = 6, z is nonzero, and 6/z = 6 conj(z)/|z|^2 = conj(z). Hence z + 6/z = z + conj(z) = 2x = -2."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p12",
+   "plan": "The polynomial has degree 6 and splits over C, so it has 6 roots with multiplicity, each a positive integer. By Vieta their sum is 10 and their product is 16. Six positive integers with product 16 are powers of 2; with sum 10 the only multiset is {2, 2, 2, 2, 1, 1}. The coefficient of z^3 is minus the third elementary symmetric sum of the roots: triples of three 2s (4 of them, product 8) give 32, two 2s and a 1 (12 of them, product 4) give 48, one 2 and two 1s (4 of them, product 2) give 8. Total 88, so b = -88."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12_2001_p5",
+   "plan": "The product of the odd numbers below 2n times 2^n n! (which is the product of the even numbers 2, 4, ..., 2n) equals (2n)!. Prove that by induction on n (the step multiplies by 2n+1 on one side and by 2(n+1) on the other, giving (2n+2)!). With n = 5000, the odd product equals 10000!/(2^5000 * 5000!), the division being exact."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2021_p13",
+   "plan": "Let g(t) = 5 cos 3t - 3 sin t + 1. At t = k pi/3 (k = 0..6) cos 3t alternates between 1, where g = 6 - 3 sin t >= 3 > 0, and -1, where g = -4 - 3 sin t <= -1 < 0. So g changes sign on each of the six intervals [k pi/3, (k+1) pi/3] in (0, 2 pi], giving at least one root in each (intermediate value theorem), never at an endpoint. Exactly one: at a root |5 cos 3t| = |3 sin t - 1| <= 4, so |sin 3t| >= 3/5, and wherever that holds g' = -15 sin 3t - 3 cos t has |15 sin 3t| >= 9 > 3 >= |3 cos t|, so g is strictly monotone on the part of the interval where roots can be. 6 roots in all."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2003_p23",
+   "plan": "The exponent of 2 in k! for k = 1..9 is 0,1,1,3,3,4,4,7,7 (total 30); of 3: 0,0,1,1,1,2,2,2,4 (total 13); of 5: five factorials contain one 5 (total 5); of 7: three (total 3). So the product is 2^30 3^13 5^5 7^3. k^2 divides it exactly when k divides 2^15 3^6 5^2 7^1, so S is the set of divisors of that number, and its size is (15+1)(6+1)(2+1)(1+1) = 672."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p25",
+   "plan": "f is multiplicative: f(n) is the product over prime powers p^e in n of (e+1)/p^(e/3). For each prime choose e to maximize (e+1)/p^(e/3): p = 2 best at e = 3 (value 2), p = 3 at e = 2 (3/3^(2/3)), p = 5 and p = 7 at e = 1 (2/5^(1/3) and 2/7^(1/3), both above 1), and for p >= 11 every e >= 1 gives a value below 1 (2/11^(1/3) < 1), so e = 0. Hence f(n) <= f(2520) for every n, where 2520 = 2^3 3^2 5 7. If N were not 2520, the hypothesis would give f(2520) < f(N), a contradiction. So N = 2520 and its digit sum is 2+5+2+0 = 9."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12_2000_p1",
+   "plan": "2001 = 3 * 23 * 29, so each of i, m, o is a divisor: 1, 3, 23, 29, 69, 87, 667 or 2001. If one is 2001 the other two are both 1, which are not distinct. With 1, 3, 667 the sum is 671. Any other admissible triple has sum at most 671: the possible distinct triples are {1,3,667}, {1,23,87}, {1,29,69}, {3,23,29} (sums 671, 111, 99, 55)."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p22",
+   "plan": "For t = 2k pi/7, 4t = 2k pi - 3t, so cos 4t = cos 3t; writing c = cos t, 8c^4 - 8c^2 + 1 = 4c^3 - 3c, i.e. (c - 1)(8c^3 + 4c^2 - 4c - 1) = 0. For k = 1, 2, 3, c is not 1, so each cosine is a root of x^3 + x^2/2 - x/2 - 1/8. The three cosines are distinct (cos is strictly decreasing on [0, pi]). f and that cubic are monic cubics sharing three distinct roots, so they are equal: a = 1/2, b = -1/2, c = -1/8, and abc = 1/32."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p15",
+   "plan": "z^3 - 8z^2 - 8z + 64 = (z - 8)(z^2 - 8), so B = {8, 2 sqrt 2, -2 sqrt 2}, all real. a^3 = 8 means a = 2 or a^2 + 2a + 4 = 0, so |a| = 2 and Re a is 2 or -1. For real b, |a - b|^2 = 4 + b^2 - 2b Re a. With b = 8 this is 68 - 16 Re a <= 84; with b = +-2 sqrt 2 it is at most 12 + 8 sqrt 2 < 84. Equality: a = -1 + i sqrt 3 (cube is 8) and b = 8 give |a - b|^2 = 81 + 3 = 84, so the maximum distance is sqrt 84 = 2 sqrt 21."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p8",
+   "plan": "Work mod 2. The parities d 0..d 6 are 0,0,1,1,1,0,1, and d 7, d 8, d 9 are 0,0,1 again, so the parity repeats with period 7. Prove by induction on k that d(7k + j) has the same parity as d j for j = 0..6 (the recurrence only looks back 1 and 3 steps). 2021 = 7*288 + 5, 2022 = 7*288 + 6, 2023 = 7*289, so the parities are those of d 5, d 6, d 0: even, odd, even."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p25",
+   "plan": "Write x = n + f with n = floor x and 0 <= f < 1; x = 0 is always a solution. If a < 0 every solution is <= 0 (for x > 0, n f >= 0 > a x^2), so the sum cannot be 420. If a = 0 every x in [0,1) is a solution, infinitely many, impossible for a finite S. For a > 0 there are no negative solutions (n f <= 0 < a x^2 unless x = 0), and a positive solution with floor n >= 1 is x = r n where r = 2/(1 + sqrt(1 - 4a)) (needs a <= 1/4; the other root is at least 2n, too big), valid exactly when f = n(r - 1) < 1. a = 1/4 gives r = 1 and every positive integer is a solution, impossible. So r = 1 + d with d > 0, the solutions are r, 2r, ..., Nr with N d < 1 <= (N+1) d, and the sum is r N(N+1)/2 = 420. The bounds give (N+1)^2/2 > 420 and N(N+2) <= 840, so N = 28 and d = 1/29 exactly: r = 30/29. Then a = (r - 1)/r^2 = 29/900, and den + num = 900 + 29 = 929."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2020_p22",
+   "plan": "Let u = t/2^t. Since 4^t = (2^t)^2, the expression equals u - 3u^2 = 1/12 - 3(u - 1/6)^2 <= 1/12. The maximum is attained if t/2^t = 1/6 for some t: the function t -> t/2^t is continuous, 0 at t = 0 and 1/2 at t = 1, so by the intermediate value theorem some t in [0,1] gives exactly 1/6."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p9",
+   "plan": "tan 2x has branches separated by x = pi/4, 3pi/4, 5pi/4, 7pi/4. Here tan is sin/cos, so at those four points tan 2x is 0, and cos(x/2) is not 0 there (x/2 is pi/8, 3pi/8, 5pi/8, 7pi/8), so they are not solutions. On each of the three full middle branches tan 2x increases from -infinity to +infinity while cos(x/2) is decreasing and bounded, so tan 2x - cos(x/2) is strictly increasing with exactly one zero. On [0, pi/4) it starts at 0 - 1 < 0 and goes to +infinity: one zero. On (7pi/4, 2pi] it goes from -infinity to tan 4pi - cos pi = 0 + 1 > 0: one zero. Total 5."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p19",
+   "plan": "cos(pi/2 sin x) = sin(pi/2 - pi/2 sin x). sin A = sin B means A = B + 2k pi or A = pi - B + 2k pi. Since sin x and cos x lie in [-1, 1], only k = 0 fits: either cos x + sin x = 1 or cos x - sin x = 1. On [0, pi], cos x + sin x = 1 gives x = 0 or x = pi/2 (square it: sin 2x = 0, and x = pi fails), and cos x - sin x = 1 gives only x = 0. So S = {0, pi/2} and its card is 2."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1987_p5",
+   "plan": "Rewrite as (3x^2 + 1)(y^2 - 10) = 507 = 3 * 13^2. So 3x^2 + 1 is a positive divisor of 507 that is 1 mod 3: 1, 13 or 169. x^2 = 0 gives y^2 = 517 (not a square); x^2 = 56 is not a square; x^2 = 4 gives y^2 - 10 = 39, y^2 = 49. So 3x^2 y^2 = 3*4*49 = 588. (A bound like x^2 <= 168 lets one check |x| <= 12 case by case.)"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1994_p3",
+   "plan": "Let g(x) = f(x) - x(x+1)/2. Since x(x+1)/2 + (x-1)x/2 = x^2, g(x) + g(x-1) = 0, so g(19 + k) = (-1)^k g(19) by induction on k. g(19) = 94 - 190 = -96, so g(94) = (-1)^75 (-96) = 96 and f(94) = 96 + 94*95/2 = 96 + 4465 = 4561, which is 561 mod 1000."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1991_p9",
+   "plan": "If cos x were 0, both 1/cos x and tan x would be 0 here, contradicting 22/7; so cos x is not 0, and similarly sin x is not 0 at the end. With c = cos x, s = sin x: (1 + s)/c = 22/7, so s = 22c/7 - 1; substituting into s^2 + c^2 = 1 gives c(533c/49 - 44/7) = 0, so c = 308/533 and s = 435/533. Then m = 1/s + c/s = (1 + c)/s = 841/435 = 29/15, in lowest terms, so den + num = 15 + 29 = 44."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1999_p11",
+   "plan": "Multiply the sum by 2 sin 2.5 degrees: 2 sin(5k) sin(2.5) = cos(5k - 2.5) - cos(5k + 2.5), which telescopes to cos 2.5 - cos 177.5 = 2 cos 2.5. So the sum is cot 2.5 degrees = tan 87.5 degrees. tan is injective on (-90, 90) degrees, and 0 < m < 90 (from h0 and h2, since num/den = m), so m = 87.5 = 175/2: den + num = 2 + 175 = 177."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1988_p8",
+   "plan": "The hypothesis gives f(x, x+y) = (x+y)/y * f(x, y), which runs the Euclidean algorithm backwards (f is lcm). Chain of instances: f(2,2) = 2, so f(2,4) = 4 = f(4,2); f(4,6) = 3*4 = 12; f(4,10) = (10/6)*12 = 20 = f(10,4); f(10,14) = (14/4)*20 = 70 = f(14,10); f(14,24) = (24/10)*70 = 168; f(14,38) = (38/24)*168 = 266; f(14,52) = (52/38)*266 = 364. Each step is the third hypothesis at (x, y) = (2,2), (4,2), (4,6), (10,4), (14,10), (14,24), (14,38), with symmetry where the order flips."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1984_p7",
+   "plan": "Claim: for every n < 1000, f(n) = 997 if n is even and 998 if n is odd. Prove it by strong induction downward from 999. For 995 <= n <= 999, f(n) = f(f(n+5)) = f(n+2); f(998) = f(1000) = 997, f(999) = f(1001) = 998, then f(997) = f(999) = 998, f(996) = f(998) = 997, f(995) = f(997) = 998. For n < 995, n+5 < 1000 has the other parity, so f(n+5) is 998 when n is even (giving f(998) = 997) and 997 when n is odd (giving f(997) = 998). 84 is even, so f(84) = 997."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1983_p3",
+   "plan": "Let s = sqrt(x^2 + 18x + 45). If x^2 + 18x + 45 < 0 then s = 0 and f x = 0 would need x^2 + 18x + 30 = 0, but then x^2 + 18x + 45 = 15 > 0, a contradiction; so s^2 = x^2 + 18x + 45 and the equation is s^2 - 15 = 2s, so s = 5 (s >= 0). Hence x^2 + 18x + 20 = 0, whose roots are -9 +- sqrt 61; both satisfy the original equation (there s = 5). So the preimage is exactly {-9 + sqrt 61, -9 - sqrt 61}, two distinct reals, and their product is 81 - 61 = 20."
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1995_p7",
+   "plan": "Let u = sin t + cos t; sin t cos t = (u^2 - 1)/2. The first equation gives 1 + u + (u^2 - 1)/2 = 5/4, i.e. u^2 + 2u - 3/2 = 0, so u = -1 + sqrt(10)/2 (the other root is below -sqrt 2, impossible since u^2 <= 2). Then sin t cos t = 1/4 - u and (1 - sin t)(1 - cos t) = 1 - u + 1/4 - u = 5/4 - 2u = 13/4 - sqrt 10. So m/n - sqrt k = 13/4 - sqrt 10. If sqrt k - sqrt 10 = r is rational, squaring sqrt k = r + sqrt 10 gives k = r^2 + 10 + 2r sqrt 10, so r = 0 (sqrt 10 is irrational): k = 10 and m/n = 13/4, and coprimality gives m = 13, n = 4. Sum 27."
+  }
+ ]
+}
