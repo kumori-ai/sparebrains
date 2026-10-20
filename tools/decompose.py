@@ -135,8 +135,11 @@ def lane_of(backend):
 
 
 def tried_by(rows, backend):
-    """Goals this lane already tried; rows from before 2026-10-19's router lanes carry no backend and are Leanstral's."""
-    return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend}
+    """Goals this lane already tried; rows from before 2026-10-19's router lanes carry no backend and are Leanstral's.
+    A goal whose every ask came back with no answer was not tried (2026-10-20: 45 of Leanstral's 83, mostly the
+    40,000-token cap)."""
+    blank = lambda r: r.get("levels") and all(str(e.get("stopped", "")).startswith("no answer") for e in r["levels"])
+    return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend and not blank(r)}
 
 
 def pick_lane(live, rows, now_iso):

@@ -505,6 +505,14 @@ def lane_status(names):
     return data.get('lanes', {})
 
 
+def notify_owner(subject, text=''):
+    """Mail Andy through kumori (scope notify.owner): for a device with no Gmail token of its own.
+    The recipient is fixed server-side. Raises KumoriAPIError (429) when mail_guard refuses a repeat
+    within 60 min or the key label's cap; the caller still keeps its own, lower cap."""
+    return _request('POST', '/api/v1/notify/owner', {'subject': subject, 'text': text},
+                    retry_on_5xx=False).get('sent', False)
+
+
 def llm_backends(modality=None):
     """List available backends. Returns the list of backend dicts.
 

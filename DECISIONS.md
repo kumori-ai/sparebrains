@@ -14,6 +14,8 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   ~11 minutes (HTTP timeout 600 -> 1200 s, job 180 -> 240 min). `leanstral.owed` counts only finished answers
   toward the 8 tries, with 24 calls a problem in all as the stop. Still $0 (Labs endpoint). The three head-to-head
   runs of 2026-10-19 ran at 40,000; a later head-to-head runs at 120,000 and is reported apart from them.
+  Decomposition likewise no longer counts a goal as tried when every ask for it came back with no answer
+  (`decompose.tried_by`): 45 of the 83 goals Leanstral had "tried" get asked again.
 
 ## 2026-10-19
 

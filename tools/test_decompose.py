@@ -89,6 +89,12 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"a"})     # old rows are Leanstral's
         self.assertEqual(decompose.tried_by(rows, "groq-gptoss-decompose"), {"b"})
 
+    def test_a_goal_that_never_got_an_answer_was_not_tried(self):
+        blank = {"sha": "a", "levels": [{"depth": 2, "stopped": "no answer: empty reply (finish=length, 40000 tokens)"},
+                                        {"depth": 2, "stopped": "no answer: HTTP 503"}]}
+        answered = {"sha": "b", "levels": [{"depth": 2, "stopped": "no answer"}, {"depth": 2, "steps_left": 1}]}
+        self.assertEqual(decompose.tried_by([blank, answered], decompose.LANE["backend"]), {"b"})
+
     def test_a_router_lane_waits_out_its_pacing_then_says_why_it_gave_up(self):
         class Err(Exception):
             retry_after = 0.01
