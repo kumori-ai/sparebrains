@@ -136,6 +136,24 @@ class PlanArmTests(unittest.TestCase):
         self.assertEqual(rec.proofs, [NAME], "one verified file per problem")
         self.assertTrue(all(r["plans_id"] == "p1" for r in rows))
 
+    def test_a_budget_cut_plan_batch_leaves_the_rest_owed_and_the_verdict_pools_both_runs(self):
+        doc = {"id": "p1", "plans": [{"target_set": "minif2f/test", "target": t, "plan": "x"} for t in "abc"]}
+        row = lambda t, arm, v="reject", pid="p1": {"target_set": "minif2f/test", "target": t, "arm": arm,
+                                                    "plans_id": pid, "verdict": v}
+        with tempfile.TemporaryDirectory() as d:
+            plans, arm_dir = Path(d) / "plans.json", Path(d) / "plan-arm"
+            plans.write_text(json.dumps(doc))
+            arm_dir.mkdir()
+            (arm_dir / "rows-plan-p1-1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in
+                [row("a", "alone"), row("a", "plan", "accept"), row("b", "alone"), row("c", "alone", pid="p0")]))
+            owed = prover.plan_owed(d, plans)
+            self.assertEqual([p["target"] for p in owed["plans"]], ["b", "c"], "b lacks its plan arm, c ran under another id")
+            (arm_dir / "rows-plan-p1-2.jsonl").write_text("".join(json.dumps(r) + "\n" for r in
+                [row("b", "plan", "accept"), row("c", "alone", "accept"), row("c", "plan")]))
+            self.assertIsNone(prover.plan_owed(d, plans))
+            v = prover.plan_verdict(prover.plan_rows("p1", d))
+            self.assertEqual((v["problems"], v["only_plan"], v["only_alone"]), (3, ["a", "b"], ["c"]))
+
     def test_batch_ids_with_a_prefix_parse(self):
         from datetime import datetime, timezone
         old = prover.BATCHES

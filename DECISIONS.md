@@ -58,6 +58,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   competition problem may carry a remembered solution, so every plan-arm solve is labeled `prover+plan`, its own
   column. The first push after Kaggle's reset (2026-10-24 00:00 UTC) builds it before any goal batch, about 6.3 of
   the week's 30 GPU hours at 94.9 s an answer.
+  **What happened (2026-10-20):** the batch pushed early, 2026-10-19 23:57 UTC, into the hours batch 3 left, and
+  the budget stop cut it at 7 problems (0 vs 0, p = 1.0). The old `plan_owed` then counted the whole plans file as
+  done, so the full test would never have run. Fixed: a problem stays owed until both arms are judged under the
+  plans id, and the verdict pools every batch's rows for that id (`prover.plan_verdict`). The remaining 25 open
+  problems push after the 2026-10-24 reset; the pre-registered test is all of them together, never the 7 alone.
 - **Stage 3 passed, graded early (Andy: grade now).** The bar: at least 5 first-time solves from the prover lane on
   its 50 open problems within 7 days of 2026-10-17 18:30 UTC. Result: 10 in 2 batches; the 5th at 2026-10-19
   05:28 UTC, about 35 h in (batch 20261017T1830: mathd_algebra_17 by fixer+loop, mathd_algebra_275,

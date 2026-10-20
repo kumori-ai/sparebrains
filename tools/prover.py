@@ -176,13 +176,34 @@ def plan_work(doc, open_keys, read=lambda s, t: (ROOT / "targets" / s / f"{t}.le
     return out
 
 
-def plan_owed(ledger_root=ROOT / "ledger"):
-    """The plans file, while no plan-arm row carries its id; else None."""
-    if not PLANS.exists():
+def plan_rows(plans_id, ledger_root=ROOT / "ledger"):
+    """Every plan-arm row judged under this plans id, across batches."""
+    return [r for f in sorted((Path(ledger_root) / "plan-arm").glob("rows-*.jsonl"))
+            for r in map(json.loads, f.read_text().splitlines()) if r.get("plans_id") == plans_id]
+
+
+def plan_owed(ledger_root=ROOT / "ledger", plans=PLANS):
+    """The plans file cut to the problems not yet judged in both arms; None once none are left. A budget stop can
+    end a plan batch early (2026-10-19: 7 of 35 problems), so the rest stay owed for the next push."""
+    if not plans.exists():
         return None
-    doc = json.loads(PLANS.read_text())
-    done = any(doc["id"] in f.read_text() for f in (Path(ledger_root) / "plan-arm").glob("rows-*.jsonl"))
-    return None if done else doc
+    doc = json.loads(plans.read_text())
+    arms = defaultdict(set)
+    for r in plan_rows(doc["id"], ledger_root):
+        arms[(r["target_set"], r["target"])].add(r["arm"])
+    left = [p for p in doc["plans"] if arms[(p["target_set"], p["target"])] != {"alone", "plan"}]
+    return {**doc, "plans": left} if left else None
+
+
+def plan_verdict(rows):
+    """The pre-registered test over all of a plans id's rows: problems solved by one arm only, and the sign test."""
+    import headtohead
+    won = {(r["target"], r["arm"]) for r in rows if r["verdict"] == "accept"}
+    names = {r["target"] for r in rows}
+    only_plan = sorted(n for n in names if (n, "plan") in won and (n, "alone") not in won)
+    only_alone = sorted(n for n in names if (n, "alone") in won and (n, "plan") not in won)
+    return {"problems": len(names), "only_plan": only_plan, "only_alone": only_alone,
+            "p": round(headtohead.sign_p(len(only_plan), len(only_alone)), 4)}
 
 
 def judge_plan(answers, *, judge_text, record, run_id, plans_id, read, out, still_open=None, lane=PROVER):
@@ -507,9 +528,9 @@ def main():
         return 0
     open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
     plan_answers = [a for a in answers if a.get("arm")]
-    plan_rows = ROOT / "ledger" / "plan-arm" / f"rows-{answers[0]['batch']}.jsonl" if plan_answers else None
+    plan_rows_file = ROOT / "ledger" / "plan-arm" / f"rows-{answers[0]['batch']}.jsonl" if plan_answers else None
     if args.cmd == "pending" and plan_answers:      # judged whole in one job: owed until its rows file exists
-        print(0 if plan_rows.exists() else len(plan_answers))
+        print(0 if plan_rows_file.exists() else len(plan_answers))
         return 0
     if args.cmd == "pending":
         rows = prover_rows()
@@ -534,22 +555,16 @@ def main():
     names_ix = lean_tools.index()
     batch = answers[0]["batch"] if answers else "none"
     if plan_answers:                                 # a plan batch (task #433): each arm judged on its own
-        import headtohead
         doc = json.loads(PLANS.read_text())
         rows = []
         stats = judge_plan(plan_answers, judge_text=lean_tools.judge_text, record=Recorder(answers[0]["batch"], post),
                            run_id=f"prover-{answers[0]['batch']}", plans_id=doc["id"],
                            read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text(), out=rows.append,
                            still_open=open_now)
-        won = {(r["target"], r["arm"]) for r in rows if r["verdict"] == "accept"}
-        names = {r["target"] for r in rows}
-        only_plan = sorted(n for n in names if (n, "plan") in won and (n, "alone") not in won)
-        only_alone = sorted(n for n in names if (n, "alone") in won and (n, "plan") not in won)
-        plan_rows.parent.mkdir(parents=True, exist_ok=True)
-        plan_rows.write_text("".join(json.dumps(r) + "\n" for r in rows))
-        print(json.dumps({"batch": answers[0]["batch"], "problems": len(names), **stats, "only_plan": only_plan,
-                          "only_alone": only_alone, "p": round(headtohead.sign_p(len(only_plan), len(only_alone)), 4)}),
-              flush=True)
+        plan_rows_file.parent.mkdir(parents=True, exist_ok=True)
+        plan_rows_file.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        print(json.dumps({"batch": answers[0]["batch"], "problems": len({r["target"] for r in rows}), **stats,
+                          "pooled": plan_verdict(plan_rows(doc["id"]))}), flush=True)
         return 0
     goal_answers = [a for a in answers if a.get("goal")]
     if goal_answers:                                 # a goal batch (task #461): the goal closer judges it
