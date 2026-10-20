@@ -16,7 +16,7 @@ arm's lane and published like any other.
 
     python3 tools/headtohead.py run --open 15 --solved 15 --calls 4 --out ledger/headtohead/run-ID.jsonl
 """
-import argparse, hashlib, json, math, os, random, re, sys, threading, time
+import argparse, hashlib, json, math, random, re, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -193,10 +193,8 @@ def main():
                     "earlier run in ledger/headtohead/ measured")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
-    if not key:
-        sys.exit("SPAREBRAINS_LEANSTRAL_KEY is not set")
     import fixer, lean_tools, leanstral, relay
+    key = leanstral.key_from_env()
     targets = relay.fetch_json("/targets.json")
     path = lambda t: ROOT / "targets" / t["target_set"] / f"{t['target']}.lean"
     used = set() if a.seed == SEED else {json.loads(l)["target"] for f in (ROOT / "ledger" / "headtohead").glob("*.jsonl")

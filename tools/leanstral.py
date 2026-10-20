@@ -23,6 +23,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import prover
 
 MODEL = "labs-leanstral-1-5-1"
+KEY_ENV = "SPAREBRAINS_LEANSTRAL_KEY"     # the Mistral key; present only in steps where no Lean runs, or as another user
 LANE = {"backend": "mistral-leanstral-1-5", "provider": "mistral", "model": MODEL, "mode": "leanstral", "file": "leanstral"}
 TRIES = 8                        # answers that finished; one cut off at the token cap is not a try
 MAX_CALLS = 3 * TRIES            # calls a problem may take in all, so one that always runs out still stops
@@ -69,6 +70,13 @@ class Pacer:
             t = max(now, self.next)
             self.next = t + self.gap
         time.sleep(max(0.0, t - now))
+
+
+def key_from_env():
+    key = os.environ.get(KEY_ENV, "").strip()
+    if not key:
+        sys.exit(f"{KEY_ENV} is not set")
+    return key
 
 
 def call(key, target_text, pacer):
@@ -170,9 +178,7 @@ def main():
     open_list = relay.fetch_json("/targets.json")["open"]
     rows = prover.prover_rows(lane=LANE)
     if a.cmd == "generate":
-        key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
-        if not key:
-            sys.exit("SPAREBRAINS_LEANSTRAL_KEY is not set")
+        key = key_from_env()
         batch = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
         generate(a.out, key, open_list, rows, batch)
         return 0

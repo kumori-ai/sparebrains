@@ -16,7 +16,7 @@ goal-closer try through prover.judge_goals, the goal batches' own path.
 
     python3 tools/decompose.py run --max-goals 40 --out ledger/decompose/run-ID.jsonl   # needs SPAREBRAINS_LEANSTRAL_KEY
 """
-import argparse, json, os, re, sys, time
+import argparse, json, re, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -222,9 +222,8 @@ def main():
         a.lane, max_tokens = picked["backend"], attempt.lane_max_tokens(picked, 4000)
         print(f"auto: {a.lane}, {max_tokens} tokens", flush=True)
     lane = lane_of(a.lane)
-    key = os.environ.get("SPAREBRAINS_LEANSTRAL_KEY", "").strip()
-    if not key and not a.lane:
-        sys.exit("SPAREBRAINS_LEANSTRAL_KEY is not set")
+    import leanstral
+    key = None if a.lane else leanstral.key_from_env()
     import lean_tools, prover, relay
     targets = relay.fetch_json("/targets.json")
     rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"]}

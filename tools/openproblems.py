@@ -231,7 +231,7 @@ def writer_ask(lane):
     """Leanstral (Mistral's Labs API, the free key) by default, or any Kumori router lane."""
     if lane == "leanstral":
         import leanstral
-        key = os.environ["SPAREBRAINS_LEANSTRAL_KEY"].strip()
+        key = leanstral.key_from_env()
         pacer = leanstral.Pacer(leanstral.MIN_GAP_S)
 
         def ask(prompt):
