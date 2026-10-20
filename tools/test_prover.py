@@ -88,6 +88,15 @@ class ProverTests(unittest.TestCase):
         rows = [{"backend": prover.BACKEND, "try_mode": "prover", "batch": "b1", "target_set": "minif2f/test",
                  "target": "a", "sample_no": i} for i in range(30)]
         self.assertEqual([(t["target"], n) for t, n in prover.todo(open_list, rows)], [("a", 2), ("c", 32)])
+        self.assertEqual([(t["target"], n) for t, n in prover.todo(open_list, rows, bar=False)], [("b", 32)])
+
+    def test_a_tpu_kernel_gets_its_budget_less_the_load_and_one_chunk(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
+            prover.build(d, [(t, 32)], "tpu-20261020T2300", tpu=True, budget_h=8.5)
+            src = (Path(d) / "prover_kernel.py").read_text()
+            self.assertIn(f"BUDGET_S = {int((8.5 - prover.TPU_RESERVE_H) * 3600)}", src)
+            self.assertEqual(json.loads((Path(d) / "kernel-metadata.json").read_text())["id"], prover.KERNEL_ID_TPU)
 
     def test_build_fills_the_kernel(self):
         with tempfile.TemporaryDirectory() as d:
@@ -206,6 +215,11 @@ class GpuHoursTests(unittest.TestCase):
         self.assertEqual(prover.batch_hours(39, 0), prover.SESSION_H)       # a floating week above 30 h
         self.assertEqual(prover.batch_hours(30, 29.2), 0.0)                  # under an hour: wait for the reset
         self.assertEqual(prover.batch_hours(30, 20, reserved_h=9.5), 0.0)    # a live session holds the rest
+
+    def test_the_tpu_gets_its_own_session_and_floor(self):
+        self.assertEqual(prover.batch_hours(20, 0, tpu=True), prover.TPU_SESSION_H)
+        self.assertEqual(prover.batch_hours(20, 15, tpu=True), round(20 - 15 - prover.MARGIN_H, 2))
+        self.assertEqual(prover.batch_hours(20, 18, tpu=True), 0.0)          # under the TPU floor: wait for the reset
 
     def test_the_rate_comes_from_measured_gpu_batches_not_tpu_or_unmeasured(self):
         with tempfile.TemporaryDirectory() as d:

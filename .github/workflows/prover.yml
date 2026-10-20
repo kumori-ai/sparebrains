@@ -3,6 +3,8 @@
 # sandbox user, like every other try. Every two hours: if the batch is still running, nothing happens; if it is done,
 # its answers are judged (resumable: a job that runs out of time leaves the rest for the next); when every answer is
 # judged, the next batch is pushed, until the bar's problems each have their 32 samples.
+# Two legs, one after the other: the T4 x2 on the bar's problems (and plan and goal batches), and the TPU v5e-8 on
+# its own weekly hours on every other open problem (task #479; prover.py next --tpu).
 name: prover
 
 on:
@@ -24,8 +26,22 @@ concurrency:
 
 jobs:
   prover:
+    name: prover (${{ matrix.accel }})
     runs-on: ubuntu-latest
     timeout-minutes: 340
+    strategy:
+      max-parallel: 1          # one ledger writer at a time
+      fail-fast: false         # a failed TPU batch never stops the GPU leg, nor the other way round
+      matrix:
+        include:
+          - accel: gpu
+            kernel: kumoriai/sparebrains-prover
+            flag: ""
+            hw: "GPU T4 x2"
+          - accel: tpu
+            kernel: kumoriai/sparebrains-prover-tpu
+            flag: "--tpu"
+            hw: "TPU v5e-8"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,8 +57,9 @@ jobs:
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
-          if [ "${{ inputs.push }}" = "true" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
-          status=$(kaggle kernels status kumoriai/sparebrains-prover 2>&1 | tail -1 || true)
+          # A TPU batch waits in one queue slot per user: a forced push there would only be refused.
+          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
+          status=$(kaggle kernels status ${{ matrix.kernel }} 2>&1 | tail -1 || true)
           echo "kaggle: $status"
           echo "status=$(printf '%s' "$status" | tr -d '\r' | cut -c1-200)" >> "$GITHUB_OUTPUT"
           case "$status" in
@@ -56,7 +73,7 @@ jobs:
             *) echo "::error::Kaggle batch ended without completing: $status"; exit 1 ;;
           esac
           mkdir -p "$RUNNER_TEMP/kout"
-          kaggle kernels output kumoriai/sparebrains-prover -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
+          kaggle kernels output ${{ matrix.kernel }} -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
           tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
           if [ ! -s "$RUNNER_TEMP/kout/answers.jsonl" ]; then
             echo "::error::the batch completed with no answers; read its log on Kaggle before pushing again"; exit 1
@@ -105,7 +122,7 @@ jobs:
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
           python3 tools/publish.py --message "prover batch judged: $SUMMARY
 
-          Generated-by: Goedel-Prover-V2-8B on Kaggle (GPU T4 x2), cost \$0, via tools/prover_kernel.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Generated-by: Goedel-Prover-V2-8B on Kaggle (${{ matrix.hw }}), cost \$0, via tools/prover_kernel${{ matrix.accel == 'tpu' && '_tpu' || '' }}.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
           Judged on: $MACHINE"
 
       - name: push the next batch
@@ -118,9 +135,9 @@ jobs:
           # stage-3 bar is graded, so nothing changes the prover's inputs while it is measured.
           # The week's GPU hours used exactly (2026-10-19): the session is sized to what Kaggle says is left this
           # week, and the kernel starts a chunk only if it still fits. Under an hour left: wait for Saturday's reset.
-          hours=$(python3 tools/prover.py hours)
-          if [ "$hours" = "0.0" ]; then echo "under an hour of GPU quota left this week; next push after the reset"; exit 0; fi
-          batch=$(python3 tools/prover.py next --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
+          hours=$(python3 tools/prover.py hours ${{ matrix.flag }})
+          if [ "$hours" = "0.0" ]; then echo "too little ${{ matrix.accel }} quota left this week; next push after the reset"; exit 0; fi
+          batch=$(python3 tools/prover.py next ${{ matrix.flag }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
           echo "pushed batch $batch"
@@ -129,7 +146,7 @@ jobs:
       # Show the work while it runs (Andy, 2026-10-17): every check on Kaggle posts on the stage 3 gate issue.
       - name: kumori-ai[bot] token (one hour, issues on this repo only)
         id: app
-        if: always()
+        if: always() && matrix.accel == 'gpu'      # the stage 3 gate is the bar's: the GPU leg's
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.SPAREBRAINS_APP_ID }}

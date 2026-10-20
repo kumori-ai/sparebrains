@@ -18,7 +18,7 @@ Getting a TPU from `kaggle kernels push`, as found 2026-10-18 (sources: Kaggle s
   Waits of 2 h to 9 h are reported (Kaggle forum, product-feedback 271777, 253459); ours queued 2 h+ on 10-18.
 - One batch TPU session per user, queued or running ("Maximum batch TPU session count of 1 reached"), so never
   push a second while one waits. Our expiry: 12 h queued, then that day has no TPU and its problems go to the GPU.
-- Status: `kaggle kernels status` (prover_tpu.yml action=status) says QUEUED / RUNNING / COMPLETE; we found no
+- Status: `kaggle kernels status` (prover.yml's TPU leg, every two hours) says QUEUED / RUNNING / COMPLETE; we found no
   queue position for pushed kernels. Proof of a TPU is tpu_devices in timing.json, never the name we asked for:
   this script exits at once when /dev/accel* and /dev/vfio/* are both empty.
 """

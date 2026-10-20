@@ -16,6 +16,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   runs of 2026-10-19 ran at 40,000; a later head-to-head runs at 120,000 and is reported apart from them.
   Decomposition likewise no longer counts a goal as tried when every ask for it came back with no answer
   (`decompose.tried_by`): 45 of the 83 goals Leanstral had "tried" get asked again.
+- **The TPU carries real work (task #479).** Its smoke batch (tpu-smoke-20261018T2210, read 2026-10-20) queued
+  ~27 h, loaded in 25 minutes, then wrote 24 answers in 94.5 s at 821 tokens a second, none cut off (the T4 x2 ran
+  72-78 on long answers; not like for like). From today `prover.yml` runs two legs one after the other: the T4 x2
+  as before (bar, plan and goal batches) and the TPU on every open problem outside the bar's 50 (20 today, 32
+  samples each, batch ids `tpu-`), sized to the TPU's own weekly hours (`prover.py hours --tpu`: a session of at
+  most 8.5 h, none under 2.5 h, generation stopping 1.5 h before the end for the load and a last chunk). Same model,
+  prompt and judge, so its rows are the prover lane's, with `TPU v5e-8` in their request config. `prover_tpu.yml`
+  and `smoke-tpu` are retired: a smoke push would take the lane's kernel and its one queue slot.
 
 ## 2026-10-19
 

@@ -39,6 +39,9 @@ PLAN_SAMPLES = 4
 SESSION_H = 11.5                           # Kaggle ends a session at 12 h
 MARGIN_H = 0.25                            # left unspent so a slow last chunk never meets the quota's end
 MIN_BATCH_H = 1.0                          # under this, the model's load and one chunk do not fit: wait for the reset
+TPU_SESSION_H = 8.5                        # a TPU session ends a little under 9 h (prover_kernel_tpu.py)
+TPU_RESERVE_H = 1.5                        # the TPU's load (~25 min on 2026-10-20) and one last chunk
+TPU_MIN_BATCH_H = 2.5                      # under this, the load and a chunk or two do not pay for the ~27 h queue
 PRIOR_SEC_PER_SAMPLE = 103.0               # batch 20261017T1830: 659.4 min for 384 answers; replaced once batches log more
 # A lane is who wrote the answers. The judging below is shared: tools/leanstral.py hands its answers to the same
 # judge, fixer and loop under its own lane (DECISIONS.md 2026-10-18).
@@ -67,22 +70,23 @@ def judged(rows, mode="prover"):
     return keys, per
 
 
-def todo(open_list, rows):
-    """The bar's open problems that still owe samples, in the open list's order: [(target, samples owed)]."""
+def todo(open_list, rows, bar=True):
+    """The bar's open problems (or, bar=False, every other open problem: the TPU's) that still owe samples, in the
+    open list's order: [(target, samples owed)]."""
     _, per = judged(rows)
     out = []
     for t in sorted(open_list, key=lambda t: t["order"]):
         owed = SAMPLES - per[(t["target_set"], t["target"])]
-        if t.get("rung") in RUNGS and owed > 0:
+        if (t.get("rung") in RUNGS) == bar and owed > 0:
             out.append((t, owed))
     return out
 
 
-def batch_hours(total_h, used_h, reserved_h=0.0):
-    """Hours the next GPU batch may run: what the week has left, less the margin, at most one session; 0 when
+def batch_hours(total_h, used_h, reserved_h=0.0, tpu=False):
+    """Hours the next batch may run: what the week has left, less the margin, at most one session; 0 when
     too little is left for the model to load and finish a chunk."""
-    h = min(SESSION_H, total_h - used_h - reserved_h - MARGIN_H)
-    return round(h, 2) if h >= MIN_BATCH_H else 0.0
+    h = min(TPU_SESSION_H if tpu else SESSION_H, total_h - used_h - reserved_h - MARGIN_H)
+    return round(h, 2) if h >= (TPU_MIN_BATCH_H if tpu else MIN_BATCH_H) else 0.0
 
 
 def sec_per_sample():
@@ -96,12 +100,12 @@ def sec_per_sample():
     return round(secs / n, 1) if n else PRIOR_SEC_PER_SAMPLE
 
 
-def gpu_quota():
-    """(total, used, reserved) GPU hours this week, from Kaggle (needs KAGGLE_API_TOKEN and kaggle>=2.2.4)."""
+def quota(tpu=False):
+    """(total, used, reserved) GPU or TPU hours this week, from Kaggle (needs KAGGLE_API_TOKEN and kaggle>=2.2.4)."""
     from kaggle.api.kaggle_api_extended import KaggleApi
     api = KaggleApi()
     api.authenticate()
-    q = api.quota_view().gpu_quota
+    q = api.quota_view().tpu_quota if tpu else api.quota_view().gpu_quota
     h = lambda d: d.total_seconds() / 3600 if d else 0.0
     return h(q.total_time_allowed), h(q.time_used), h(getattr(q, "time_reserved", None))
 
@@ -121,7 +125,9 @@ def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=
     src = (ROOT / "tools" / ("prover_kernel_tpu.py" if tpu else "prover_kernel.py")).read_text()
     fills = [("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
              ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
-    if budget_h is not None and not tpu:          # the GPU kernel's session, sized to the week's hours left
+    if budget_h is not None and tpu:              # the TPU kernel's: no new chunk once the load and one chunk would not fit
+        fills += [("BUDGET_S = 7 * 3600", f"BUDGET_S = {int((budget_h - TPU_RESERVE_H) * 3600)}")]
+    elif budget_h is not None:                    # the GPU kernel's session, sized to the week's hours left
         fills += [("BUDGET_S = 9 * 3600", f"BUDGET_S = {int(budget_h * 3600)}"),
                   ("SEC_PER_SAMPLE = 0.0", f"SEC_PER_SAMPLE = {sec_per_sample()}")]
     for old, new in fills:
@@ -463,8 +469,8 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "smoke-tpu", "hours"])
-    ap.add_argument("--n", type=int, default=4, help="smoke-tpu: samples per problem")
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours"])
+    ap.add_argument("--tpu", action="store_true", help="next/hours: the TPU kernel, on the open problems outside the bar")
     ap.add_argument("--dir")
     ap.add_argument("--out")
     ap.add_argument("--answers")
@@ -472,22 +478,22 @@ def main():
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     ap.add_argument("--hours", type=float, help="next: the session's hours (from `hours`); the kernel stops before them")
     args = ap.parse_args()
-    if args.cmd == "hours":                       # the next GPU batch's hours, from Kaggle's own quota; 0 = wait
-        total, used, reserved = gpu_quota()
-        h = batch_hours(total, used, reserved)
+    if args.cmd == "hours":                       # the next batch's hours, from Kaggle's own quota; 0 = wait
+        total, used, reserved = quota(args.tpu)
+        h = batch_hours(total, used, reserved, tpu=args.tpu)
         print(h)
-        print(f"GPU quota: {used:.2f} of {total:.2f} h used, {reserved:.2f} h reserved; next batch {h} h at "
-              f"{sec_per_sample()} s an answer", file=sys.stderr)
+        print(f"{'TPU' if args.tpu else 'GPU'} quota: {used:.2f} of {total:.2f} h used, {reserved:.2f} h reserved; "
+              f"next batch {h} h" + ("" if args.tpu else f" at {sec_per_sample()} s an answer"), file=sys.stderr)
         return 0
     import relay
-    if args.cmd == "smoke-tpu":                   # a speed check on SOLVED problems only: no bar, no first solve to take
-        solved = relay.fetch_json("/targets.json").get("solved") or []
-        pick = [t for t in solved if t.get("rung") in RUNGS][:6]
-        work = [({**t, "order": 0}, args.n) for t in pick]
-        batch = "tpu-smoke-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
-        build(args.out, work, batch, tpu=True)
+    if args.cmd == "next" and args.tpu:           # the TPU (task #479): the open problems outside the bar, never a plan batch
+        work = todo(relay.fetch_json("/targets.json")["open"], prover_rows(), bar=False)
+        if not work:
+            return 0
+        batch = "tpu-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+        n = build(args.out, work, batch, tpu=True, budget_h=args.hours)
         print(batch)
-        print(f"tpu smoke {batch}: {len(work)} solved problems x {args.n}", file=sys.stderr)
+        print(f"tpu batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)
         return 0
     if args.cmd == "next":                        # a plan batch (task #433) goes before any other kind
         doc = plan_owed()
