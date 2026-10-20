@@ -16,8 +16,10 @@ on:
 permissions:
   contents: write        # publish the ledger rows
 
+# Its own group: one ask every few minutes is far under Mistral's 38 a minute, every Leanstral caller stops at the
+# first 429, and a run pending in the cron'd `leanstral` group is cancelled by the next cron (decompose 39507119927).
 concurrency:
-  group: ${{ inputs.lane == 'leanstral' && 'leanstral' || format('openproblems-{0}', inputs.lane) }}
+  group: openproblems
   cancel-in-progress: false
 
 jobs:

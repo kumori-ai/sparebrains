@@ -22,9 +22,9 @@ permissions:
   contents: write        # publish the ledger rows and verified proofs
 
 concurrency:
-  # Leanstral: one Mistral Labs caller at a time (38 requests a minute for the org). A router lane runs in its own
-  # group, beside it, paced by the router (2026-10-19).
-  group: ${{ inputs.lane == '' && 'leanstral' || format('decompose-{0}', inputs.lane) }}
+  # Its own group, beside the Leanstral lane: a run pending in the cron'd `leanstral` group is cancelled by the next
+  # cron (39507119927, 2026-10-20), and each caller paces itself and stops the round at Mistral's first 429.
+  group: ${{ inputs.lane == '' && 'decompose' || format('decompose-{0}', inputs.lane) }}
   cancel-in-progress: false
 
 jobs:
