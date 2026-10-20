@@ -24,6 +24,25 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   most 8.5 h, none under 2.5 h, generation stopping 1.5 h before the end for the load and a last chunk). Same model,
   prompt and judge, so its rows are the prover lane's, with `TPU v5e-8` in their request config. `prover_tpu.yml`
   and `smoke-tpu` are retired: a smoke push would take the lane's kernel and its one queue slot.
+- **The openproblems.bio task: predict_modality (task #477, roadmap row 10).** Seven tasks scouted the same day
+  (GitHub API, the public S3 bucket, the website repo). Picked for the two steps after reproduction: its results
+  were re-run three times in three weeks (S3 `results/run_2026-10-10_07-15-14`), so a contributed method gets
+  scored, and outside method PRs merged in 4 to 8 days (#72 sciPENN, #81, #68). First target:
+  `openproblems_neurips2021/bmmc_cite/normal` (~0.8 GB), the deterministic baselines `lm` (rmse 0.7553, mean
+  Pearson per cell 0.6919) and `knnr_py` (rmse 0.7233, 0.7707), reproduced within 1% on a GitHub runner.
+  Runner-up label_projection (re-run 2026-09-21, cheap knn, but outside PRs 11 to 64 days and three open 1 to 7
+  months). Out: perturbation_prediction (no push since 2025-07, top methods 22-52 GB), denoising (published rows
+  are 2023 datasets the repo no longer ships), dimensionality_reduction (no outside method PR ever merged),
+  batch_integration (outside PRs waited 2 to 12 months), grn_inference (quiet since 2026-06, not on the website).
+  The cost: no cancer data. GRN's cell-line screens (HCT116 colorectal, K562 leukemia) are the cancer-adjacent
+  door after this one.
+- **Reproduced the same day, within 1% (roadmap row 10).** `tools/openproblems.py`: the task's own `knnr_py`
+  and `mse` scripts at a pinned commit, only their VIASH block swapped, on the public `log_cp10k` data, scored
+  against the maintainers' `score_uns.yaml`. rmse 0.7238 against 0.7233 (+0.07%), mae 0.5260 against 0.5255
+  (+0.09%), 80 s on a laptop (ledger/openproblems/). A first run gave +0.15% and +0.18%: upstream's TruncatedSVD
+  is unseeded, so runs differ by ~0.1%. Canary: the script's example parameters (4 components, 5 neighbors) miss
+  by +17.7%, so the gate fails what it should. Not yet run: the R correlation metric and the R `lm` baseline.
+  Next: a method of our own, written by free models with our tools, scored the same way (row 11).
 
 ## 2026-10-19
 
