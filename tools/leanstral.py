@@ -81,13 +81,13 @@ def call_prompt(key, prompt, pacer):
         raise RuntimeError(f"stopped: {pacer.stop}")
     pacer.wait()
     body = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": prompt}],
-                       "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE}).encode()
+                       "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, "stream": True}).encode()
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()
     for attempt in (0, 1):
         try:
             with urllib.request.urlopen(req, timeout=1200) as r:
-                d = json.load(r)
+                d = read_stream(r)
             break
         except urllib.error.HTTPError as e:
             if e.code in (402, 429):          # out of pot or over the limit: stop the whole round, never hammer
@@ -98,10 +98,32 @@ def call_prompt(key, prompt, pacer):
             if attempt or pacer.stop:
                 raise
             pacer.wait()
-    choice = d["choices"][0]
-    return {"text": text_of(choice["message"]["content"]), "tokens": (d.get("usage") or {}).get("completion_tokens"),
-            "finish": choice.get("finish_reason"), "seconds": round(time.time() - t, 1), "usage": d.get("usage"),
+    return {**d, "tokens": (d["usage"] or {}).get("completion_tokens"), "seconds": round(time.time() - t, 1),
             "retried": bool(attempt)}
+
+
+def read_stream(r):
+    """A streamed reply (Mistral's docs, read 2026-10-20): delta.content is a list holding a thinking chunk while the
+    model thinks, then a plain string for the answer. Streaming keeps bytes flowing on a long answer: 12 of 20 calls
+    were dropped as idle when the reply came back whole (round 20261020T2158, after the 120,000 cap)."""
+    text, finish, usage, other = [], None, None, []
+    for line in r:
+        line = line.decode().strip()
+        if not line.startswith("data:"):
+            other.append(line)
+            continue
+        if line == "data: [DONE]":
+            continue
+        e = json.loads(line[5:])
+        for c in e.get("choices") or []:
+            text.append(text_of((c.get("delta") or {}).get("content")))
+            finish = c.get("finish_reason") or finish
+        usage = e.get("usage") or usage
+    if not text and "".join(other).startswith("{"):        # a whole JSON reply after all: read it as one
+        d = json.loads("".join(other))
+        c = d["choices"][0]
+        return {"text": text_of(c["message"]["content"]), "finish": c.get("finish_reason"), "usage": d.get("usage")}
+    return {"text": "".join(text), "finish": finish, "usage": usage}
 
 
 def reply(r):

@@ -32,6 +32,12 @@ class Owed(unittest.TestCase):
         self.assertEqual(ls.owed(OPEN[:1], rows), [], "a problem that always runs out stops at MAX_CALLS")
 
 
+def sse(events):
+    """A streamed reply as Mistral sends it: one `data:` line per event, then [DONE]."""
+    import io, json
+    return io.BytesIO(("".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n").encode())
+
+
 class Answers(unittest.TestCase):
     def test_the_proof_is_in_the_text_parts_not_the_thinking(self):
         parts = [{"type": "thinking", "thinking": [{"type": "text", "text": "let me think"}]},
@@ -51,10 +57,26 @@ class Answers(unittest.TestCase):
         self.assertEqual(pacer.stop, "HTTP 429")
         self.assertEqual(calls.call_count, 1)                 # the second call never reached Mistral
 
+    def test_the_stream_keeps_the_text_and_drops_the_thinking(self):
+        events = [{"choices": [{"delta": {"content": [{"type": "thinking", "thinking": [{"type": "text", "text": "hmm"}]}]}}]},
+                  {"choices": [{"delta": {"content": [{"type": "thinking", "thinking": []}, {"type": "text", "text": "pro"}]}}]},
+                  {"choices": [{"delta": {"content": "of"}, "finish_reason": "stop"}], "usage": {"completion_tokens": 7}}]
+        with mock.patch.object(ls.urllib.request, "urlopen", return_value=sse(events)):
+            r = ls.call("k", "theorem t : True := by\n  sorry", ls.Pacer(0))
+        self.assertEqual((r["text"], r["finish"], r["tokens"], r["retried"]), ("proof", "stop", 7, False))
+
+    def test_a_whole_json_reply_still_reads(self):
+        import io, json
+        body = io.BytesIO(json.dumps({"choices": [{"message": {"content": "proof"}, "finish_reason": "stop"}],
+                                      "usage": {"completion_tokens": 7}}, indent=1).encode())
+        with mock.patch.object(ls.urllib.request, "urlopen", return_value=body):
+            r = ls.call("k", "theorem t : True := by\n  sorry", ls.Pacer(0))
+        self.assertEqual((r["text"], r["finish"], r["tokens"]), ("proof", "stop", 7))
+
     def test_a_dropped_connection_is_retried_once(self):
-        import http.client, io, json
-        ok = lambda: io.BytesIO(json.dumps({"choices": [{"message": {"content": "proof"}, "finish_reason": "stop"}],
-                                            "usage": {"completion_tokens": 7}}).encode())
+        import http.client
+        ok = lambda: sse([{"choices": [{"delta": {"content": "proof"}, "finish_reason": "stop"}],
+                           "usage": {"completion_tokens": 7}}])
         drop = http.client.RemoteDisconnected("Remote end closed connection without response")
         with mock.patch.object(ls.urllib.request, "urlopen", side_effect=[drop, ok()]) as calls:
             r = ls.call("k", "theorem t : True := by\n  sorry", ls.Pacer(0))

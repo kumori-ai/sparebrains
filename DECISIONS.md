@@ -60,6 +60,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   - **Who writes it:** free models through our tools write and repair the code (the headline); any frontier-model
     help is labeled with its drafter and reported apart. Compute: a GitHub runner or Kaggle, $0.
   - What a miss means: the numbers are published as they came out, and the method is not opened as a PR.
+- **The method loop is built (`tools/openproblems.py evolve`, `.github/workflows/openproblems.yml`).** The writer
+  (Leanstral by default; any router lane) sees the brief, the best candidate so far with its validation scores, and
+  the last outcome, and writes `predict()`. Each candidate runs as the sandbox user with an emptied environment,
+  13 GB and 20 minutes, on the validation inputs only; the answers and the downloaded test data are not readable
+  to it. Validation scores use our Python metrics, which match the task's scripts on the same prediction (rmse and
+  mae exact, Pearson per cell 0.7706 against the R script's 0.7707). Reference on validation: knnr_py rmse 0.9682,
+  Pearson per cell 0.7854 (site 1 is a harder shift than the test set's site 4: 0.7238 there).
+- **Leanstral streams its replies.** Round 20261020T2158, the first at 120,000 tokens: all 8 answers that came
+  back finished on their own (none cut off), one first-time solve (`numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown`,
+  loop-closed), but 12 of 20 calls were dropped ("Remote end closed connection without response") while the long
+  reply was being written. Streaming (Mistral's documented `stream`) keeps bytes on the connection; a whole JSON
+  reply still reads, and a drop is still retried once.
 
 ## 2026-10-19
 

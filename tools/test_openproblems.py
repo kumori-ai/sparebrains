@@ -2,6 +2,8 @@
 from the maintainers' own results file, and the 1% gate fails a wrong run (the canary). No network, no data."""
 import sys
 import unittest
+
+import numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -32,6 +34,70 @@ class Reproduce(unittest.TestCase):
         self.assertEqual(ok["metrics"]["rmse"]["diff_pct"], 0.15)
         self.assertFalse(op.compare({"rmse": 0.851, "mae": 0.6126}, pub)["pass"])      # 4 PCs, 5 neighbors
         self.assertFalse(op.compare({}, pub)["pass"], "no metric compared is never a pass")
+
+
+class Validate(unittest.TestCase):
+    def test_site_one_is_held_out_like_the_test_sets_site_four(self):
+        batches = np.array(["s1d1", "s2d1", "s1d3", "s3d7", "s10d1"])
+        self.assertEqual(op.held_out(batches).tolist(), [True, False, True, False, False])
+
+    def test_per_cell_metrics_match_the_task_definitions(self):
+        y = np.array([[1.0, 2.0, 3.0], [0.0, 1.0, 0.0]])
+        p = np.array([[1.0, 2.0, 4.0], [0.0, 0.0, 1.0]])
+        m = op.metrics(y, p)
+        self.assertAlmostEqual(m["rmse"], np.sqrt(3 / 6))
+        self.assertAlmostEqual(m["mae"], 3 / 6)
+        self.assertAlmostEqual(m["mean_pearson_per_cell"], np.mean([np.corrcoef(y[0], p[0])[0, 1], -0.5]))
+
+    def test_the_bootstrap_interval_excludes_zero_only_for_a_real_difference(self):
+        rng = np.random.default_rng(0)
+        y = rng.normal(size=(400, 20))
+        better, worse = y + rng.normal(scale=0.5, size=y.shape), y + rng.normal(scale=1.0, size=y.shape)
+        lo, hi = op.paired_bootstrap(y, better, worse, "rmse", n=2000)
+        self.assertTrue(hi < 0, "better minus worse rmse is below zero")
+        noise = rng.normal(scale=0.7, size=y.shape)
+        lo, hi = op.paired_bootstrap(y, y + noise, y - noise, "rmse", n=2000)
+        self.assertTrue(lo <= 0 <= hi, "the same error in every cell: the interval holds zero")
+
+
+GOOD = "```python\nimport numpy as np\n\ndef predict(X_train, Y_train, X_test, batch_train, batch_test):\n    return np.zeros((X_test.shape[0], Y_train.shape[1]))\n```"
+
+
+class Evolve(unittest.TestCase):
+    def test_the_code_is_the_last_python_block_that_defines_predict(self):
+        text = "plan\n```python\nx = 1\n```\nthen\n" + GOOD + "\n```python\nprint('usage')\n```"
+        self.assertIn("def predict(", op.extract_code(text))
+        self.assertIsNone(op.extract_code("no code here"))
+
+    def test_a_candidate_runs_as_the_sandbox_user_with_an_empty_environment(self):
+        cmd = op.candidate_cmd("c.py", "val", "out.npy", user="sbjudge", python="/v/bin/python")
+        self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "sbjudge", "env", "-i"])
+        self.assertNotIn("KUMORI_API_KEY", " ".join(cmd))
+        self.assertEqual(op.candidate_cmd("c.py", "val", "out.npy", user=None, python="py")[:2], ["py", "-I"])
+
+    def test_the_best_is_lowest_rmse_among_those_at_least_as_good_on_pearson(self):
+        ref = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
+        rows = [{"metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.70}},      # lower rmse, worse Pearson
+                {"metrics": {"rmse": 0.95, "mean_pearson_per_cell": 0.79}},
+                {"metrics": {"rmse": 0.93, "mean_pearson_per_cell": 0.80}},
+                {"error": "Traceback"}]
+        self.assertIs(op.best(rows, ref), rows[2])
+        self.assertIsNone(op.best([rows[0], rows[3]], ref))
+
+    def test_each_round_shows_the_model_the_best_so_far_and_the_last_outcome(self):
+        asked, ref = [], {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
+        replies = iter([GOOD, "no code", GOOD])
+        scores = iter([{"rmse": 0.95, "mean_pearson_per_cell": 0.79}, {"rmse": 0.99, "mean_pearson_per_cell": 0.70}])
+
+        def ask(prompt):
+            asked.append(prompt)
+            return next(replies)
+        rows = op.evolve(3, ask, lambda code: next(scores), ref, writer="fake")
+        self.assertEqual([("metrics" in r, r.get("error", "")[:7]) for r in rows],
+                         [(True, ""), (False, "no code"), (True, "")])
+        self.assertIn("0.95", asked[1], "round 2 sees round 1's best")
+        self.assertIn("no code", asked[2], "round 3 sees round 2's failure")
+        self.assertTrue(all(r["writer"] == "fake" and r["round"] == i for i, r in enumerate(rows)))
 
 
 if __name__ == "__main__":
