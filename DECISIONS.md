@@ -43,6 +43,23 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   is unseeded, so runs differ by ~0.1%. Canary: the script's example parameters (4 components, 5 neighbors) miss
   by +17.7%, so the gate fails what it should. Not yet run: the R correlation metric and the R `lm` baseline.
   Next: a method of our own, written by free models with our tools, scored the same way (row 11).
+- **The bar for "a useful method", written before any method of ours is scored (roadmap row 11).** The
+  leaderboard on `bmmc_cite/normal` (run 2026-10-10) has two tiers: the three NeurIPS 2021 winners at rmse
+  0.656-0.663 (senkin_tmp 0.6561, ss_opm 0.6576, guanlab_dengkw_pm 0.6634; mean Pearson per cell 0.786-0.812),
+  then everything else from 0.7233 (knnr_py, 0.7707) down. Its test set is 1,000 cells, 72% from site 4, which
+  training never sees.
+  - **Useful:** better than knnr_py, the best method outside the winners, on both rmse and mean Pearson per cell,
+    with a paired bootstrap over the 1,000 test cells (10,000 resamples) whose 95% interval for each difference
+    excludes zero; and no worse than knnr_py on `bmmc_cite/swap`, so a win on one direction is not a fit to it.
+  - **Competitive:** rmse at or under 0.6634 with mean Pearson per cell at or over 0.7857, i.e. among the
+    winners. Reported if reached; not the bar.
+  - **Honest selection:** every choice (features, model, settings) is made on a validation set cut from
+    training the way the test set is: all of site 1 (s1d1-s1d3, 14,669 cells) held out. The test set scores a
+    candidate only when it is final, at most 3 candidates in all, and every test score is published, not the
+    best. Scored by the task's own metric scripts through `tools/openproblems.py`.
+  - **Who writes it:** free models through our tools write and repair the code (the headline); any frontier-model
+    help is labeled with its drafter and reported apart. Compute: a GitHub runner or Kaggle, $0.
+  - What a miss means: the numbers are published as they came out, and the method is not opened as a PR.
 
 ## 2026-10-19
 
