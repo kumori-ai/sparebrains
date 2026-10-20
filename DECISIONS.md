@@ -3,6 +3,18 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-20
+
+- **Leanstral's token cap 40,000 -> 120,000, and a cut-off answer is not a try.** The lane went idle at
+  2026-10-20 04:13 UTC with all 20 of its problems at 8 tries, and 117 of those 160 tries had stopped at the cap
+  (`finish=length`) before writing a proof; over the lane's whole ledger 129 of 225 answers did, and every one was
+  rejected (all 11 accepts finished on their own). Decomposition hit the same wall: 25 of 65 asks in run
+  39288256126 came back empty at 40,000 tokens. Mistral's model card gives 128k max output (docs.mistral.ai,
+  Leanstral 1.5, read 2026-10-20), so the cap is 120,000; at the measured 177 tokens a second a full answer takes
+  ~11 minutes (HTTP timeout 600 -> 1200 s, job 180 -> 240 min). `leanstral.owed` counts only finished answers
+  toward the 8 tries, with 24 calls a problem in all as the stop. Still $0 (Labs endpoint). The three head-to-head
+  runs of 2026-10-19 ran at 40,000; a later head-to-head runs at 120,000 and is reported apart from them.
+
 ## 2026-10-19
 
 - **The head-to-head, rules written before its first run (Andy: prove the tools make a model better, and

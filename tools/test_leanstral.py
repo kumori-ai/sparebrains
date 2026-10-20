@@ -24,6 +24,13 @@ class Owed(unittest.TestCase):
         self.assertEqual([(t["target"], n) for t, n in ls.owed(OPEN, rows)], [("custom_z", 1)])
         self.assertEqual(ls.owed(OPEN, [row("custom_z", "accept"), *[row("imo_x", sample=i) for i in range(8)]]), [])
 
+    def test_an_answer_cut_off_at_the_token_cap_is_not_a_try(self):
+        capped = lambda i: {**row("imo_x", sample=i), "inference": {"finish": "length"}}
+        rows = [capped(i) for i in range(6)] + [row("imo_x", sample=i) for i in range(6, 8)]
+        self.assertEqual([(t["target"], n) for t, n in ls.owed(OPEN[:1], rows)], [("imo_x", 8)], "2 real tries, next sample 8")
+        rows = [capped(i) for i in range(ls.MAX_CALLS)]
+        self.assertEqual(ls.owed(OPEN[:1], rows), [], "a problem that always runs out stops at MAX_CALLS")
+
 
 class Answers(unittest.TestCase):
     def test_the_proof_is_in_the_text_parts_not_the_thinking(self):

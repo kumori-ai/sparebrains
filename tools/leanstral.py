@@ -13,6 +13,7 @@ Mistral's Labs API lists the model at $0; its own limit is 38 requests and 5,000
 page, 2026-10-18), separate from Kumori Chat's models. We stay at 0.5 requests a second or less and stop at the
 first 429."""
 import argparse, http.client, json, os, sys, threading, time, urllib.error, urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,10 +24,11 @@ import prover
 
 MODEL = "labs-leanstral-1-5-1"
 LANE = {"backend": "mistral-leanstral-1-5", "provider": "mistral", "model": MODEL, "mode": "leanstral", "file": "leanstral"}
-TRIES = 8
+TRIES = 8                        # answers that finished; one cut off at the token cap is not a try
+MAX_CALLS = 3 * TRIES            # calls a problem may take in all, so one that always runs out still stops
 WORKERS = 4                      # calls in flight; each takes ~45 s, so starts stay far under 0.5 a second
 MIN_GAP_S = 2.0                  # between request starts: 0.5 a second at most
-MAX_TOKENS = 40000                # 16,000 cut off 27 of 36 first-round answers mid-reasoning (DECISIONS 2026-10-18)
+MAX_TOKENS = 120000               # 40,000 cut off 129 of 225 answers (DECISIONS 2026-10-20); 128k is the model's max output
 TEMPERATURE = 0.6
 API = "https://api.mistral.ai/v1/chat/completions"
 PROMPT = "Complete the following Lean 4 code. Reply with the whole file in one ```lean4 block.\n\n```lean4\n{target}\n```"
@@ -34,13 +36,18 @@ PROMPT = "Complete the following Lean 4 code. Reply with the whole file in one `
 
 def owed(open_list, rows):
     """[(problem, next sample index)] for the open problems outside the prover's 50 that this lane has not solved
-    and that still have tries left, in the open list's order."""
-    _, per = prover.judged(rows, LANE["mode"])
+    and that still have tries left, in the open list's order. A try is an answer that finished; one cut off at
+    the token cap never wrote its proof."""
+    keys, per = prover.judged(rows, LANE["mode"])
+    cut = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no"), r.get("goal")) for r in rows
+           if r.get("try_mode") == LANE["mode"] and (r.get("inference") or {}).get("finish") == "length"}
+    capped = Counter((s, t) for _, s, t, _, _ in cut)
     solved = {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"}
     out = []
     for t in sorted(open_list, key=lambda t: t["order"]):
         key = (t["target_set"], t["target"])
-        if t.get("rung") not in prover.RUNGS and key not in solved and per[key] < TRIES:
+        if (t.get("rung") not in prover.RUNGS and key not in solved and per[key] - capped[key] < TRIES
+                and per[key] < MAX_CALLS):
             out.append((t, per[key]))
     return out
 
@@ -79,7 +86,7 @@ def call_prompt(key, prompt, pacer):
     t = time.time()
     for attempt in (0, 1):
         try:
-            with urllib.request.urlopen(req, timeout=600) as r:
+            with urllib.request.urlopen(req, timeout=1200) as r:
                 d = json.load(r)
             break
         except urllib.error.HTTPError as e:
