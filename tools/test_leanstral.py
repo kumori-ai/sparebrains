@@ -38,6 +38,15 @@ def sse(events):
     return io.BytesIO(("".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n").encode())
 
 
+class BarAndReach(unittest.TestCase):
+    def test_the_bar_joins_only_when_allowed_and_reachable_problems_go_first(self):
+        self.assertEqual([t["target"] for t, _ in ls.owed(OPEN, [], bar=True)], ["amc_y", "imo_x", "custom_z"])
+        reach = {("minif2f/test", "custom_z")}
+        self.assertEqual([t["target"] for t, _ in ls.owed(OPEN, [], reachable=reach)], ["custom_z", "imo_x"])
+        self.assertEqual([t["target"] for t, _ in ls.owed(OPEN, [], bar=True, reachable=reach)],
+                         ["custom_z", "amc_y", "imo_x"])
+
+
 class Answers(unittest.TestCase):
     def test_the_proof_is_in_the_text_parts_not_the_thinking(self):
         parts = [{"type": "thinking", "thinking": [{"type": "text", "text": "let me think"}]},

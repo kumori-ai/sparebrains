@@ -35,19 +35,20 @@ API = "https://api.mistral.ai/v1/chat/completions"
 PROMPT = "Complete the following Lean 4 code. Reply with the whole file in one ```lean4 block.\n\n```lean4\n{target}\n```"
 
 
-def owed(open_list, rows):
-    """[(problem, next sample index)] for the open problems outside the prover's 50 that this lane has not solved
-    and that still have tries left, in the open list's order. A try is an answer that finished; one cut off at
-    the token cap never wrote its proof."""
+def owed(open_list, rows, bar=False, reachable=frozenset()):
+    """[(problem, next sample index)] for the open problems this lane has not solved and that still have tries left:
+    outside the prover's 50 unless `bar` (once the plan arm is judged, DECISIONS 2026-10-20), the problems a
+    published prover reached as stated first (tools/reachable.py), then the open list's order. A try is an answer
+    that finished; one cut off at the token cap never wrote its proof."""
     keys, per = prover.judged(rows, LANE["mode"])
     cut = {(r.get("batch"), r["target_set"], r["target"], r.get("sample_no"), r.get("goal")) for r in rows
            if r.get("try_mode") == LANE["mode"] and (r.get("inference") or {}).get("finish") == "length"}
     capped = Counter((s, t) for _, s, t, _, _ in cut)
     solved = {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"}
     out = []
-    for t in sorted(open_list, key=lambda t: t["order"]):
+    for t in sorted(open_list, key=lambda t: ((t["target_set"], t["target"]) not in reachable, t["order"])):
         key = (t["target_set"], t["target"])
-        if (t.get("rung") not in prover.RUNGS and key not in solved and per[key] - capped[key] < TRIES
+        if ((bar or t.get("rung") not in prover.RUNGS) and key not in solved and per[key] - capped[key] < TRIES
                 and per[key] < MAX_CALLS):
             out.append((t, per[key]))
     return out
@@ -142,7 +143,9 @@ def reply(r):
 
 
 def generate(out_path, key, open_list, rows, batch):
-    work = owed(open_list, rows)
+    reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
+             if prover.REACHABLE.exists() else frozenset())
+    work = owed(open_list, rows, bar=prover.plan_owed() is None, reachable=reach)
     pacer = Pacer(MIN_GAP_S)
     cfg = {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, "gpus": None, "dtype": None, "top_p": None}
 

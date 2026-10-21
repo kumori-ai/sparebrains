@@ -94,6 +94,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Unknowns the first batch settles: whether the TPU VM's disk holds the 65 GB download, and vllm-tpu on the 32B.
   The paid fallback (prepaid GPU, ~$3 a pass, sized in #534) only if the TPU queue passes 24 hours, and only with a
   cost disclosure and Andy's yes.
+- **Leanstral gets the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
+  19 problems; the bar's open problems were kept from it for the stage-3 measurement. Same gate as the 32B
+  (`prover.plan_owed()` is None), so no lane takes problems out of the plan-arm test. Its queue goes from 15 to 47,
+  with the 18 a published prover reached as stated (tools/reachable.py) first.
 - **Leanstral streams its replies.** Round 20261020T2158, the first at 120,000 tokens: all 8 answers that came
   back finished on their own (none cut off), one first-time solve (`numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown`,
   loop-closed), but 12 of 20 calls were dropped ("Remote end closed connection without response") while the long
