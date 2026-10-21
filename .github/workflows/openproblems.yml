@@ -41,8 +41,10 @@ jobs:
       - name: the task's data
         uses: actions/cache@v5
         with:
-          path: ${{ runner.temp }}/op/data
-          key: openproblems-predict-modality-bmmc-cite-normal-log-cp10k-2026-09-30
+          path: |
+            ${{ runner.temp }}/op/data
+            ${{ runner.temp }}/op/data-swap
+          key: openproblems-predict-modality-bmmc-cite-normal-swap-log-cp10k-2026-09-30
 
       # Trusted code only: the task's own knnr_py script scores the reference on the validation split.
       - name: validation split and the reference
@@ -61,8 +63,8 @@ jobs:
           d="$GITHUB_WORKSPACE"; while [ "$d" != / ]; do sudo chmod o+x "$d"; d=$(dirname "$d"); done
           chmod -R o+rX "$GITHUB_WORKSPACE"
           chmod o+x "$RUNNER_TEMP" "$RUNNER_TEMP/op"
-          chmod -R o+rX "$RUNNER_TEMP/op/val"
-          chmod 700 "$RUNNER_TEMP/op/answers" "$RUNNER_TEMP/op/data"
+          chmod -R o+rX "$RUNNER_TEMP/op/val" "$RUNNER_TEMP/op/val-swap"
+          chmod 700 "$RUNNER_TEMP/op/answers" "$RUNNER_TEMP/op/data" "$RUNNER_TEMP/op/answers-swap" "$RUNNER_TEMP/op/data-swap"
           install -d -m 1777 "$RUNNER_TEMP/op/candidates"
           echo "SB_JUDGE_USER=$u" >> "$GITHUB_ENV"
 

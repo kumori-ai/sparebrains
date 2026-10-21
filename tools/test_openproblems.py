@@ -79,7 +79,8 @@ class Evolve(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-300:])
 
     def test_the_brief_names_the_pitfalls_that_crashed_earlier_candidates(self):
-        for hint in ("sklearn.multioutput", "scipy.stats", "no random_state", "with_mean=False", "n_neighbors <="):
+        for hint in ("sklearn.multioutput", "scipy.stats", "no random_state", "with_mean=False", "n_neighbors <=",
+                     "the other way round", "no clipping"):
             self.assertIn(hint, op.BRIEF)
 
     def test_the_code_is_the_last_python_block_that_defines_predict(self):
@@ -144,6 +145,44 @@ class Evolve(unittest.TestCase):
         self.assertIn("np.ones", asked[1], "the crashed code is shown to be fixed")
         self.assertIn("ValueError: boom", asked[1])
         self.assertIn("0.9400", asked[2], "the closest candidate is shown though its Pearson is below the reference")
+
+
+try:
+    import sklearn  # noqa: F401
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
+
+class SwapValidation(unittest.TestCase):
+    @unittest.skipUnless(HAS_SKLEARN, "needs scikit-learn (the openproblems venv)")
+    def test_chunked_knnr_equals_the_plain_mean_of_nearest_neighbours(self):
+        from sklearn.neighbors import NearestNeighbors
+        rng = np.random.default_rng(1)
+        Xtr, Ytr, Xte = rng.normal(size=(60, 8)), rng.normal(size=(60, 5)), rng.normal(size=(17, 8))
+        emb = lambda X: X                                     # the embedding is fixed here so only the kNN is tested
+        got = op.knnr_chunked(Xtr, Ytr, Xte, k=7, chunk=4, embed=lambda a, b: (emb(a), emb(b)))
+        idx = NearestNeighbors(n_neighbors=7).fit(Xtr).kneighbors(Xte, return_distance=False)
+        np.testing.assert_allclose(got, Ytr[idx].mean(axis=1), rtol=0, atol=1e-6)   # float32 output
+
+    def test_a_candidate_counts_only_if_it_is_also_no_worse_on_swap(self):
+        ref = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855, "swap": {"rmse": 0.40, "mean_pearson_per_cell": 0.70}}
+        both = {"metrics": {"rmse": 0.94, "mean_pearson_per_cell": 0.79, "swap": {"rmse": 0.39, "mean_pearson_per_cell": 0.71}}}
+        one_way = {"metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.80, "swap": {"rmse": 0.45, "mean_pearson_per_cell": 0.71}}}
+        old = {"metrics": {"rmse": 0.89, "mean_pearson_per_cell": 0.81}}                 # scored before swap was
+        self.assertIs(op.best([both, one_way, old], ref), both)
+
+
+class BothWays(unittest.TestCase):
+    def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
+        normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
+        crash = lambda c: {"error": "ValueError: n_components=200 must be <= n_features=134"}
+        r = op.both_ways(normal, crash)("code")
+        self.assertIn("normal direction ran (rmse 0.9400", r["error"])
+        self.assertIn("swap direction crashed: ValueError: n_components=200", r["error"])
+        ok = op.both_ways(normal, lambda c: {"rmse": 0.38, "mean_pearson_per_cell": 0.72})("code")
+        self.assertEqual(ok["swap"]["rmse"], 0.38)
+        self.assertIn("swap direction: rmse 0.3800", op._fmt(ok))
 
 
 class Final(unittest.TestCase):

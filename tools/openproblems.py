@@ -84,6 +84,28 @@ def compare(got, pub):
     return {"metrics": metrics, "pass": bool(metrics) and all(abs(m["diff_pct"]) <= TOLERANCE_PCT for m in metrics.values())}
 
 
+def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=None):
+    """knnr_py's algorithm (an SVD of train and test together, then the mean of the k nearest training rows,
+    Euclidean) with the test rows taken in chunks: on swap validation the upstream script's 14,669 x 100 x 13,953
+    neighbour array would be ~82 GB. `embed` replaces the SVD in tests."""
+    from sklearn.neighbors import NearestNeighbors
+    if embed is None:
+        from scipy.sparse import vstack, csr_matrix
+        from sklearn.decomposition import TruncatedSVD
+        both = vstack([csr_matrix(X_train), csr_matrix(X_test)])
+        E = TruncatedSVD(n_components=min(n_pcs, both.shape[1] - 1)).fit_transform(both)
+        etr, ete = E[:X_train.shape[0]], E[X_train.shape[0]:]
+    else:
+        etr, ete = embed(X_train, X_test)
+    nn = NearestNeighbors(n_neighbors=k).fit(etr)
+    Y = np.asarray(Y_train, dtype=np.float32)
+    out = np.empty((ete.shape[0], Y.shape[1]), dtype=np.float32)
+    for i in range(0, ete.shape[0], chunk):
+        idx = nn.kneighbors(ete[i:i + chunk], return_distance=False)
+        out[i:i + chunk] = Y[idx].mean(axis=1)
+    return out
+
+
 def held_out(batches):
     """The validation cells: all of site 1, held out the way the test set holds out site 4 (DECISIONS 2026-10-20)."""
     return np.array([re.fullmatch(r"s1d\d+", b) is not None for b in batches])
@@ -128,6 +150,9 @@ a site that training never sees, so batch effects between sites matter.
         # X_test: scipy.sparse.csr_matrix (n_test x 13953);  batch_*: numpy arrays of donor ids like "s2d4"
         # return numpy (n_test x 134) predicted protein
 
+The same predict() is also scored the other way round (bmmc_cite/swap: protein in, 134 features, RNA out, 13,953
+genes), so nothing may depend on the direction: no component count above the input's feature count (cap it,
+e.g. min(50, X.shape[1] - 1)), no clipping or other assumption about the output's scale, no hard-coded shapes.
 Scored by rmse over every value (lower is better) and the mean Pearson correlation per cell (higher is better).
 Machine: 4 CPU cores, 16 GB RAM, no GPU, 20 minutes for the whole call. Libraries: numpy, scipy, scikit-learn
 only, no internet. The reference to beat is k-nearest-neighbor regression on a 50-component TruncatedSVD of the
@@ -154,9 +179,19 @@ def candidate_cmd(code_file, val_dir, out, user, python):
             "prlimit", f"--as={CAND_MEM}", "timeout", str(CAND_S), *cmd] if user else cmd
 
 
+def _swap_ok(m, ref):
+    """No worse than the reference on the swap direction too, when the reference has one (2026-10-21 on)."""
+    if "swap" not in ref:
+        return True
+    s = m.get("swap")
+    return bool(s) and s["rmse"] <= ref["swap"]["rmse"] and s["mean_pearson_per_cell"] >= ref["swap"]["mean_pearson_per_cell"]
+
+
 def best(rows, ref):
-    """The lowest validation rmse among candidates at least as good as the reference on Pearson per cell."""
-    ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] >= ref["mean_pearson_per_cell"]]
+    """The lowest validation rmse among candidates at least as good as the reference on Pearson per cell, and no
+    worse on swap (the bar's second check, seen in validation as well)."""
+    ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] >= ref["mean_pearson_per_cell"]
+          and _swap_ok(r["metrics"], ref)]
     return min(ok, key=lambda r: r["metrics"]["rmse"]) if ok else None
 
 
@@ -167,7 +202,24 @@ def best_or_closest(rows, ref):
 
 
 def _fmt(m):
-    return f"rmse {m['rmse']:.4f}, mean Pearson per cell {m['mean_pearson_per_cell']:.4f}"
+    s = f"rmse {m['rmse']:.4f}, mean Pearson per cell {m['mean_pearson_per_cell']:.4f}"
+    if m.get("swap"):
+        s += f"; swap direction: rmse {m['swap']['rmse']:.4f}, mean Pearson per cell {m['swap']['mean_pearson_per_cell']:.4f}"
+    return s
+
+
+def both_ways(score_normal, score_swap):
+    """A candidate scored on the normal direction, then the swap direction; a crash either way is an error that
+    says which way (with the normal scores, if it got that far), so the writer can fix it."""
+    def score(code):
+        r = score_normal(code)
+        if "error" in r:
+            return {"error": "normal direction: " + r["error"]}
+        s = score_swap(code)
+        if "error" in s:
+            return {"error": f"normal direction ran ({_fmt(r)}); swap direction crashed: " + s["error"]}
+        return {**r, "swap": s}
+    return score
 
 
 def evolve(rounds, ask, score, ref, writer, seed=None):
@@ -278,6 +330,24 @@ def prepare(data, val, answers):
                {"input_train_mod1": str(h5 / "train_mod1.h5ad"), "input_train_mod2": str(h5 / "train_mod2.h5ad"),
                 "input_test_mod1": str(h5 / "test_mod1.h5ad"), "output": str(h5 / "ref.h5ad"), **PARAMS}, {"name": METHOD})
     ref = metrics(y_val, dense(ad.read_h5ad(h5 / "ref.h5ad").layers["normalized"]))
+    (answers / "ref.json").write_text(json.dumps(ref))
+    return ref
+
+
+def prepare_swap(data, val, answers):
+    """The swap direction's validation split (site 1 held out, as in prepare) and the reference's scores there,
+    from knnr_chunked: the upstream script would need ~82 GB on 14,669 held-out cells x 13,953 genes. Its chunked
+    twin matched the published knnr_py on the normal test set (rmse +0.10%, Pearson +0.01%, 2026-10-21)."""
+    import anndata as ad
+    m1, m2 = ad.read_h5ad(data / "train_mod1.h5ad"), ad.read_h5ad(data / "train_mod2.h5ad")
+    b = m1.obs["batch"].astype(str).values
+    v = held_out(b)
+    answers.mkdir(parents=True, exist_ok=True)
+    y_train = _dense(m2.layers["normalized"][~v]).astype(np.float32)
+    write_inputs(val, m1.layers["normalized"][~v], y_train, m1.layers["normalized"][v], b[~v], b[v])
+    y_val = _dense(m2.layers["normalized"][v]).astype(np.float32)
+    np.save(answers / "Y_val.npy", y_val)
+    ref = metrics(y_val, knnr_chunked(m1.layers["normalized"][~v], y_train, m1.layers["normalized"][v]))
     (answers / "ref.json").write_text(json.dumps(ref))
     return ref
 
@@ -493,17 +563,27 @@ def main():
     val, answers = work / "val", work / "answers"
     if a.cmd == "prepare":
         download(work / "data")
-        print(json.dumps({"reference_on_validation": prepare(work / "data", val, answers)}))
+        ref = prepare(work / "data", val, answers)
+        download(work / "data-swap", SWAP)
+        ref["swap"] = prepare_swap(work / "data-swap", work / "val-swap", work / "answers-swap")
+        print(json.dumps({"reference_on_validation": ref}))
         return 0
     ref = json.loads((answers / "ref.json").read_text())
+    ref["swap"] = json.loads((work / "answers-swap" / "ref.json").read_text())
     cand = work / "candidates"
     cand.mkdir(parents=True, exist_ok=True)
+    for sub in ("normal", "swap"):
+        (cand / sub).mkdir(exist_ok=True)
+        (cand / sub).chmod(0o1777)
     ask, writer = writer_ask(a.lane)
     prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
     seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
-    rows = evolve(a.rounds, ask, scorer(val, answers, cand, os.environ.get("SB_JUDGE_USER"), sys.executable), ref, writer, seed)
+    user = os.environ.get("SB_JUDGE_USER")
+    score = both_ways(scorer(val, answers, cand / "normal", user, sys.executable),
+                      scorer(work / "val-swap", work / "answers-swap", cand / "swap", user, sys.executable))
+    rows = evolve(a.rounds, ask, score, ref, writer, seed)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

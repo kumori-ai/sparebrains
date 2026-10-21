@@ -69,6 +69,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
     66k x 13,953 RNA matrix and a 1,000 x 100 x 13,953 neighbor array) and was killed on a 16 GB runner; the swap
     check compares scores only, and our knnr_py runs matched the published ones within 0.2%. The normal
     direction's bootstrap still uses a fresh knnr_py run.
+- **Validation now sees both directions, as the bar does (2026-10-21).** The first candidates past knnr_py on
+  validation (evolve-39527523508 round 6: rmse 0.9423 vs 0.9684, Pearson 0.7981 vs 0.7857; evolve-39533744774
+  round 19: 0.9393 vs 0.9692, 0.7922 vs 0.7858) open with TruncatedSVD(150 or 200), which cannot run on swap's
+  134 protein features, and clip predictions to +-2: each would have spent one of the 3 test scorings to fail the
+  swap check. No test scoring was spent. The loop had only ever shown the normal direction. Now the brief says
+  predict() must work both ways, every candidate is scored on a swap validation split too (site 1 held out), and
+  a candidate qualifies only if it is also no worse than knnr_py there. The swap reference is `knnr_chunked`,
+  knnr_py's algorithm with the test rows in chunks (the upstream script would need ~82 GB); on the normal test
+  set it matched the published knnr_py (rmse +0.10%, Pearson +0.01%).
 - **The evolve brief names the pitfalls that crashed earlier candidates (2026-10-21).** 14 of 34 candidates over
   3 runs crashed, nearly all on library misuse (MultiOutputRegressor's module, random_state on Ridge/PLS, sparse
   .std(), StandardScaler centering a sparse matrix, a dense 14,669 x 51,506 matrix, n_neighbors > rows). One
