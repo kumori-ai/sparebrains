@@ -94,6 +94,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Unknowns the first batch settles: whether the TPU VM's disk holds the 65 GB download, and vllm-tpu on the 32B.
   The paid fallback (prepaid GPU, ~$3 a pass, sized in #534) only if the TPU queue passes 24 hours, and only with a
   cost disclosure and Andy's yes.
+- **Axle (axle.axiommath.ai, Axiom's free Lean engine; lean-4.33.1 + Mathlib, our toolchain): `disprove` on every
+  open statement, anonymous, $0.** It proves the negation with grind and searches counterexamples (Plausible). A
+  planted `2 + 2 = 5` was disproved; none of our 50 open miniF2F statements was, and all elaborated. So no open
+  problem is a cheaply false statement eating tries; the 31 unreachable are hard, or false in a way grind and
+  Plausible cannot show. Its `repair_proofs` is shallow (insert `sorry`, trim trailing tactics, `grind` at open
+  goals, option fixes): our fixer and loop already do the useful part, and the dossier near misses it would take
+  are ones they already failed, so no head-to-head is scheduled. The "switch to Rocq" in its changelog is dated
+  April 1, 2026; every later release is Lean.
 - **Leanstral gets the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
   19 problems; the bar's open problems were kept from it for the stage-3 measurement. Same gate as the 32B
   (`prover.plan_owed()` is None), so no lane takes problems out of the plan-arm test. Its queue goes from 15 to 47,
