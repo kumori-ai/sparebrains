@@ -6,13 +6,13 @@ Vendored INTO each consumer's utilities/ via deploy.json shared_files. Mirrors
 the proven pattern from heathers_plate/utilities/kumori_api.py.
 
 Auth: per-consumer API key in Secret Manager. Key name resolved by env var
-KUMORI_API_KEY_NAME (e.g. "KINDNESS_KUMORI_API_KEY") — set in app.yaml. The
+KUMORI_API_KEY_NAME (e.g. "MYAPP_KUMORI_API_KEY") — set in app.yaml. The
 client looks for an injected get_secret function via init(), or falls back to
 KUMORI_API_KEY env var directly.
 
 Usage in a consumer:
     from utilities.kumori_api_client import init, llm_generate, imggen_generate
-    init(get_secret_fn=get_secret, api_key_name='KINDNESS_KUMORI_API_KEY')
+    init(get_secret_fn=get_secret, api_key_name='MYAPP_KUMORI_API_KEY')
 
     text, backend = llm_generate('Tell me a joke')
     img = imggen_generate('a sunset over the ocean')
@@ -63,8 +63,8 @@ class KumoriAPIError(Exception):
 def init(get_secret_fn=None, api_key_name=None, min_inter_call_sec=0.0):
     """Inject Secret Manager fetcher + which secret holds this app's API key.
 
-    api_key_name: e.g. 'KINDNESS_KUMORI_API_KEY' (per-consumer secret in
-    kumori-404602 Secret Manager). If None, falls back to KUMORI_API_KEY
+    api_key_name: e.g. 'MYAPP_KUMORI_API_KEY' (per-consumer secret in
+    Secret Manager). If None, falls back to KUMORI_API_KEY
     env var.
 
     min_inter_call_sec: floor on time between requests. The client sleeps
@@ -754,7 +754,7 @@ def imggen_generate(prompt, width=1024, height=1024, mode='roundrobin',
 
     Attribution kwargs (post 2026-05-11 — strongly encouraged for every call):
         feature: sub-operation like 'aria_journal.generate' or
-                 'admin.test_pixel'. Surfaces in /admin/api-costs dashboards
+                 'admin.test_pixel'. Surfaces in kumori's usage dashboards
                  and kumori_api_usage.feature.
         verbiage: human-readable description (the prompt is fine if you
                   don't have a separate label). Stored in
@@ -833,8 +833,8 @@ def imggen_usage(date=None, platform=None, limit=50):
     rich attribution; secondary: CF GraphQL reconciliation block).
 
     Replaces consumer-side neuron math (× 147 / × 492 constants) — kumori is
-    the single source of truth. Galactica's /admin/kumori-journal etc render
-    this directly instead of querying kumori_api_usage themselves.
+    the single source of truth. A consumer's own admin page renders
+    this directly instead of querying kumori_api_usage itself.
 
     Returns the same JSON shape as /api/v1/imggen/usage:
       {ok, date, totals, per_platform, per_model, recent_calls,

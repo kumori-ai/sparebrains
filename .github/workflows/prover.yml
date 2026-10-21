@@ -122,7 +122,7 @@ jobs:
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
           python3 tools/publish.py --message "prover batch judged: $SUMMARY
 
-          Generated-by: Goedel-Prover-V2-8B on Kaggle (${{ matrix.hw }}), cost \$0, via tools/prover_kernel${{ matrix.accel == 'tpu' && '_tpu' || '' }}.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
+          Generated-by: the model named in the summary above (Goedel-Prover-V2-8B, or -32B for tpu32- batches) on Kaggle (${{ matrix.hw }}), cost \$0, via tools/prover_kernel${{ matrix.accel == 'tpu' && '_tpu' || '' }}.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
           Judged on: $MACHINE"
 
       - name: push the next batch

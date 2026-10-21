@@ -76,6 +76,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Actions on this public repo and Leanstral's Labs API (38 requests and 5M tokens a minute); their limit is work
   to give them. The plan batch (25 problems, ~5.3 h) is cut by the first day's share and carried over by
   `plan_owed`.
+- **What a strong prover is known to reach (`tools/reachable.py`, `ledger/reachable.json`).** DeepSeek-Prover-V2-671B
+  and Kimina-Prover publish their miniF2F solutions; checked statement for statement against ours (pinned commits),
+  186 of our 244 test targets have a published proof of the same theorem and 32 were proved only as a different
+  one: ours is usually the corrected statement (IsLeast where they proved a bound, set equality where they proved
+  one side, no hypothesis that leaks the answer). Of the 51 open on 2026-10-20, 20 were reachable that way (15 in
+  the bar's rungs); Leanstral solved one of them (`induction_prod1p1onk3le3m1onn`) the same night, leaving 19. The
+  rest are the corrected statements or unsolved by both. Goedel-Prover-V2's own miniF2F matches ours on 201 of 244.
+- **The 32B on the free TPU, rules written before it runs (task #534).** Goedel-Prover-V2-32B fits the TPU v5e-8's
+  128 GB in bf16 (65.5 GB of weights; one 80 GB GPU would need an untested FP8 conversion). Its own lane
+  (`kaggle-goedel-prover-v2-32b`, try mode `prover-32b`), the 8B's prompt, sampling and 16,000-token cap so the
+  model is the only change, 32 samples a problem, judged by the same kernel, fixer and loop. Targets: the reachable
+  open problems; the bar's rungs only once the plan arm (#433) is judged, so the 32B never takes problems out of it.
+  It runs after the 8B's TPU batch is judged. What we may say: "the 32B reaches problems the free lanes did not"
+  only with at least 3 first-time solves on those targets within 7 days of its first batch's judging; otherwise
+  the numbers, no claim. Expected from the paper's pass@32 gap (88.0% against 84.6%) and our open set: about 4 to 6.
+  Unknowns the first batch settles: whether the TPU VM's disk holds the 65 GB download, and vllm-tpu on the 32B.
+  The paid fallback (prepaid GPU, ~$3 a pass, sized in #534) only if the TPU queue passes 24 hours, and only with a
+  cost disclosure and Andy's yes.
 - **Leanstral streams its replies.** Round 20261020T2158, the first at 120,000 tokens: all 8 answers that came
   back finished on their own (none cut off), one first-time solve (`numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown`,
   loop-closed), but 12 of 20 calls were dropped ("Remote end closed connection without response") while the long

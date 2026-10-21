@@ -92,6 +92,30 @@ class ProverTests(unittest.TestCase):
         self.assertEqual([(t["target"], n) for t, n in prover.todo(open_list, rows)], [("a", 2), ("c", 32)])
         self.assertEqual([(t["target"], n) for t, n in prover.todo(open_list, rows, bar=False)], [("b", 32)])
 
+    def test_the_32b_takes_reachable_open_problems_and_the_bar_only_after_the_plan_arm(self):
+        open_list = [{"target_set": "minif2f/test", "target": t, "rung": r, "order": i}
+                     for i, (t, r) in enumerate([("a", "amc12"), ("b", "imo"), ("c", "custom"), ("d", "aime")])]
+        reach = {("minif2f/test", "a"), ("minif2f/test", "b"), ("minif2f/test", "d")}
+        rows = [{"backend": prover.PROVER_32B["backend"], "try_mode": "prover-32b", "batch": "t1",
+                 "target_set": "minif2f/test", "target": "b", "sample_no": i} for i in range(prover.SAMPLES)]
+        rows.append({"backend": prover.BACKEND, "try_mode": "prover", "batch": "g1", "target_set": "minif2f/test",
+                     "target": "a", "sample_no": 0})                                     # the 8B's samples do not count
+        self.assertEqual([(t["target"], n) for t, n in prover.reachable_work(open_list, rows, reach, bar=False)], [])
+        self.assertEqual([(t["target"], n) for t, n in prover.reachable_work(open_list, rows, reach, bar=True)],
+                         [("a", 32), ("d", 32)])
+
+    def test_a_32b_answer_is_judged_and_credited_as_the_32b(self):
+        a = {**answer(0), "config": {"model": prover.PROVER_32B["model"]}}
+        self.assertIs(prover.lane_for([a]), prover.PROVER_32B)
+        self.assertIs(prover.lane_for([answer(0)]), prover.PROVER)
+        self.assertNotEqual(prover.PROVER_32B["mode"], prover.PROVER["mode"])
+
+    def test_a_32b_tpu_kernel_names_the_32b(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
+            prover.build(d, [(t, 32)], "tpu32-20261023T0000", tpu=True, budget_h=8.5, model=prover.PROVER_32B["model"])
+            self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', (Path(d) / "prover_kernel.py").read_text())
+
     def test_a_tpu_kernel_gets_its_budget_less_the_load_and_one_chunk(self):
         with tempfile.TemporaryDirectory() as d:
             t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
