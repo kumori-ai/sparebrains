@@ -132,6 +132,11 @@ Scored by rmse over every value (lower is better) and the mean Pearson correlati
 Machine: 4 CPU cores, 16 GB RAM, no GPU, 20 minutes for the whole call. Libraries: numpy, scipy, scikit-learn
 only, no internet. The reference to beat is k-nearest-neighbor regression on a 50-component TruncatedSVD of the
 RNA (train and test together), 100 neighbors, which scores {ref} here.
+Pitfalls that crashed earlier attempts here: MultiOutputRegressor is in sklearn.multioutput and pearsonr in
+scipy.stats; Ridge, RidgeCV and PLSRegression take no random_state; a sparse matrix has no .std() and
+StandardScaler needs with_mean=False on it; SVR/LinearSVR and other single-output models need a wrapper for 134
+outputs; never build a dense n_test x n_train matrix (14,669 x 51,506 is 5.6 GiB); keep n_neighbors <= the
+number of rows it is fit on; index arrays must be integers.
 Reply with the whole function and its imports in one ```python block."""
 
 

@@ -99,6 +99,16 @@ class Prover(unittest.TestCase):
         self.assertEqual([(w[0], w[2]["name"]) for w in fc.owed(work, rows, 5)], [("a.lean", "y"), ("b.lean", "x")])
         self.assertEqual(len(fc.owed(work, rows, 1)), 1)
 
+    def test_a_declaration_cut_off_at_the_cap_comes_back_first_without_long_reasoning(self):
+        work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"}), ("b.lean", "", {"name": "z"})]
+        rows = [{"file": "a.lean", "name": "x", "verdict": "no_proof", "finish": "length", "tokens": fc.leanstral_cap()},
+                {"file": "a.lean", "name": "y", "verdict": "reject", "finish": "stop"}]
+        out = fc.owed(work, rows, 5)
+        self.assertEqual([(w[2]["name"], fc.effort(w, rows)) for w in out], [("x", "none"), ("z", None)])
+        rows.append({"file": "a.lean", "name": "x", "verdict": "no_proof", "finish": "length",
+                     "tokens": fc.leanstral_cap(), "effort": "none"})
+        self.assertEqual([w[2]["name"] for w in fc.owed(work, rows, 5)], ["z"], "asked both ways: done")
+
 
 class Verdict(unittest.TestCase):
     def test_a_proof_needs_no_error_in_the_declaration_and_no_sorryax(self):

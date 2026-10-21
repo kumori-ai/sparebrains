@@ -78,6 +78,10 @@ class Evolve(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr[-300:])
 
+    def test_the_brief_names_the_pitfalls_that_crashed_earlier_candidates(self):
+        for hint in ("sklearn.multioutput", "scipy.stats", "no random_state", "with_mean=False", "n_neighbors <="):
+            self.assertIn(hint, op.BRIEF)
+
     def test_the_code_is_the_last_python_block_that_defines_predict(self):
         text = "plan\n```python\nx = 1\n```\nthen\n" + GOOD + "\n```python\nprint('usage')\n```"
         self.assertIn("def predict(", op.extract_code(text))

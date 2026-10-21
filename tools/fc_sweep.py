@@ -141,22 +141,44 @@ def sweep_one(fc, rel, text, d):
     return {**row, "verdict": "proved", "tactic": "first | ...", "proof": " | ".join(AUTO_TACTICS)}
 
 
+def leanstral_cap():
+    import leanstral
+    return leanstral.MAX_TOKENS
+
+
+def _capped(r):
+    return r.get("verdict") == "no_proof" and r.get("finish") == "length" and (r.get("tokens") or 0) >= leanstral_cap()
+
+
+def effort(w, rows):
+    """'none' for a declaration whose answers so far all ran out at today's cap (probe 2026-10-21: 6 of 8)."""
+    mine = [r for r in rows if (r["file"], r["name"]) == (w[0], w[2]["name"])]
+    return "none" if mine and all(_capped(r) for r in mine) else None
+
+
 def owed(work, rows, limit):
-    """The next declarations with no prover row yet, so runs resume where the last one stopped."""
-    done = {(r["file"], r["name"]) for r in rows}
-    return [w for w in work if (w[0], w[2]["name"]) not in done][:limit]
+    """Cut-off declarations once more, without long reasoning, first; then the ones with no row yet, so runs resume
+    where the last one stopped. A declaration asked both ways, or answered in full, is done."""
+    by = {}
+    for r in rows:
+        by.setdefault((r["file"], r["name"]), []).append(r)
+    retry = [w for w in work if (k := (w[0], w[2]["name"])) in by and all(_capped(r) for r in by[k])
+             and not any(r.get("effort") == "none" for r in by[k])]
+    fresh = [w for w in work if (w[0], w[2]["name"]) not in by]
+    return (retry + fresh)[:limit]
 
 
-def generate(fc, work, out):
+def generate(fc, work, out, rows=()):
     """Leanstral's answers for these declarations; holds the key, runs no Lean."""
     import leanstral
     key, pacer = leanstral.key_from_env(), leanstral.Pacer(leanstral.MIN_GAP_S)
 
     def one(w):
         rel, text, d = w
+        e = effort(w, rows)
         try:
-            r = leanstral.call_prompt(key, prompt(text, d), pacer)
-            return {"file": rel, "name": d["name"], "category": d["category"], **r}
+            r = leanstral.call_prompt(key, prompt(text, d), pacer, e)
+            return {"file": rel, "name": d["name"], "category": d["category"], "effort": e or "high", **r}
         except Exception as e:
             return {"file": rel, "name": d["name"], "category": d["category"], "error": str(e)[:300]}
     with ThreadPoolExecutor(leanstral.WORKERS) as ex:
@@ -173,6 +195,7 @@ def judge(fc, answers, texts, out):
         text = texts[a["file"]]
         d = next(x for x in targets(text) if x["name"] == a["name"])
         row = {"file": a["file"], "name": a["name"], "category": a["category"], "lane": leanstral.LANE["backend"],
+               "effort": a.get("effort", "high"),
                "model": leanstral.MODEL, "finish": a.get("finish"), "tokens": a.get("tokens"),
                "statement_sha": hashlib.sha256("\n".join(text.split("\n")[d["start"]:d["end"]]).encode()).hexdigest()}
         if "error" in a:
@@ -228,7 +251,7 @@ def main():
         if a.cmd == "generate":
             prior = [json.loads(l) for f in sorted((ROOT / "ledger" / "fc").glob("leanstral-*.jsonl")) for l in open(f)]
             work = owed([(rel, t, d) for rel, t in files.items() for d in targets(t)], prior, a.limit or 40)
-            generate(fc, work, a.out)
+            generate(fc, work, a.out, prior)
         else:
             if not canaries_ok(fc):          # as the sandbox user now: it must be able to read their build
                 sys.exit("canaries failed under the sandbox user: no proof can be judged here")

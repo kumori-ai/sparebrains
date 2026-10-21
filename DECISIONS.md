@@ -69,6 +69,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
     66k x 13,953 RNA matrix and a 1,000 x 100 x 13,953 neighbor array) and was killed on a 16 GB runner; the swap
     check compares scores only, and our knnr_py runs matched the published ones within 0.2%. The normal
     direction's bootstrap still uses a fresh knnr_py run.
+- **The evolve brief names the pitfalls that crashed earlier candidates (2026-10-21).** 14 of 34 candidates over
+  3 runs crashed, nearly all on library misuse (MultiOutputRegressor's module, random_state on Ridge/PLS, sparse
+  .std(), StandardScaler centering a sparse matrix, a dense 14,669 x 51,506 matrix, n_neighbors > rows). One
+  line each in the brief; the crash rate is measured on the next runs.
 - **The method loop is built (`tools/openproblems.py evolve`, `.github/workflows/openproblems.yml`).** The writer
   (Leanstral by default; any router lane) sees the brief, the best candidate so far with its validation scores, and
   the last outcome, and writes `predict()`. Each candidate runs as the sandbox user with an emptied environment,
@@ -129,6 +133,8 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   a proof; only the proof body is spliced under their statement (a restated, weakened theorem in the reply never
   reaches the file), checked in their build as the sandbox user with the canaries first. Each run takes the next
   40 declarations without a row.
+  *Cut-off answers (2026-10-21):* the probe's 6 of 8 that spent all 120,000 tokens are not done: each is asked
+  once more, first, with `reasoning_effort: "none"`, recorded per row; asked both ways, it is done.
 - **Leanstral: streaming works, and a problem that runs out twice is asked without long reasoning.** Round
   20261021T0100, the first streamed: 15 of 15 answered, 0 errors (the two before lost 12 of 20 and 12 of 17). But 7
   of the 15 spent all 120,000 tokens reasoning with no proof (128k is the model's maximum). A problem whose answers
