@@ -18,6 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(ROOT), str(ROOT / "tools")]     # run with -I, which leaves the script's own folder off the path
+
 REPO = "openproblems-bio/task_predict_modality"
 S3 = "https://openproblems-data.s3.amazonaws.com/resources/task_predict_modality"
 RESULTS = "run_2026-10-10_07-15-14"

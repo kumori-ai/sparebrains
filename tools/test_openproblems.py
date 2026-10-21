@@ -64,6 +64,15 @@ GOOD = "```python\nimport numpy as np\n\ndef predict(X_train, Y_train, X_test, b
 
 
 class Evolve(unittest.TestCase):
+    def test_the_cli_finds_its_sibling_tools_when_run_isolated(self):
+        import subprocess
+        r = subprocess.run([sys.executable, "-I", str(Path(op.__file__)), "evolve", "--help"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run([sys.executable, "-I", "-c", f"import runpy, sys; sys.argv = ['x']; "
+                            f"g = runpy.run_path({str(Path(op.__file__))!r}); import leanstral, decompose"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-300:])
+
     def test_the_code_is_the_last_python_block_that_defines_predict(self):
         text = "plan\n```python\nx = 1\n```\nthen\n" + GOOD + "\n```python\nprint('usage')\n```"
         self.assertIn("def predict(", op.extract_code(text))
