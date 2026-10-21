@@ -150,10 +150,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   hit today's cap twice now gets `reasoning_effort: "none"` (the model card's only other setting; untested on
   proving), recorded in each row's request_config so its answers are measured apart. Caps under the old 40,000
   limit do not count.
-- **Leanstral gets the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
+- **Leanstral (and decompose) get the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
   19 problems; the bar's open problems were kept from it for the stage-3 measurement. Same gate as the 32B
   (`prover.plan_owed()` is None), so no lane takes problems out of the plan-arm test. Its queue goes from 15 to 47,
-  with the 18 a published prover reached as stated (tools/reachable.py) first.
+  with the 18 a published prover reached as stated (tools/reachable.py) first. Decompose's goals follow the same rule (`decompose.pick_goals`): 115 of the 208 queued goals sit on reachable
+  problems and go first.
 - **Leanstral streams its replies.** Round 20261020T2158, the first at 120,000 tokens: all 8 answers that came
   back finished on their own (none cut off), one first-time solve (`numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown`,
   loop-closed), but 12 of 20 calls were dropped ("Remote end closed connection without response") while the long

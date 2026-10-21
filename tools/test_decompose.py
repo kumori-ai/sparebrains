@@ -95,6 +95,15 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(seen, ["a", "b"], "each row arrives before the run ends, so a timeout loses none")
         self.assertEqual([r["sha"] for r in rows], ["a", "b"])
 
+    def test_reachable_problems_go_first_and_the_bar_joins_only_when_allowed(self):
+        q = [{"sha": s, "target_set": "minif2f/test", "target": t, "file_ok": True}
+             for s, t in (("g1", "imo_a"), ("g2", "amc_b"), ("g3", "imo_c"), ("g4", "imo_a"))]
+        rung = {("minif2f/test", "imo_a"): "imo", ("minif2f/test", "amc_b"): "amc12", ("minif2f/test", "imo_c"): "imo"}
+        reach = {("minif2f/test", "imo_c"), ("minif2f/test", "amc_b")}
+        pick = lambda bar: [g["sha"] for g in decompose.pick_goals(q, rung, {"g4"}, reach, bar, 10)]
+        self.assertEqual(pick(False), ["g3", "g1"], "bar problem out, reachable first, a tried goal skipped")
+        self.assertEqual(pick(True), ["g2", "g3", "g1"])
+
     def test_each_lane_skips_only_the_goals_it_tried_itself(self):
         rows = [{"sha": "a"}, {"sha": "b", "backend": "groq-gptoss-decompose"}]
         self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"a"})     # old rows are Leanstral's

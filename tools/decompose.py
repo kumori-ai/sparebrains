@@ -134,6 +134,15 @@ def lane_of(backend):
             "file": "decompose"}
 
 
+def pick_goals(queue, rung, tried, reachable, bar, n):
+    """The goals to try: readable, untried by this lane, outside the bar's rungs unless `bar` (once the plan arm is
+    judged, as for the Leanstral lane and the 32B), goals on problems a published prover reached as stated first
+    (tools/reachable.py), else the queue's order (real steps first)."""
+    ok = [g for g in queue if g.get("file_ok") and (g["target_set"], g["target"]) in rung and g["sha"] not in tried
+          and (bar or rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS)]
+    return sorted(ok, key=lambda g: (g["target_set"], g["target"]) not in reachable)[:n]
+
+
 def tried_by(rows, backend):
     """Goals this lane already tried; rows from before 2026-10-19's router lanes carry no backend and are Leanstral's.
     A goal whose every ask came back with no answer was not tried (2026-10-20: 45 of Leanstral's 83, mostly the
@@ -232,10 +241,10 @@ def main():
     rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"]}
     tried = tried_by([json.loads(l) for f in (ROOT / "ledger" / "decompose").glob("*.jsonl")
                       for l in f.read_text().splitlines() if l.strip()], lane["backend"])
-    goals = [g for g in json.loads(goal_closer.QUEUE.read_text())
-             if g.get("file_ok") and (g["target_set"], g["target"]) in rung
-             and rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS and g["sha"] not in tried]
-    goals = goals[:a.max_goals]                           # the queue's order: real steps first
+    reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
+             if prover.REACHABLE.exists() else set())
+    goals = pick_goals(json.loads(goal_closer.QUEUE.read_text()), rung, tried, reach, prover.plan_owed() is None,
+                       a.max_goals)
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
     ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)
     import fixer
