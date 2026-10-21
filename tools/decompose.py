@@ -14,7 +14,7 @@ Problems in the stage-3 bar's 50 are skipped until it is graded (2026-10-24 18:3
 measurement row in ledger/decompose/ (outcome, at: not a try, so no try count moves); a solve is recorded as a
 goal-closer try through prover.judge_goals, the goal batches' own path.
 
-    python3 tools/decompose.py run --max-goals 40 --out ledger/decompose/run-ID.jsonl   # needs SPAREBRAINS_LEANSTRAL_KEY
+    python3 tools/decompose.py run --max-goals 40 --out ledger/decompose/run-ID.jsonl   # needs the Mistral key (leanstral.KEY_ENV)
 """
 import argparse, json, re, sys, time
 from concurrent.futures import ThreadPoolExecutor

@@ -6,7 +6,7 @@ Each run is one round: one more try on every problem that is still open here and
 problem stops at its first accept. Generation and judging are separate commands because the Mistral key may only be
 present while no Lean runs (the workflow's steps keep it that way).
 
-    python3 tools/leanstral.py generate --out answers.jsonl       # needs SPAREBRAINS_LEANSTRAL_KEY
+    python3 tools/leanstral.py generate --out answers.jsonl       # needs the Mistral key (leanstral.KEY_ENV)
     python3 tools/leanstral.py judge --answers answers.jsonl --max-minutes M
 
 Mistral's Labs API lists the model at $0; its own limit is 38 requests and 5,000,000 tokens a minute (the org's Limits

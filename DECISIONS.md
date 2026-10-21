@@ -120,6 +120,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   *Sweep result (run 39528990264, 2026-10-21):* 0 of 139 closed by the closers in their build; both canaries
   held (2+2=4 proved, 2+2=5 open), no timeouts, ~45 s a declaration. What is left there is not one tactic deep:
   the easy ones are already proved. Next: a prover writes whole proofs for them in the same build.
+  *The prover stage (fc_prove.yml):* Leanstral gets each declaration with its file's context up to it and writes
+  a proof; only the proof body is spliced under their statement (a restated, weakened theorem in the reply never
+  reaches the file), checked in their build as the sandbox user with the canaries first. Each run takes the next
+  40 declarations without a row.
 - **Leanstral: streaming works, and a problem that runs out twice is asked without long reasoning.** Round
   20261021T0100, the first streamed: 15 of 15 answered, 0 errors (the two before lost 12 of 20 and 12 of 17). But 7
   of the 15 spent all 120,000 tokens reasoning with no proof (128k is the model's maximum). A problem whose answers

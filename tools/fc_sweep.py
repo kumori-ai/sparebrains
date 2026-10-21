@@ -6,7 +6,7 @@ model, $0. Nothing is sent to their repository: a pass is a candidate for a PR t
 
     python3 tools/fc_sweep.py --fc path/to/formal-conjectures --out ledger/fc/sweep-RUN.jsonl
 """
-import argparse, hashlib, json, re, subprocess, sys, time
+import argparse, hashlib, json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 from subgoals import AUTO_TACTICS
+from proof_text import extract_proof
 
 FC_COMMIT = "90d18f666eb98adec4eee4d12f1d37e30b4eb204"
 CATEGORIES = ("textbook", "test")
@@ -49,11 +50,28 @@ def targets(text):
 
 def candidate(text, d, tactics):
     """The file with this declaration's `sorry` replaced by the tactics and `#print axioms` right after it."""
+    return _splice(text, d, "  first | " + " | ".join(f"({t})" for t in tactics))
+
+
+def with_proof(text, d, reply):
+    """A prover's proof body under their statement, unchanged (any restatement in the reply is dropped), or None."""
+    body = extract_proof(reply or "", d["name"])
+    return _splice(text, d, body.rstrip("\n")) if body else None
+
+
+def prompt(text, d):
+    """The file up to and including the target (its definitions are the context), and what to reply."""
+    context = "\n".join(text.split("\n")[:d["end"]]).rstrip()[-12000:]
+    return (f"Complete the following Lean 4 code (Lean v4.33.1, Mathlib and this file's own definitions): prove "
+            f"`{d['name']}`, keeping its statement exactly. Reply with the whole theorem in one ```lean4 block."
+            f"\n\n```lean4\n{context}\n```")
+
+
+def _splice(text, d, tac):
     lines = text.split("\n")
     body = lines[d["start"]:d["end"]]
     while body and not body[-1].strip():
         body.pop()
-    tac = "  first | " + " | ".join(f"({t})" for t in tactics)
     last = body[-1]
     if last.strip() == "sorry":                                   # `:= by` then `sorry` on its own line
         body[-1] = tac
@@ -85,13 +103,22 @@ def proved(output, name, span):
     return axioms <= STANDARD_AXIOMS
 
 
+def lean_cmd(file, user, path):
+    """Lean on one file; as the sandbox user with an emptied environment when there is one (tools/judge_sandbox.sh),
+    because a prover's proof is untrusted code (#eval runs IO while Lean elaborates)."""
+    cmd = ["lake", "env", "lean", str(file)]
+    return ["sudo", "-n", "-u", user, "env", "-i", f"PATH={path}", f"HOME=/tmp/{user}", *cmd] if user else cmd
+
+
 def run_lean(fc, text, tag):
     f = (Path(fc) / ".sweep" / f"{tag}.lean").resolve()   # absolute: Lean runs inside their checkout (cwd=fc)
     f.parent.mkdir(exist_ok=True)
     f.write_text(text)
+    f.chmod(0o644)
     t = time.time()
     try:
-        r = subprocess.run(["lake", "env", "lean", str(f)], cwd=fc, capture_output=True, text=True, timeout=TIMEOUT_S)
+        r = subprocess.run(lean_cmd(f, os.environ.get("SB_JUDGE_USER"), os.environ.get("PATH", "")), cwd=fc,
+                           capture_output=True, text=True, timeout=TIMEOUT_S)
         out = r.stdout + r.stderr
     except subprocess.TimeoutExpired:
         out = "timeout"
@@ -114,6 +141,60 @@ def sweep_one(fc, rel, text, d):
     return {**row, "verdict": "proved", "tactic": "first | ...", "proof": " | ".join(AUTO_TACTICS)}
 
 
+def owed(work, rows, limit):
+    """The next declarations with no prover row yet, so runs resume where the last one stopped."""
+    done = {(r["file"], r["name"]) for r in rows}
+    return [w for w in work if (w[0], w[2]["name"]) not in done][:limit]
+
+
+def generate(fc, work, out):
+    """Leanstral's answers for these declarations; holds the key, runs no Lean."""
+    import leanstral
+    key, pacer = leanstral.key_from_env(), leanstral.Pacer(leanstral.MIN_GAP_S)
+
+    def one(w):
+        rel, text, d = w
+        try:
+            r = leanstral.call_prompt(key, prompt(text, d), pacer)
+            return {"file": rel, "name": d["name"], "category": d["category"], **r}
+        except Exception as e:
+            return {"file": rel, "name": d["name"], "category": d["category"], "error": str(e)[:300]}
+    with ThreadPoolExecutor(leanstral.WORKERS) as ex:
+        answers = list(ex.map(one, work))
+    Path(out).write_text("".join(json.dumps(a) + "\n" for a in answers))
+    print(f"fc leanstral: {len(work)} asked, {sum('error' not in a for a in answers)} answered", flush=True)
+
+
+def judge(fc, answers, texts, out):
+    """Each answer's proof under their statement, checked in their build as the sandbox user."""
+    import leanstral
+
+    def one(a):
+        text = texts[a["file"]]
+        d = next(x for x in targets(text) if x["name"] == a["name"])
+        row = {"file": a["file"], "name": a["name"], "category": a["category"], "lane": leanstral.LANE["backend"],
+               "model": leanstral.MODEL, "finish": a.get("finish"), "tokens": a.get("tokens"),
+               "statement_sha": hashlib.sha256("\n".join(text.split("\n")[d["start"]:d["end"]]).encode()).hexdigest()}
+        if "error" in a:
+            return {**row, "verdict": "error", "reason": a["error"]}
+        cand = with_proof(text, d, a.get("text"))
+        if cand is None:
+            return {**row, "verdict": "no_proof"}
+        o, secs = run_lean(fc, cand, hashlib.sha1(f"{a['file']}:{a['name']}:lp".encode()).hexdigest()[:12])
+        if proved(o, d["name"], region(cand, d["name"])):
+            return {**row, "verdict": "proved", "seconds": secs, "proof": extract_proof(a["text"], d["name"])}
+        err = re.search(r"error: (.*)", o)
+        return {**row, "verdict": "reject", "seconds": secs, "reason": (err.group(1) if err else o[-200:])[:300]}
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with ThreadPoolExecutor(4) as ex, open(out, "w") as fh:
+        for row in ex.map(one, answers):
+            fh.write(json.dumps({"at": stamp, "fc_commit": FC_COMMIT, **row}) + "\n")
+            if row["verdict"] == "proved":
+                print(f"proved {row['file']}:{row['name']} (leanstral)", flush=True)
+    rows = [json.loads(l) for l in open(out)]
+    print(f"fc leanstral judged: {sum(r['verdict'] == 'proved' for r in rows)} of {len(rows)} proved", flush=True)
+
+
 CANARY = "module\n\npublic import FormalConjecturesUtil\n\n@[category test, AMS 11]\ntheorem sweep_canary : {claim} := by\n  sorry\n"
 
 
@@ -134,12 +215,25 @@ def canaries_ok(fc):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="sweep", choices=["sweep", "generate", "judge"])
     ap.add_argument("--fc", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--answers", help="judge: the generate step's answers")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int)
     a = ap.parse_args()
     fc = Path(a.fc)
+    if a.cmd in ("generate", "judge"):
+        files = {str(p.relative_to(fc)): p.read_text(errors="replace") for p in sorted((fc / "FormalConjectures").rglob("*.lean"))}
+        if a.cmd == "generate":
+            prior = [json.loads(l) for f in sorted((ROOT / "ledger" / "fc").glob("leanstral-*.jsonl")) for l in open(f)]
+            work = owed([(rel, t, d) for rel, t in files.items() for d in targets(t)], prior, a.limit or 40)
+            generate(fc, work, a.out)
+        else:
+            if not canaries_ok(fc):          # as the sandbox user now: it must be able to read their build
+                sys.exit("canaries failed under the sandbox user: no proof can be judged here")
+            judge(fc, [json.loads(l) for l in open(a.answers)], files, a.out)
+        return 0
     if not canaries_ok(fc):
         sys.exit("canaries failed: the sweep cannot tell a proof from a miss here, so it does not run")
     work = [(str(p.relative_to(fc)), t, d) for p in sorted((fc / "FormalConjectures").rglob("*.lean"))

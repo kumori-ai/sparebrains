@@ -1,0 +1,90 @@
+# Leanstral writes whole proofs for google-deepmind/formal-conjectures' textbook and test declarations still at
+# `sorry` (task #478; tools/fc_sweep.py generate/judge). Each run takes the next declarations without a row. The key
+# is only in the generate step, which runs no Lean; proofs are judged in their build as the sandbox user, canaries
+# first. Read-only toward their repository: any PR is Andy's call. Dispatch by hand.
+name: fc-prove
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "declarations this run"
+        default: "40"
+
+permissions:
+  contents: write        # publish the ledger rows
+
+concurrency:
+  group: fc-prove
+  cancel-in-progress: false
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: formal-conjectures at the pinned commit
+        run: |
+          fc=$(python3 -c "import sys; sys.path.insert(0, 'tools'); import fc_sweep; print(fc_sweep.FC_COMMIT)")
+          git init -q fc && git -C fc fetch -q --depth 1 https://github.com/google-deepmind/formal-conjectures.git "$fc"
+          git -C fc checkout -q FETCH_HEAD
+
+      # The Mistral key lives only in this step, and no Lean runs in it.
+      - name: Leanstral's answers
+        shell: bash
+        env:
+          SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
+        run: python3 tools/fc_sweep.py generate --fc fc --out "$RUNNER_TEMP/answers.jsonl" --limit "${{ inputs.limit }}"
+
+      - name: elan (as their CI installs it)
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/download/v1.4.2/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Mathlib cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/mathlib
+          key: fc-mathlib-${{ hashFiles('fc/lean-toolchain', 'fc/lake-manifest.json') }}
+
+      - name: their build
+        uses: actions/cache@v5
+        with:
+          path: fc/.lake/build
+          key: fc-build-${{ hashFiles('fc/lean-toolchain', 'fc/lake-manifest.json', 'fc/lakefile.toml') }}
+
+      - name: build FormalConjecturesUtil
+        working-directory: fc
+        run: |
+          lake exe cache get
+          ./scripts/mk_all_formathlib.sh
+          lake build FormalConjecturesUtil
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge
+        shell: bash
+        run: |
+          python3 tools/fc_sweep.py judge --fc fc --answers "$RUNNER_TEMP/answers.jsonl" \
+            --out "ledger/fc/leanstral-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
+
+      - name: publish the ledger
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f "ledger/fc/leanstral-${GITHUB_RUN_ID}.jsonl" ] || exit 0
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "fc leanstral $GITHUB_RUN_ID: $SUMMARY
+
+          Generated-by: Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral's Labs API, cost \$0, via tools/fc_sweep.py; checked in google-deepmind/formal-conjectures' own build (Lean v4.33.1) with #print axioms, as the sandbox user"

@@ -71,6 +71,35 @@ class RunLean(unittest.TestCase):
             self.assertTrue(Path(cmd[-1]).exists())
 
 
+class Prover(unittest.TestCase):
+    def test_only_the_proof_body_is_spliced_under_their_statement(self):
+        d = fc.targets(FILE)[0]
+        reply = "```lean4\ntheorem f_not_sum : ¬∃ (n : ℕ), n < 0 := by\n  simp\n```"   # a weakened restatement
+        out = fc.with_proof(FILE, d, reply)
+        self.assertIn("theorem f_not_sum :\n    ¬∃ (n : ℕ), n < 0 := by\n  simp\n#print axioms f_not_sum", out)
+        self.assertIsNone(fc.with_proof(FILE, d, "I cannot prove this."))
+
+    def test_the_prompt_carries_the_files_context_and_the_statement(self):
+        d = fc.targets(FILE)[1]
+        p = fc.prompt(FILE, d)
+        self.assertIn("namespace Hilbert17", p)
+        self.assertIn("theorem small : (2 : ℕ) + 2 = 4 := sorry", p)
+        self.assertNotIn("theorem hard", p, "nothing after the target")
+
+    def test_untrusted_lean_runs_as_the_sandbox_user_with_an_empty_environment(self):
+        cmd = fc.lean_cmd("/w/fc/.sweep/x.lean", user="sbjudge", path="/h/.elan/bin:/usr/bin")
+        self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "sbjudge", "env", "-i"])
+        self.assertIn("PATH=/h/.elan/bin:/usr/bin", cmd)
+        self.assertEqual(cmd[-4:], ["lake", "env", "lean", "/w/fc/.sweep/x.lean"])
+        self.assertEqual(fc.lean_cmd("/f.lean", user=None, path="p"), ["lake", "env", "lean", "/f.lean"])
+
+    def test_each_run_takes_declarations_without_a_prover_row_yet(self):
+        work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"}), ("b.lean", "", {"name": "x"})]
+        rows = [{"file": "a.lean", "name": "x", "verdict": "open"}]
+        self.assertEqual([(w[0], w[2]["name"]) for w in fc.owed(work, rows, 5)], [("a.lean", "y"), ("b.lean", "x")])
+        self.assertEqual(len(fc.owed(work, rows, 1)), 1)
+
+
 class Verdict(unittest.TestCase):
     def test_a_proof_needs_no_error_in_the_declaration_and_no_sorryax(self):
         ok = "f.lean:15:2: warning: declaration uses 'sorry'\n'Hilbert17.f_not_sum' depends on axioms: [propext, Classical.choice, Quot.sound]\n"
