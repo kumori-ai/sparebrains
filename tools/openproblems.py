@@ -146,18 +146,24 @@ def best(rows, ref):
     return min(ok, key=lambda r: r["metrics"]["rmse"]) if ok else None
 
 
+def best_or_closest(rows, ref):
+    """The best candidate by the bar's rule, else the lowest validation rmse among those that ran."""
+    ran = [r for r in rows if "metrics" in r and r.get("code")]
+    return best(ran, ref) or (min(ran, key=lambda r: r["metrics"]["rmse"]) if ran else None)
+
+
 def _fmt(m):
     return f"rmse {m['rmse']:.4f}, mean Pearson per cell {m['mean_pearson_per_cell']:.4f}"
 
 
-def evolve(rounds, ask, score, ref, writer):
-    """`rounds` asks; each sees the best candidate so far with its validation scores and the last outcome.
-    score(code) -> metrics, or {"error": why}. Every attempt is a row."""
+def evolve(rounds, ask, score, ref, writer, seed=None):
+    """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
+    beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. Every
+    attempt is a row; the seed is context, not a row."""
     rows = []
     for i in range(rounds):
         prompt = BRIEF.format(ref=_fmt(ref))
-        ran = [r for r in rows if "metrics" in r]
-        top = best(rows, ref) or (min(ran, key=lambda r: r["metrics"]["rmse"]) if ran else None)
+        top = best_or_closest(rows + ([seed] if seed else []), ref)
         if top:          # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
             prompt += (f"\n\nThe strongest so far scores {_fmt(top['metrics'])}; beat the reference on both:"
                        f"\n```python\n{top['code']}```")
@@ -347,7 +353,11 @@ def main():
     cand = work / "candidates"
     cand.mkdir(parents=True, exist_ok=True)
     ask, writer = writer_ask(a.lane)
-    rows = evolve(a.rounds, ask, scorer(val, answers, cand, os.environ.get("SB_JUDGE_USER"), sys.executable), ref, writer)
+    prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
+    seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
+    if seed:
+        print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
+    rows = evolve(a.rounds, ask, scorer(val, answers, cand, os.environ.get("SB_JUDGE_USER"), sys.executable), ref, writer, seed)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

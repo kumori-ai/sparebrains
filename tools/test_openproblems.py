@@ -113,6 +113,20 @@ class Evolve(unittest.TestCase):
         self.assertIn("no code", asked[2], "round 3 sees round 2's failure")
         self.assertTrue(all(r["writer"] == "fake" and r["round"] == i for i, r in enumerate(rows)))
 
+    def test_a_run_starts_from_the_best_of_earlier_runs(self):
+        asked, ref = [], {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
+        seed = {"round": 7, "code": "def predict(*a):\n    return SEEDED\n", "metrics": {"rmse": 0.9106, "mean_pearson_per_cell": 0.781}}
+
+        def ask(prompt):
+            asked.append(prompt)
+            return "no code"
+        rows = op.evolve(1, ask, lambda code: {}, ref, writer="fake", seed=seed)
+        self.assertIn("SEEDED", asked[0])
+        self.assertIn("0.9106", asked[0])
+        self.assertEqual(len(rows), 1, "the seed is context, not a row of this run")
+        prior = [{"metrics": {"rmse": 0.95, "mean_pearson_per_cell": 0.79}, "code": "a"}, seed, {"error": "x"}]
+        self.assertIs(op.best_or_closest(prior, ref), prior[0], "at the reference's Pearson beats a lower rmse below it")
+
     def test_a_crash_comes_back_with_its_code_and_the_closest_is_shown_even_below_the_bar(self):
         asked, ref = [], {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
         replies = iter([GOOD.replace("np.zeros", "np.ones"), GOOD, GOOD])
