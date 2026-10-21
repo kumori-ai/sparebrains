@@ -110,6 +110,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   goals, option fixes): our fixer and loop already do the useful part, and the dossier near misses it would take
   are ones they already failed, so no head-to-head is scheduled. The "switch to Rocq" in its changelog is dated
   April 1, 2026; every later release is Lean.
+- **formal-conjectures, the first upstream door (task #478, roadmap row 9).** google-deepmind/formal-conjectures pins
+  Lean v4.33.1 (ours), takes short proofs of solved and test items inline and longer ones as a `@[formal_proof]`
+  link to a hosted proof, checks claims with `#print axioms` (PROOFS.md), and writes guidelines for AI agents
+  (AGENTS.md). At commit 90d18f6: 101 textbook and 38 test declarations still at `sorry` (and 2,426 research
+  solved, 1,512 research open). First step, $0 and read-only toward them: `tools/fc_sweep.py` and fc_sweep.yml run
+  our loop's closers on those 139 in their own build, two canaries first (2+2=4 must pass, 2+2=5 must not).
+  Anything sent to their repository needs Andy's yes on the exact diff and his signed Google CLA.
 - **Leanstral gets the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
   19 problems; the bar's open problems were kept from it for the stage-3 measurement. Same gate as the 32B
   (`prover.plan_owed()` is None), so no lane takes problems out of the plan-arm test. Its queue goes from 15 to 47,
