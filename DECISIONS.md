@@ -64,6 +64,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   - **Who writes it:** free models through our tools write and repair the code (the headline); any frontier-model
     help is labeled with its drafter and reported apart. Compute: a GitHub runner or Kaggle, $0.
   - What a miss means: the numbers are published as they came out, and the method is not opened as a PR.
+  - *How the swap check is scored (2026-10-21):* the candidate on bmmc_cite/swap through the task's scripts,
+    against knnr_py's published swap scores (run_2026-10-10). A fresh knnr_py on swap needs ~10 GB (a dense
+    66k x 13,953 RNA matrix and a 1,000 x 100 x 13,953 neighbor array) and was killed on a 16 GB runner; the swap
+    check compares scores only, and our knnr_py runs matched the published ones within 0.2%. The normal
+    direction's bootstrap still uses a fresh knnr_py run.
 - **The method loop is built (`tools/openproblems.py evolve`, `.github/workflows/openproblems.yml`).** The writer
   (Leanstral by default; any router lane) sees the brief, the best candidate so far with its validation scores, and
   the last outcome, and writes `predict()`. Each candidate runs as the sandbox user with an emptied environment,

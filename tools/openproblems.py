@@ -408,12 +408,15 @@ def final(work, code, source, out, user, python):
         m1, m2, t1, t2 = (ad.read_h5ad(data / f"{f}.h5ad") for f in FILES)
         write_inputs(inp, m1.layers["normalized"], m2.layers["normalized"], t1.layers["normalized"],
                      m1.obs["batch"].astype(str).values, t1.obs["batch"].astype(str).values)
+        dataset_id, var = m1.uns["dataset_id"], m2.var
+        del m1, m2                                                   # the 3.7 GB RNA side of swap: not held below
         for p in [inp, *inp.iterdir()]:
             p.chmod(0o755 if p.is_dir() else 0o644)
-        run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
-                   {"input_train_mod1": str(data / "train_mod1.h5ad"), "input_train_mod2": str(data / "train_mod2.h5ad"),
-                    "input_test_mod1": str(data / "test_mod1.h5ad"), "output": str(data / "ref.h5ad"), **PARAMS},
-                   {"name": METHOD})
+        if name == "normal":            # the bootstrap needs knnr_py's own predictions, so it is re-run here
+            run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
+                       {"input_train_mod1": str(data / "train_mod1.h5ad"), "input_train_mod2": str(data / "train_mod2.h5ad"),
+                        "input_test_mod1": str(data / "test_mod1.h5ad"), "output": str(data / "ref.h5ad"), **PARAMS},
+                       {"name": METHOD})
         code_file, out_npy = cand_dir / f"final-{name}.py", cand_dir / f"final-{name}.npy"
         code_file.write_text(code)
         code_file.chmod(0o644)
@@ -427,11 +430,18 @@ def final(work, code, source, out, user, python):
         if p.shape != y.shape or not np.isfinite(p).all():
             res[name] = {"error": f"prediction shape {p.shape} (want {y.shape}) or non-finite values"}
             continue
-        ad.AnnData(layers={"normalized": csc_matrix(p)}, obs=t1.obs, var=m2.var,
-                   uns={"dataset_id": m1.uns["dataset_id"], "method_id": "sparebrains_candidate"}).write_h5ad(data / "cand.h5ad")
-        ref = _dense(ad.read_h5ad(data / "ref.h5ad").layers["normalized"]).astype(np.float32)
-        res[name] = {"cand": official(sha, data, data / "cand.h5ad"), "ref": official(sha, data, data / "ref.h5ad"),
-                     "_y": y, "_p": p, "_r": ref}
+        ad.AnnData(layers={"normalized": csc_matrix(p)}, obs=t1.obs, var=var,
+                   uns={"dataset_id": dataset_id, "method_id": "sparebrains_candidate"}).write_h5ad(data / "cand.h5ad")
+        if name == "normal":
+            ref = _dense(ad.read_h5ad(data / "ref.h5ad").layers["normalized"]).astype(np.float32)
+            res[name] = {"cand": official(sha, data, data / "cand.h5ad"), "ref": official(sha, data, data / "ref.h5ad"),
+                         "_y": y, "_p": p, "_r": ref}
+        else:                           # swap compares scores only: knnr_py's published run is the reference (a fresh
+            import yaml                 # one needs ~10 GB, past a 16 GB runner beside the candidate; ours matched
+            with urllib.request.urlopen(f"{S3}/results/{RESULTS}/score_uns.yaml") as r:   # published within 0.2%)
+                ref_scores = published(yaml.safe_load(r.read()), ds, METHOD)
+            res[name] = {"cand": official(sha, data, data / "cand.h5ad"),
+                         "ref": {k: round(float(v), 4) for k, v in ref_scores.items()}, "ref_source": f"published {RESULTS}"}
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "task": REPO, "commit": sha,
            "source": source, "code": code, "normalization": NORM}
     if any("error" in v for v in res.values()):
@@ -442,7 +452,8 @@ def final(work, code, source, out, user, python):
                       "ci": [round(x, 5) for x in paired_bootstrap(n["_y"], n["_p"], n["_r"], m)]}
                   for m in ("rmse", "mean_pearson_per_cell")}
         row.update(normal={"scores": {"cand": n["cand"], "ref": n["ref"]}, "bootstrap": normal},
-                   swap={"scores": {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]}},
+                   swap={"scores": {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]},
+                         "ref_source": res["swap"].get("ref_source")},
                    verdict=verdict(normal, {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]}))
     Path(out).write_text(json.dumps(row, indent=1) + "\n")
     print(json.dumps({k: row[k] for k in ("source", "verdict")} | ({"normal": row["normal"]["bootstrap"]} if "normal" in row else {"errors": row.get("errors")})), flush=True)
