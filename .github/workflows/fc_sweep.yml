@@ -59,6 +59,7 @@ jobs:
           lake build FormalConjecturesUtil
 
       - name: sweep
+        shell: bash                 # -eo pipefail: a failed sweep must fail the step, not hide behind tee
         run: |
           python3 tools/fc_sweep.py --fc fc --out "ledger/fc/sweep-${GITHUB_RUN_ID}.jsonl" \
             $( [ -n "${{ inputs.limit }}" ] && echo --limit "${{ inputs.limit }}" ) | tee "$RUNNER_TEMP/out.txt"

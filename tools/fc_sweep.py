@@ -86,7 +86,7 @@ def proved(output, name, span):
 
 
 def run_lean(fc, text, tag):
-    f = Path(fc) / ".sweep" / f"{tag}.lean"
+    f = (Path(fc) / ".sweep" / f"{tag}.lean").resolve()   # absolute: Lean runs inside their checkout (cwd=fc)
     f.parent.mkdir(exist_ok=True)
     f.write_text(text)
     t = time.time()

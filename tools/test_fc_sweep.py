@@ -58,6 +58,19 @@ class Canary(unittest.TestCase):
         self.assertIn("#print axioms sweep_canary", fc.candidate(text, d[0], ["decide"]))
 
 
+class RunLean(unittest.TestCase):
+    def test_lean_gets_an_absolute_path_because_it_runs_inside_their_checkout(self):
+        import tempfile
+        from unittest import mock
+        import os
+        with tempfile.TemporaryDirectory(dir=".") as d, mock.patch.object(fc.subprocess, "run") as run:
+            run.return_value = mock.Mock(stdout="", stderr="")
+            fc.run_lean(os.path.relpath(d), "x", "t")          # relative, as the workflow passes `fc`
+            cmd, kw = run.call_args.args[0], run.call_args.kwargs
+            self.assertTrue(Path(cmd[-1]).is_absolute(), cmd)
+            self.assertTrue(Path(cmd[-1]).exists())
+
+
 class Verdict(unittest.TestCase):
     def test_a_proof_needs_no_error_in_the_declaration_and_no_sorryax(self):
         ok = "f.lean:15:2: warning: declaration uses 'sorry'\n'Hilbert17.f_not_sum' depends on axioms: [propext, Classical.choice, Quot.sound]\n"
