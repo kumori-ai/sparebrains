@@ -73,6 +73,15 @@ class Pacer:
         time.sleep(max(0.0, t - now))
 
 
+def effort_for(rows, key):
+    """'none' for a problem whose answers ran out at the token cap twice or more (the model card's only other setting
+    is 'high', the default): on 2026-10-21, 7 of 15 answers spent all 120,000 tokens reasoning and gave no proof."""
+    cut = {(r.get("batch"), r.get("sample_no")) for r in rows if (r["target_set"], r["target"]) == key
+           and r.get("try_mode") == LANE["mode"] and (r.get("inference") or {}).get("finish") == "length"
+           and (r.get("request_config") or {}).get("max_tokens") == MAX_TOKENS}     # at today's cap, not an older one
+    return "none" if len(cut) >= 2 else None
+
+
 def key_from_env():
     key = os.environ.get(KEY_ENV, "").strip()
     if not key:
@@ -80,17 +89,17 @@ def key_from_env():
     return key
 
 
-def call(key, target_text, pacer):
-    return call_prompt(key, PROMPT.format(target=target_text), pacer)
+def call(key, target_text, pacer, effort=None):
+    return call_prompt(key, PROMPT.format(target=target_text), pacer, effort)
 
 
-def call_prompt(key, prompt, pacer):
+def call_prompt(key, prompt, pacer, effort=None):
     """One Leanstral call with any prompt (tools/decompose.py asks for steps), paced, stopping at 402/429."""
     if pacer.stop:
         raise RuntimeError(f"stopped: {pacer.stop}")
     pacer.wait()
-    body = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": prompt}],
-                       "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, "stream": True}).encode()
+    body = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": prompt}], "max_tokens": MAX_TOKENS,
+                       "temperature": TEMPERATURE, "stream": True, **({"reasoning_effort": effort} if effort else {})}).encode()
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()
     for attempt in (0, 1):
@@ -152,11 +161,13 @@ def generate(out_path, key, open_list, rows, batch):
     def one(item):
         t, sample = item
         text = (ROOT / "targets" / t["target_set"] / f"{t['target']}.lean").read_text()
+        effort = effort_for(rows, (t["target_set"], t["target"]))
         try:
-            r = call(key, text, pacer)
+            r = call(key, text, pacer, effort)
         except Exception as e:
             return {"target_set": t["target_set"], "target": t["target"], "error": str(e)[:300]}
-        return {"batch": batch, "target_set": t["target_set"], "target": t["target"], "sample": sample, "config": cfg, **r}
+        return {"batch": batch, "target_set": t["target_set"], "target": t["target"], "sample": sample,
+                "config": {**cfg, "reasoning_effort": effort or "high"}, **r}
 
     with ThreadPoolExecutor(WORKERS) as pool:
         answers = list(pool.map(one, work))

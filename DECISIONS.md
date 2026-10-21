@@ -117,6 +117,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   solved, 1,512 research open). First step, $0 and read-only toward them: `tools/fc_sweep.py` and fc_sweep.yml run
   our loop's closers on those 139 in their own build, two canaries first (2+2=4 must pass, 2+2=5 must not).
   Anything sent to their repository needs Andy's yes on the exact diff and his signed Google CLA.
+- **Leanstral: streaming works, and a problem that runs out twice is asked without long reasoning.** Round
+  20261021T0100, the first streamed: 15 of 15 answered, 0 errors (the two before lost 12 of 20 and 12 of 17). But 7
+  of the 15 spent all 120,000 tokens reasoning with no proof (128k is the model's maximum). A problem whose answers
+  hit today's cap twice now gets `reasoning_effort: "none"` (the model card's only other setting; untested on
+  proving), recorded in each row's request_config so its answers are measured apart. Caps under the old 40,000
+  limit do not count.
 - **Leanstral gets the bar's problems once the plan arm is judged, reachable ones first.** It ran dry on 10-20 with
   19 problems; the bar's open problems were kept from it for the stage-3 measurement. Same gate as the 32B
   (`prover.plan_owed()` is None), so no lane takes problems out of the plan-arm test. Its queue goes from 15 to 47,

@@ -293,7 +293,7 @@ def base_row(a, run_id, prefix, lane=PROVER):
             "backend": lane["backend"], "provider": lane["provider"], "model": cfg.get("model", lane["model"]),
             "quality_tier": "unknown", "tier_rank": -1, "attempt_no": a["sample"] + 1, "sample_no": a["sample"],
             "mode": lane["mode"],
-            "request_config": {k: cfg.get(k) for k in ("max_tokens", "temperature", "top_p", "dtype", "gpus")},
+            "request_config": {k: cfg.get(k) for k in ("max_tokens", "temperature", "top_p", "dtype", "gpus", "reasoning_effort")},
             "inference": {"tokens": a.get("tokens"), "finish": a.get("finish")},
             "call_seconds": a.get("seconds"), "response_chars": len(a.get("text") or "")}
 

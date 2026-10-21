@@ -47,6 +47,30 @@ class BarAndReach(unittest.TestCase):
                          ["custom_z", "amc_y", "imo_x"])
 
 
+class Effort(unittest.TestCase):
+    def test_a_problem_that_ran_out_twice_is_asked_without_long_reasoning(self):
+        capped = lambda t, i: {**row(t, sample=i), "inference": {"finish": "length"},
+                               "request_config": {"max_tokens": ls.MAX_TOKENS}}
+        rows = [capped("imo_x", 0), capped("imo_x", 1), capped("custom_z", 0), row("custom_z", sample=1)]
+        self.assertEqual(ls.effort_for(rows, ("minif2f/test", "imo_x")), "none")
+        self.assertIsNone(ls.effort_for(rows, ("minif2f/test", "custom_z")), "one cap is not enough")
+        old = [{**capped("imo_x", i), "request_config": {"max_tokens": 40000}} for i in range(3)]
+        self.assertIsNone(ls.effort_for(old, ("minif2f/test", "imo_x")), "cut off under an older, smaller cap")
+
+    def test_the_effort_is_sent_only_when_set_and_kept_in_the_row(self):
+        import json
+        sent = []
+
+        def fake_urlopen(req, timeout=None):
+            sent.append(json.loads(req.data))
+            return sse([{"choices": [{"delta": {"content": "x"}, "finish_reason": "stop"}], "usage": {"completion_tokens": 1}}])
+        with mock.patch.object(ls.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ls.call_prompt("k", "p", ls.Pacer(0))
+            ls.call_prompt("k", "p", ls.Pacer(0), effort="none")
+        self.assertNotIn("reasoning_effort", sent[0])
+        self.assertEqual(sent[1]["reasoning_effort"], "none")
+
+
 class Answers(unittest.TestCase):
     def test_the_proof_is_in_the_text_parts_not_the_thinking(self):
         parts = [{"type": "thinking", "thinking": [{"type": "text", "text": "let me think"}]},
