@@ -11,8 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent))
 import check
 
-FAKE = """#!/usr/bin/env python3
-import os, sys
+FAKE = f"#!{sys.executable}\n" + """import os, sys
 print("ARGV", " ".join(sys.argv[1:]))
 print("ENV", " ".join(f"{k}={v}" for k, v in sorted(os.environ.items())))
 """
