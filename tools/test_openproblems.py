@@ -106,6 +106,20 @@ class Evolve(unittest.TestCase):
                          [(True, ""), (False, "no code"), (True, "")])
         self.assertIn("0.95", asked[1], "round 2 sees round 1's best")
         self.assertIn("no code", asked[2], "round 3 sees round 2's failure")
+
+    def test_a_crash_comes_back_with_its_code_and_the_closest_is_shown_even_below_the_bar(self):
+        asked, ref = [], {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
+        replies = iter([GOOD.replace("np.zeros", "np.ones"), GOOD, GOOD])
+        scores = iter([{"error": "ValueError: boom"}, {"rmse": 0.94, "mean_pearson_per_cell": 0.76},
+                       {"rmse": 0.96, "mean_pearson_per_cell": 0.75}])
+
+        def ask(prompt):
+            asked.append(prompt)
+            return next(replies)
+        op.evolve(3, ask, lambda code: next(scores), ref, writer="fake")
+        self.assertIn("np.ones", asked[1], "the crashed code is shown to be fixed")
+        self.assertIn("ValueError: boom", asked[1])
+        self.assertIn("0.9400", asked[2], "the closest candidate is shown though its Pearson is below the reference")
         self.assertTrue(all(r["writer"] == "fake" and r["round"] == i for i, r in enumerate(rows)))
 
 

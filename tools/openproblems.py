@@ -134,13 +134,19 @@ def evolve(rounds, ask, score, ref, writer):
     rows = []
     for i in range(rounds):
         prompt = BRIEF.format(ref=_fmt(ref))
-        top = best(rows, ref)
-        if top:
-            prompt += f"\n\nThe best so far scores {_fmt(top['metrics'])}:\n```python\n{top['code']}```\nImprove on it."
+        ran = [r for r in rows if "metrics" in r]
+        top = best(rows, ref) or (min(ran, key=lambda r: r["metrics"]["rmse"]) if ran else None)
+        if top:          # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
+            prompt += (f"\n\nThe strongest so far scores {_fmt(top['metrics'])}; beat the reference on both:"
+                       f"\n```python\n{top['code']}```")
         if rows:
             last = rows[-1]
-            prompt += ("\n\nThe last attempt failed: " + last["error"][-1500:]) if "error" in last else \
-                      f"\n\nThe last attempt scored {_fmt(last['metrics'])}."
+            if "error" in last and last.get("code"):       # a crash comes back with its code, to be fixed, not rewritten
+                prompt += f"\n\nThe last attempt crashed. Its code:\n```python\n{last['code']}```\nThe error: {last['error'][-1500:]}"
+            elif "error" in last:
+                prompt += "\n\nThe last attempt failed: " + last["error"][-1500:]
+            elif last is not top:
+                prompt += f"\n\nThe last attempt scored {_fmt(last['metrics'])}."
         t = time.time()
         reply = ask(prompt)
         row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1)}
