@@ -98,6 +98,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Unknowns the first batch settles: whether the TPU VM's disk holds the 65 GB download, and vllm-tpu on the 32B.
   The paid fallback (prepaid GPU, ~$3 a pass, sized in #534) only if the TPU queue passes 24 hours, and only with a
   cost disclosure and Andy's yes.
+  *Disk preflight (2026-10-21):* the TPU kernel records free disk on every candidate mount in timing.json, sends
+  the model download to the roomiest one (never /kaggle/working, whose files become the kernel's output), and
+  stops in seconds with the reason if none holds the weights plus headroom (8B ~27 GB, 32B ~83 GB), instead of
+  failing mid-download after a ~27 h queue. Canary: a 900 GB model is refused, the 8B passes.
 - **Axle (axle.axiommath.ai, Axiom's free Lean engine; lean-4.33.1 + Mathlib, our toolchain): `disprove` on every
   open statement, anonymous, $0.** It proves the negation with grind and searches counterexamples (Plausible). A
   planted `2 + 2 = 5` was disproved; none of our 50 open miniF2F statements was, and all elaborated. So no open

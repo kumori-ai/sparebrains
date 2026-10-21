@@ -22,7 +22,7 @@ Getting a TPU from `kaggle kernels push`, as found 2026-10-18 (sources: Kaggle s
   queue position for pushed kernels. Proof of a TPU is tpu_devices in timing.json, never the name we asked for:
   this script exits at once when /dev/accel* and /dev/vfio/* are both empty.
 """
-import glob, json, os, subprocess, sys, time
+import glob, json, os, shutil, subprocess, sys, time
 from datetime import datetime, timezone
 
 PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}], plus "goal" for a goal batch
@@ -58,6 +58,19 @@ def sh(cmd):
 
 
 stamp(started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
+# Disk before anything is downloaded (task #534): the 32B is 65.6 GB in bf16 and the TPU VM's disk was never measured.
+# The model goes to the mount with the most room, never /kaggle/working, whose files become the kernel's output.
+MODEL_GB = {"Goedel-LM/Goedel-Prover-V2-8B": 16.4, "Goedel-LM/Goedel-Prover-V2-32B": 65.6}
+need_gb = MODEL_GB.get(MODEL, 70) * 1.15 + 8          # weights, headroom, and the vllm-tpu venv
+free = {d: round(shutil.disk_usage(d).free / 1e9, 1) for d in ("/tmp", os.path.expanduser("~"), "/kaggle/temp", "/mnt")
+        if os.path.isdir(d)}
+stamp(disk={"free_gb": free, "need_gb": round(need_gb, 1)})
+best = max(free, key=free.get) if free else None
+if not best or free[best] < need_gb:
+    stamp(failed=f"disk: {need_gb:.0f} GB needed, most free {free.get(best)} GB at {best}")
+    sys.exit(f"not enough disk for {MODEL}: {free}")
+os.environ["HF_HOME"] = f"{best}/hf"                 # the generation child inherits it
 t0 = time.time()
 PY = f"{VENV}/bin/python"
 ok = (sh([sys.executable, "-m", "pip", "install", "-q", "uv"]) == 0
