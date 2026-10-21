@@ -12,7 +12,7 @@ as a miss, recorded as `fixer+loop` beside the raw `prover` row, as the retro do
 """
 import argparse, hashlib, json, re, sys, time
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,7 +38,9 @@ PLAN_SAMPLES = 4
 # staff, product-feedback 173129) and can float above 30 h, so it is read, never assumed.
 SESSION_H = 11.5                           # Kaggle ends a session at 12 h
 MARGIN_H = 0.25                            # left unspent so a slow last chunk never meets the quota's end
-MIN_BATCH_H = 1.0                          # under this, the model's load and one chunk do not fit: wait for the reset
+MIN_BATCH_H = 2.0                          # under this, wait: the ~9 min model load would eat too much of a short batch
+WEEK_H = 168                               # Kaggle's quotas reset each Saturday 00:00 UTC
+AHEAD_H = 24                               # spend on an even line through the week, at most a day ahead of it
 TPU_SESSION_H = 8.5                        # a TPU session ends a little under 9 h (prover_kernel_tpu.py)
 TPU_RESERVE_H = 1.5                        # the TPU's load (~25 min on 2026-10-20) and one last chunk
 TPU_MIN_BATCH_H = 2.5                      # under this, the load and a chunk or two do not pay for the ~27 h queue
@@ -82,10 +84,18 @@ def todo(open_list, rows, bar=True):
     return out
 
 
-def batch_hours(total_h, used_h, reserved_h=0.0, tpu=False):
-    """Hours the next batch may run: what the week has left, less the margin, at most one session; 0 when
-    too little is left for the model to load and finish a chunk."""
-    h = min(TPU_SESSION_H if tpu else SESSION_H, total_h - used_h - reserved_h - MARGIN_H)
+def week_hours(now):
+    """Hours since this week's quota reset (Saturday 00:00 UTC)."""
+    start = (now - timedelta(days=(now.weekday() - 5) % 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (now - start).total_seconds() / 3600
+
+
+def batch_hours(total_h, used_h, reserved_h=0.0, tpu=False, now=None):
+    """Hours the next batch may run: the least of one session, what the week has left less the margin, and an even
+    line through the week at most a day ahead (Andy, 2026-10-20: plan the quota over its window, not in one
+    sitting; 29.45 of 30 GPU hours were gone by Monday night). A missed day carries forward. 0 under the floor."""
+    paced = total_h * (week_hours(now or datetime.now(timezone.utc)) + AHEAD_H) / WEEK_H - used_h - reserved_h
+    h = min(TPU_SESSION_H if tpu else SESSION_H, total_h - used_h - reserved_h - MARGIN_H, paced)
     return round(h, 2) if h >= (TPU_MIN_BATCH_H if tpu else MIN_BATCH_H) else 0.0
 
 

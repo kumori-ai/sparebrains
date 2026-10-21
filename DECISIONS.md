@@ -67,6 +67,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   to it. Validation scores use our Python metrics, which match the task's scripts on the same prediction (rmse and
   mae exact, Pearson per cell 0.7706 against the R script's 0.7707). Reference on validation: knnr_py rmse 0.9682,
   Pearson per cell 0.7854 (site 1 is a harder shift than the test set's site 4: 0.7238 there).
+- **Kaggle's weekly hours are spent on an even line (Andy: plan the quota over its window, not in one sitting).**
+  This week 29.45 of the GPU's 30 hours were gone by Monday night (three batches in three days), then five idle
+  days; the TPU's 20 sat at 0.40 until today. `prover.py hours` now caps each batch at an even line through the
+  week, at most a day ahead: total x (hours since Saturday 00:00 UTC + 24) / 168, less what is used. About 4.3 GPU
+  and 2.9 TPU hours a day; a missed day carries forward. The GPU's floor rises from 1 to 2 hours so a share is not
+  cut into batches that each pay the ~9 minute model load. What is not paced, because nothing runs out: GitHub
+  Actions on this public repo and Leanstral's Labs API (38 requests and 5M tokens a minute); their limit is work
+  to give them. The plan batch (25 problems, ~5.3 h) is cut by the first day's share and carried over by
+  `plan_owed`.
 - **Leanstral streams its replies.** Round 20261020T2158, the first at 120,000 tokens: all 8 answers that came
   back finished on their own (none cut off), one first-time solve (`numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown`,
   loop-closed), but 12 of 20 calls were dropped ("Remote end closed connection without response") while the long

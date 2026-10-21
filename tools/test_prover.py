@@ -1,10 +1,12 @@
 import json, sys, tempfile, unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parent)]
 import prover
 
 NAME = "mathd_algebra_478"
+FRI_NIGHT = datetime(2026, 10, 23, 23, 0, tzinfo=timezone.utc)   # an hour before the weekly reset
 SKETCH = f"```lean4\ntheorem {NAME} (x : ℝ) : x = x := by\n  have h : x = x := by\n    sorry\n  sorry\n```"
 FULL = f"```lean4\ntheorem {NAME} (x : ℝ) : x = x := by\n  rfl\n```"
 
@@ -211,15 +213,28 @@ class GpuHoursTests(unittest.TestCase):
     """The week's GPU hours used exactly (2026-10-19): the batch is sized to what Kaggle says is left."""
 
     def test_a_batch_gets_the_hours_left_less_the_margin_at_most_one_session(self):
-        self.assertEqual(prover.batch_hours(30, 20.57), round(30 - 20.57 - prover.MARGIN_H, 2))
-        self.assertEqual(prover.batch_hours(39, 0), prover.SESSION_H)       # a floating week above 30 h
-        self.assertEqual(prover.batch_hours(30, 29.2), 0.0)                  # under an hour: wait for the reset
-        self.assertEqual(prover.batch_hours(30, 20, reserved_h=9.5), 0.0)    # a live session holds the rest
+        late = FRI_NIGHT                                                    # pacing allows the whole week by now
+        self.assertEqual(prover.batch_hours(30, 20.57, now=late), round(30 - 20.57 - prover.MARGIN_H, 2))
+        self.assertEqual(prover.batch_hours(39, 0, now=late), prover.SESSION_H)       # a floating week above 30 h
+        self.assertEqual(prover.batch_hours(30, 28.5, now=late), 0.0)                  # under the floor: wait for the reset
+        self.assertEqual(prover.batch_hours(30, 20, reserved_h=9.5, now=late), 0.0)    # a live session holds the rest
+
+    def test_the_week_is_spent_on_an_even_line_at_most_a_day_ahead(self):
+        sat = datetime(2026, 10, 24, 0, 30, tzinfo=timezone.utc)            # just after the reset
+        day = 30 / 7
+        self.assertEqual(prover.batch_hours(30, 0, now=sat), round(30 * (0.5 + 24) / 168, 2))     # one day's share
+        self.assertEqual(prover.batch_hours(30, day, now=sat + timedelta(hours=2)), 0.0)          # today's is spent
+        self.assertEqual(prover.batch_hours(30, day, now=sat + timedelta(hours=24)),
+                         round(30 * (24.5 + 24) / 168 - day, 2))                                  # tomorrow's opens
+        self.assertEqual(prover.batch_hours(30, 0, now=sat + timedelta(days=3)), prover.SESSION_H)  # behind: catch up
 
     def test_the_tpu_gets_its_own_session_and_floor(self):
-        self.assertEqual(prover.batch_hours(20, 0, tpu=True), prover.TPU_SESSION_H)
-        self.assertEqual(prover.batch_hours(20, 15, tpu=True), round(20 - 15 - prover.MARGIN_H, 2))
-        self.assertEqual(prover.batch_hours(20, 18, tpu=True), 0.0)          # under the TPU floor: wait for the reset
+        late = FRI_NIGHT
+        self.assertEqual(prover.batch_hours(20, 0, tpu=True, now=late), prover.TPU_SESSION_H)
+        self.assertEqual(prover.batch_hours(20, 15, tpu=True, now=late), round(20 - 15 - prover.MARGIN_H, 2))
+        self.assertEqual(prover.batch_hours(20, 18, tpu=True, now=late), 0.0)          # under the TPU floor: wait for the reset
+        sat = datetime(2026, 10, 24, 0, 30, tzinfo=timezone.utc)
+        self.assertEqual(prover.batch_hours(20, 0, tpu=True, now=sat), round(20 * 24.5 / 168, 2))
 
     def test_the_rate_comes_from_measured_gpu_batches_not_tpu_or_unmeasured(self):
         with tempfile.TemporaryDirectory() as d:
