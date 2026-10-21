@@ -23,6 +23,11 @@ class Reproduce(unittest.TestCase):
         out = op.with_par(SCRIPT, {"n_pcs": 50}, {"name": "knnr_py"})
         self.assertEqual(out, "import x\npar = {'n_pcs': 50}\nmeta = {'name': 'knnr_py'}\nprint(par['n_pcs'])\n")
 
+    def test_an_r_scripts_viash_block_becomes_an_r_list(self):
+        src = 'library(x)\n## VIASH START\npar <- list(\n  output = "o"\n)\n## VIASH END\ncat(par$output)\n'
+        self.assertEqual(op.with_par_r(src, {"input_test_mod2": "/data/s.h5ad", "output": "/data/o.h5ad"}),
+                         'library(x)\npar <- list(input_test_mod2 = "/data/s.h5ad", output = "/data/o.h5ad")\ncat(par$output)\n')
+
     def test_the_published_scores_are_one_methods_on_one_dataset(self):
         self.assertEqual(op.published(SCORES, "openproblems_neurips2021/bmmc_cite/normal", "knnr_py"),
                          {"rmse": 0.7233, "mae": 0.5255, "mean_pearson_per_cell": 0.7707})

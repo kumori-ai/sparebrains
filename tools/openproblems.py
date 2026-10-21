@@ -9,8 +9,8 @@ compared metric within 1%; a run that compares nothing never passes.
 
 `evolve` (roadmap row 11, the bar in DECISIONS.md 2026-10-20): a free model writes predict(), each candidate runs
 as the sandbox user on the validation split only, and sees the best so far and the last outcome. The test set is
-never touched here. Needs anndata, scikit-learn and pyyaml; the R correlation metric is matched in Python
-(`metrics`, 0.7706 against the R script's 0.7707 on the same prediction).
+never touched here. Needs anndata, scikit-learn and pyyaml; `reproduce` also needs Docker, for the task's R
+correlation metric in its own image. Validation uses `metrics`, which matches the R script on the same prediction.
 """
 import argparse, base64, json, os, re, subprocess, sys, time, urllib.request
 from datetime import datetime, timezone
@@ -27,7 +27,9 @@ RESULTS = "run_2026-10-10_07-15-14"
 DATASET = "openproblems_neurips2021/bmmc_cite/normal"
 NORM = "log_cp10k"                           # knnr_py's preferred_normalization (its config.vsh.yaml)
 METHOD, PARAMS = "knnr_py", {"distance_method": "minkowski", "n_pcs": 50, "n_neighbors": 100}   # config defaults
-METRICS = ("mse",)
+METRICS = ("mse",)                          # Python, run in-process
+R_METRICS = ("correlation",)                # R, run in the task's own image with its config's CRAN packages
+R_IMAGE, R_CRAN = "openproblems/base_r:1", ("proxyC", "testthat", "dynutils")
 TOLERANCE_PCT = 1.0
 CAND_S, CAND_MEM = 1200, 13 * 2 ** 30          # a candidate's time and address space on a 16 GB runner
 FILES = ("train_mod1", "train_mod2", "test_mod1", "test_mod2")
@@ -36,6 +38,26 @@ FILES = ("train_mod1", "train_mod2", "test_mod1", "test_mod2")
 def with_par(src, par, meta):
     """The script with its VIASH block replaced by our parameters; nothing else changes."""
     return re.sub(r"## VIASH START\n.*?## VIASH END\n", lambda _: f"par = {par!r}\nmeta = {meta!r}\n", src, flags=re.S)
+
+
+def with_par_r(src, par):
+    """An R script with its VIASH block replaced by our parameters (as a `par <- list(...)`)."""
+    args = ", ".join(f'{k} = "{v}"' for k, v in par.items())
+    return re.sub(r"## VIASH START\n.*?## VIASH END\n", lambda _: f"par <- list({args})\n", src, flags=re.S)
+
+
+def run_r_metric(src, data_dir, prediction, out_name):
+    """The task's R metric in its own Docker image: the solution, the prediction and the output under /data."""
+    d = Path(data_dir)
+    (d / "metric.R").write_text(with_par_r(src, {"input_test_mod2": "/data/test_mod2.h5ad",
+                                                 "input_prediction": f"/data/{Path(prediction).name}",
+                                                 "output": f"/data/{out_name}"}))
+    cran = ", ".join(f'\\"{p}\\"' for p in R_CRAN)
+    t = time.time()
+    subprocess.run(["docker", "run", "--rm", "-v", f"{d.resolve()}:/data", R_IMAGE, "bash", "-c",
+                    f'Rscript -e "install.packages(c({cran}), repos=\\"https://cloud.r-project.org\\", quiet=TRUE)" '
+                    f'>/dev/null 2>&1; Rscript /data/metric.R'], check=True, capture_output=True, text=True)
+    return round(time.time() - t, 1)
 
 
 def published(scores, dataset, method):
@@ -282,11 +304,18 @@ def reproduce(work, out):
                                  "output": score_file}, {"name": m})
         u = ad.read_h5ad(score_file).uns
         got.update(zip(u["metric_ids"], map(float, u["metric_values"])))
+    import shutil
+    shutil.copy(pred, data / "prediction.h5ad")
+    for m in R_METRICS:
+        seconds[m] = run_r_metric(fetch_script(f"src/metrics/{m}/script.R", sha), data, data / "prediction.h5ad",
+                                  f"score_{m}.h5ad")
+        u = ad.read_h5ad(data / f"score_{m}.h5ad").uns
+        got.update(zip(u["metric_ids"], map(float, u["metric_values"])))
     with urllib.request.urlopen(f"{S3}/results/{RESULTS}/score_uns.yaml") as r:
         pub = published(yaml.safe_load(r.read()), DATASET, METHOD)
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "task": REPO, "commit": sha,
            "results": RESULTS, "dataset": DATASET, "normalization": NORM, "method": METHOD, "params": PARAMS,
-           "metrics_run": list(METRICS), "tolerance_pct": TOLERANCE_PCT, "seconds": seconds, **compare(got, pub)}
+           "metrics_run": list(METRICS) + [f"{m} (R, {R_IMAGE})" for m in R_METRICS], "tolerance_pct": TOLERANCE_PCT, "seconds": seconds, **compare(got, pub)}
     print(json.dumps(row, indent=1))
     if out:
         Path(out).parent.mkdir(parents=True, exist_ok=True)

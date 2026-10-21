@@ -43,6 +43,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   is unseeded, so runs differ by ~0.1%. Canary: the script's example parameters (4 components, 5 neighbors) miss
   by +17.7%, so the gate fails what it should. Not yet run: the R correlation metric and the R `lm` baseline.
   Next: a method of our own, written by free models with our tools, scored the same way (row 11).
+  *The whole metric set, 2026-10-21:* the task's R correlation script, run unchanged (VIASH block only) in its own
+  image (`openproblems/base_r:1` with its config's CRAN packages), on a fresh `knnr_py` run: all 8 metrics within
+  0.17% (rmse +0.12%, mae +0.17%, Pearson/Spearman per cell, per gene and overall +0.05% to +0.11%;
+  ledger/openproblems/predict_modality-knnr_py-20261021.json). A final candidate is scored the same way.
 - **The bar for "a useful method", written before any method of ours is scored (roadmap row 11).** The
   leaderboard on `bmmc_cite/normal` (run 2026-10-10) has two tiers: the three NeurIPS 2021 winners at rmse
   0.656-0.663 (senkin_tmp 0.6561, ss_opm 0.6576, guanlab_dengkw_pm 0.6634; mean Pearson per cell 0.786-0.812),
