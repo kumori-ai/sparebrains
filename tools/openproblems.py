@@ -25,6 +25,13 @@ REPO = "openproblems-bio/task_predict_modality"
 S3 = "https://openproblems-data.s3.amazonaws.com/resources/task_predict_modality"
 RESULTS = "run_2026-10-10_07-15-14"
 DATASET = "openproblems_neurips2021/bmmc_cite/normal"
+SWAP = "openproblems_neurips2021/bmmc_cite/swap"   # the other direction: the bar's check that a win is not a fit
+SMOKE = ("import numpy as np\nfrom sklearn.decomposition import TruncatedSVD\nfrom sklearn.linear_model import Ridge\n\n"
+         "def predict(X_train, Y_train, X_test, batch_train, batch_test):\n"
+         "    svd = TruncatedSVD(32, random_state=0).fit(X_train)\n"
+         "    return Ridge(alpha=1.0).fit(svd.transform(X_train), Y_train).predict(svd.transform(X_test))\n")
+MAX_TEST_SCORINGS = 3                              # the bar (DECISIONS 2026-10-20): at most 3 candidates see the test set
+COMPETITIVE = {"rmse": 0.6634, "mean_pearson_per_cell": 0.7857}   # guanlab_dengkw_pm, the third NeurIPS 2021 winner
 NORM = "log_cp10k"                           # knnr_py's preferred_normalization (its config.vsh.yaml)
 METHOD, PARAMS = "knnr_py", {"distance_method": "minkowski", "n_pcs": 50, "n_neighbors": 100}   # config defaults
 METRICS = ("mse",)                          # Python, run in-process
@@ -54,9 +61,11 @@ def run_r_metric(src, data_dir, prediction, out_name):
                                                  "output": f"/data/{out_name}"}))
     cran = ", ".join(f'\\"{p}\\"' for p in R_CRAN)
     t = time.time()
-    subprocess.run(["docker", "run", "--rm", "-v", f"{d.resolve()}:/data", R_IMAGE, "bash", "-c",
-                    f'Rscript -e "install.packages(c({cran}), repos=\\"https://cloud.r-project.org\\", quiet=TRUE)" '
-                    f'>/dev/null 2>&1; Rscript /data/metric.R'], check=True, capture_output=True, text=True)
+    r = subprocess.run(["docker", "run", "--rm", "-v", f"{d.resolve()}:/data", R_IMAGE, "bash", "-c",
+                        f'Rscript -e "install.packages(c({cran}), repos=\\"https://cloud.r-project.org\\", quiet=TRUE)" '
+                        f'>/dev/null 2>&1; Rscript /data/metric.R'], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"R metric failed (exit {r.returncode}): {(r.stderr or r.stdout)[-1500:]}")
     return round(time.time() - t, 1)
 
 
@@ -189,6 +198,32 @@ def evolve(rounds, ask, score, ref, writer, seed=None):
     return rows
 
 
+def verdict(normal, swap):
+    """The pre-registered bar. normal: metric -> {cand, ref, ci} (ci: 95% interval of cand - ref over the test cells);
+    swap: {cand, ref} metric dicts. Useful: better than the reference on both metrics with each interval clear of
+    zero, and no worse on swap. Competitive: among the winners on normal; reported, not the bar."""
+    rmse, pear = normal["rmse"], normal["mean_pearson_per_cell"]
+    swap_ok = (swap["cand"]["rmse"] <= swap["ref"]["rmse"]
+               and swap["cand"]["mean_pearson_per_cell"] >= swap["ref"]["mean_pearson_per_cell"])
+    return {"useful": rmse["ci"][1] < 0 and pear["ci"][0] > 0 and swap_ok, "swap_no_worse": swap_ok,
+            "competitive": rmse["cand"] <= COMPETITIVE["rmse"] and pear["cand"] >= COMPETITIVE["mean_pearson_per_cell"]}
+
+
+def shot_left(ledger_dir):
+    return len(list(Path(ledger_dir).glob("final-*.json"))) < MAX_TEST_SCORINGS
+
+
+def candidate_from(ledger_file, round_no):
+    """A candidate's code, as its evolve row recorded it; only a candidate that ran on validation qualifies."""
+    for line in Path(ledger_file).read_text().splitlines():
+        r = json.loads(line)
+        if r.get("round") == round_no:
+            if "metrics" not in r or not r.get("code"):
+                raise ValueError(f"round {round_no} did not run on validation")
+            return r["code"]
+    raise ValueError(f"no round {round_no} in {ledger_file}")
+
+
 def fetch_script(path, sha):
     raw = subprocess.run(["gh", "api", f"repos/{REPO}/contents/{path}?ref={sha}", "-q", ".content"],
                          capture_output=True, text=True, check=True).stdout
@@ -201,21 +236,32 @@ def run_script(src, name, par, meta):
     return round(time.time() - t, 1)
 
 
+def _dense(a):
+    from scipy import sparse
+    return a.toarray() if sparse.issparse(a) else np.asarray(a)
+
+
+def write_inputs(d, X_train, Y_train, X_test, batch_train, batch_test):
+    """What a candidate's predict() is given, laid out for run_candidate; readable by the sandbox user."""
+    from scipy import sparse
+    d.mkdir(parents=True, exist_ok=True)
+    sparse.save_npz(d / "X_train.npz", sparse.csr_matrix(X_train))
+    np.save(d / "Y_train.npy", _dense(Y_train).astype(np.float32))
+    sparse.save_npz(d / "X_test.npz", sparse.csr_matrix(X_test))
+    np.save(d / "batch_train.npy", np.asarray(batch_train))
+    np.save(d / "batch_test.npy", np.asarray(batch_test))
+
+
 def prepare(data, val, answers):
     """Validation arrays (all of site 1 held out) where the sandbox can read them, the answers where it cannot,
     and the reference's validation scores from the task's own knnr_py script."""
     import anndata as ad
-    from scipy import sparse
     m1, m2 = ad.read_h5ad(data / "train_mod1.h5ad"), ad.read_h5ad(data / "train_mod2.h5ad")
     v = held_out(m1.obs["batch"].astype(str).values)
-    val.mkdir(parents=True, exist_ok=True)
     answers.mkdir(parents=True, exist_ok=True)
-    dense = lambda a: a.toarray() if sparse.issparse(a) else np.asarray(a)
-    sparse.save_npz(val / "X_train.npz", sparse.csr_matrix(m1.layers["normalized"][~v]))
-    np.save(val / "Y_train.npy", dense(m2.layers["normalized"][~v]).astype(np.float32))
-    sparse.save_npz(val / "X_test.npz", sparse.csr_matrix(m1.layers["normalized"][v]))
-    np.save(val / "batch_train.npy", m1.obs["batch"].astype(str).values[~v])
-    np.save(val / "batch_test.npy", m1.obs["batch"].astype(str).values[v])
+    dense = _dense
+    b = m1.obs["batch"].astype(str).values
+    write_inputs(val, m1.layers["normalized"][~v], m2.layers["normalized"][~v], m1.layers["normalized"][v], b[~v], b[v])
     y_val = dense(m2.layers["normalized"][v]).astype(np.float32)
     np.save(answers / "Y_val.npy", y_val)
     h5 = answers / "h5"
@@ -281,11 +327,11 @@ def writer_ask(lane):
     return decompose.router_ask(lane)[0], f"router lane {lane}"
 
 
-def download(data):
+def download(data, dataset=DATASET):
     data.mkdir(parents=True, exist_ok=True)
     for f in FILES:
         if not (data / f"{f}.h5ad").exists():
-            urllib.request.urlretrieve(f"{S3}/datasets/{DATASET}/{NORM}/{f}.h5ad", data / f"{f}.h5ad")
+            urllib.request.urlretrieve(f"{S3}/datasets/{dataset}/{NORM}/{f}.h5ad", data / f"{f}.h5ad")
 
 
 def pinned_sha():
@@ -329,9 +375,87 @@ def reproduce(work, out):
     return 0 if row["pass"] else 1
 
 
+def official(sha, data, prediction):
+    """The task's own scores for one prediction: its mse script in-process, its R correlation script in its image."""
+    import anndata as ad
+    tag = Path(prediction).stem
+    run_script(fetch_script("src/metrics/mse/script.py", sha), "mse",
+               {"input_test_mod2": str(data / "test_mod2.h5ad"), "input_prediction": str(prediction),
+                "output": str(data / f"mse-{tag}.h5ad")}, {"name": "mse"})
+    run_r_metric(fetch_script("src/metrics/correlation/script.R", sha), data, prediction, f"corr-{tag}.h5ad")
+    got = {}
+    for f in (f"mse-{tag}.h5ad", f"corr-{tag}.h5ad"):
+        u = ad.read_h5ad(data / f).uns
+        got.update(zip(u["metric_ids"], [round(float(v), 4) for v in u["metric_values"]]))
+    return got
+
+
+def final(work, code, source, out, user, python):
+    """One candidate on the test set, both directions, scored and judged by the bar. The answers stay unreadable
+    to the candidate; the reference is the task's own knnr_py, re-run here."""
+    import anndata as ad
+    from scipy.sparse import csc_matrix
+    if source != "smoke" and not shot_left(Path(out).parent):
+        sys.exit(f"{MAX_TEST_SCORINGS} candidates have already seen the test set (the bar's limit)")
+    sha, res = pinned_sha(), {}
+    cand_dir = work / "candidates"
+    cand_dir.mkdir(parents=True, exist_ok=True)
+    cand_dir.chmod(0o1777)
+    for name, ds in (("normal", DATASET), ("swap", SWAP)):
+        data, inp = work / f"final-{name}" / "data", work / f"final-{name}" / "in"
+        download(data, ds)
+        data.chmod(0o700)                                          # the answers: not the sandbox user's to read
+        m1, m2, t1, t2 = (ad.read_h5ad(data / f"{f}.h5ad") for f in FILES)
+        write_inputs(inp, m1.layers["normalized"], m2.layers["normalized"], t1.layers["normalized"],
+                     m1.obs["batch"].astype(str).values, t1.obs["batch"].astype(str).values)
+        for p in [inp, *inp.iterdir()]:
+            p.chmod(0o755 if p.is_dir() else 0o644)
+        run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
+                   {"input_train_mod1": str(data / "train_mod1.h5ad"), "input_train_mod2": str(data / "train_mod2.h5ad"),
+                    "input_test_mod1": str(data / "test_mod1.h5ad"), "output": str(data / "ref.h5ad"), **PARAMS},
+                   {"name": METHOD})
+        code_file, out_npy = cand_dir / f"final-{name}.py", cand_dir / f"final-{name}.npy"
+        code_file.write_text(code)
+        code_file.chmod(0o644)
+        r = subprocess.run(candidate_cmd(str(code_file), str(inp), str(out_npy), user, python), capture_output=True,
+                           text=True, timeout=CAND_S + 120)
+        y = _dense(t2.layers["normalized"]).astype(np.float32)
+        if r.returncode != 0 or not out_npy.exists():
+            res[name] = {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
+            continue
+        p = np.load(out_npy, allow_pickle=False)
+        if p.shape != y.shape or not np.isfinite(p).all():
+            res[name] = {"error": f"prediction shape {p.shape} (want {y.shape}) or non-finite values"}
+            continue
+        ad.AnnData(layers={"normalized": csc_matrix(p)}, obs=t1.obs, var=m2.var,
+                   uns={"dataset_id": m1.uns["dataset_id"], "method_id": "sparebrains_candidate"}).write_h5ad(data / "cand.h5ad")
+        ref = _dense(ad.read_h5ad(data / "ref.h5ad").layers["normalized"]).astype(np.float32)
+        res[name] = {"cand": official(sha, data, data / "cand.h5ad"), "ref": official(sha, data, data / "ref.h5ad"),
+                     "_y": y, "_p": p, "_r": ref}
+    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "task": REPO, "commit": sha,
+           "source": source, "code": code, "normalization": NORM}
+    if any("error" in v for v in res.values()):
+        row.update(verdict={"useful": False, "competitive": False}, errors={k: v["error"] for k, v in res.items() if "error" in v})
+    else:
+        n = res["normal"]
+        normal = {m: {"cand": n["cand"][m], "ref": n["ref"][m],
+                      "ci": [round(x, 5) for x in paired_bootstrap(n["_y"], n["_p"], n["_r"], m)]}
+                  for m in ("rmse", "mean_pearson_per_cell")}
+        row.update(normal={"scores": {"cand": n["cand"], "ref": n["ref"]}, "bootstrap": normal},
+                   swap={"scores": {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]}},
+                   verdict=verdict(normal, {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]}))
+    Path(out).write_text(json.dumps(row, indent=1) + "\n")
+    print(json.dumps({k: row[k] for k in ("source", "verdict")} | ({"normal": row["normal"]["bootstrap"]} if "normal" in row else {"errors": row.get("errors")})), flush=True)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate"])
+    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "final"])
+    ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
+    ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
+    ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
+                                                          "is not one of the bar's 3 test scorings, and is not published")
     ap.add_argument("args", nargs="*", help="run-candidate: CODE VAL_DIR OUT (inside the sandbox)")
     ap.add_argument("--work", help="scratch: data/, val/ (sandbox-readable), answers/ (not), candidates/")
     ap.add_argument("--out", help="the ledger file to write")
@@ -344,6 +468,12 @@ def main():
     work = Path(a.work)
     if a.cmd == "reproduce":
         return reproduce(work, a.out)
+    if a.cmd == "final":
+        if a.smoke:
+            return final(work, SMOKE, "smoke", a.out, os.environ.get("SB_JUDGE_USER"), sys.executable)
+        code = candidate_from(a.evolve_file, a.round)
+        return final(work, code, {"evolve_file": a.evolve_file, "round": a.round}, a.out,
+                     os.environ.get("SB_JUDGE_USER"), sys.executable)
     val, answers = work / "val", work / "answers"
     if a.cmd == "prepare":
         download(work / "data")

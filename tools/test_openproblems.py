@@ -142,5 +142,39 @@ class Evolve(unittest.TestCase):
         self.assertIn("0.9400", asked[2], "the closest candidate is shown though its Pearson is below the reference")
 
 
+class Final(unittest.TestCase):
+    def test_the_verdict_is_the_pre_registered_bar(self):
+        normal = {"rmse": {"cand": 0.70, "ref": 0.7233, "ci": (-0.03, -0.01)},
+                  "mean_pearson_per_cell": {"cand": 0.79, "ref": 0.7707, "ci": (0.005, 0.03)}}
+        swap_ok = {"cand": {"rmse": 0.349, "mean_pearson_per_cell": 0.736}, "ref": {"rmse": 0.3502, "mean_pearson_per_cell": 0.7351}}
+        v = op.verdict(normal, swap_ok)
+        self.assertEqual((v["useful"], v["competitive"]), (True, False))
+        self.assertFalse(op.verdict({**normal, "rmse": {**normal["rmse"], "ci": (-0.03, 0.002)}}, swap_ok)["useful"],
+                         "an rmse interval touching zero is not a win")
+        swap_bad = {**swap_ok, "cand": {"rmse": 0.50, "mean_pearson_per_cell": 0.736}}
+        self.assertFalse(op.verdict(normal, swap_bad)["useful"], "worse on swap fails the bar")
+        best = {"rmse": {"cand": 0.66, "ref": 0.7233, "ci": (-0.08, -0.05)},
+                "mean_pearson_per_cell": {"cand": 0.80, "ref": 0.7707, "ci": (0.02, 0.04)}}
+        self.assertTrue(op.verdict(best, swap_ok)["competitive"])
+
+    def test_no_more_than_three_test_scorings(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for i in range(3):
+                self.assertTrue(op.shot_left(Path(d)))
+                (Path(d) / f"final-{i}.json").write_text("{}")
+            self.assertFalse(op.shot_left(Path(d)))
+
+    def test_a_candidate_comes_from_its_ledger_round(self):
+        import tempfile, json
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "evolve-1.jsonl"
+            f.write_text(json.dumps({"round": 6, "code": "def predict(): pass\n", "metrics": {"rmse": 0.94}}) + "\n"
+                         + json.dumps({"round": 7, "error": "x"}) + "\n")
+            self.assertEqual(op.candidate_from(f, 6), "def predict(): pass\n")
+            with self.assertRaises(ValueError):
+                op.candidate_from(f, 7)
+
+
 if __name__ == "__main__":
     unittest.main()
