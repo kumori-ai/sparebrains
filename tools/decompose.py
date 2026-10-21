@@ -16,7 +16,7 @@ goal-closer try through prover.judge_goals, the goal batches' own path.
 
     python3 tools/decompose.py run --max-goals 40 --out ledger/decompose/run-ID.jsonl   # needs the Mistral key (leanstral.KEY_ENV)
 """
-import argparse, json, re, sys, time
+import argparse, json, re, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,9 +180,10 @@ def router_ask(backend, chat=None, max_tokens=16000):
     return ask, NoPacer()
 
 
-def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None):
+def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, on_row=None):
     """Each goal decomposed, then its proof spliced into its problem (goal_closer.close). Returns (rows, solves):
-    rows are measurements; solves are [(goal, body)] the kernel accepted whole."""
+    rows are measurements; solves are [(goal, body)] the kernel accepted whole. `on_row` gets each row as its goal
+    finishes, so a run stopped by its time limit keeps every goal it finished (2026-10-21)."""
     def one(g):
         t0, budget, log = time.monotonic(), {"asks": 0}, []
         target_text = read_target(g["target_set"], g["target"])
@@ -194,6 +195,8 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None):
                "restates": g.get("restates"), "asks": budget["asks"], "levels": log,
                "outcome": "solved" if r and r["verdict"] == "accept" else ("goal proved, splice failed" if r else "failed"),
                "seconds": round(time.monotonic() - t0, 1)}
+        if on_row:
+            on_row(row)
         return row, ((g, body) if r and r["verdict"] == "accept" else None)
 
     with ThreadPoolExecutor(jobs) as pool:
@@ -237,11 +240,14 @@ def main():
     ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)
     import fixer
     names_ix = lean_tools.index()
-    rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
-                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    with open(a.out, "a") as f:
-        f.writelines(json.dumps({**r, "backend": lane["backend"]}, ensure_ascii=False) + "\n" for r in rows)
+    lock = threading.Lock()
+
+    def keep(r):                                        # one line per finished goal, flushed at once
+        with lock, open(a.out, "a") as f:
+            f.write(json.dumps({**r, "backend": lane["backend"]}, ensure_ascii=False) + "\n")
+    rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
+                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix), on_row=keep)
     published = {}
     if solves:
         from utilities.kumori_api_client import init, sparebrains_attempt

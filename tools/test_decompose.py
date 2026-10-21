@@ -84,6 +84,17 @@ class Decompose(unittest.TestCase):
 class RouterLane(unittest.TestCase):
     """Any lane can do the asking (charter: every tool runs on any lane); Leanstral stays the default."""
 
+    def test_each_goals_row_is_handed_over_as_soon_as_it_is_done(self):
+        from unittest import mock
+        goals = [{"sha": s, "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by\n  sorry"}
+                 for s in ("a", "b")]
+        seen = []
+        with mock.patch.object(decompose, "decompose", return_value=None):
+            rows, solves = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask=None, run_lean=None,
+                                         judge_text=None, jobs=1, on_row=lambda r: seen.append(r["sha"]))
+        self.assertEqual(seen, ["a", "b"], "each row arrives before the run ends, so a timeout loses none")
+        self.assertEqual([r["sha"] for r in rows], ["a", "b"])
+
     def test_each_lane_skips_only_the_goals_it_tried_itself(self):
         rows = [{"sha": "a"}, {"sha": "b", "backend": "groq-gptoss-decompose"}]
         self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"a"})     # old rows are Leanstral's
