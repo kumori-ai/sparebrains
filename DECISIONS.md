@@ -117,6 +117,9 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   solved, 1,512 research open). First step, $0 and read-only toward them: `tools/fc_sweep.py` and fc_sweep.yml run
   our loop's closers on those 139 in their own build, two canaries first (2+2=4 must pass, 2+2=5 must not).
   Anything sent to their repository needs Andy's yes on the exact diff and his signed Google CLA.
+  *Sweep result (run 39528990264, 2026-10-21):* 0 of 139 closed by the closers in their build; both canaries
+  held (2+2=4 proved, 2+2=5 open), no timeouts, ~45 s a declaration. What is left there is not one tactic deep:
+  the easy ones are already proved. Next: a prover writes whole proofs for them in the same build.
 - **Leanstral: streaming works, and a problem that runs out twice is asked without long reasoning.** Round
   20261021T0100, the first streamed: 15 of 15 answered, 0 errors (the two before lost 12 of 20 and 12 of 17). But 7
   of the 15 spent all 120,000 tokens reasoning with no proof (128k is the model's maximum). A problem whose answers
