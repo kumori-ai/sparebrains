@@ -56,6 +56,11 @@ Everything NOT here is open and lives in `PLAN.md` §6.
     can leave files in its home or output directory for a later one, and it has network access (the answer files
     are public). No candidate shows signs of either (validation rmse ~0.93, shot 1 lost). The fix is a container per
     candidate with no network and throwaway storage; it comes before shot 2.
+  - *The prediction file:* the host `np.load()`ed the candidate's output and so followed a link: a candidate could
+    have pointed it at `answers/Y_val.npy` and scored the answers. Now `load_prediction` opens it without following
+    links, takes only a regular `.npy` 1.0/2.0 file whose header is under 4 KiB (checked before NumPy reads it),
+    float32 of the expected shape and exact size, after the candidate's processes are gone. Codex AGREE after two
+    rounds (round 1 found NumPy reads a declared header whole, up to 4 GiB, before its own limit).
 
 ## 2026-10-20
 

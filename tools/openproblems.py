@@ -181,6 +181,44 @@ def candidate_cmd(code_file, val_dir, out, user, python):
             "prlimit", f"--as={CAND_MEM}", "timeout", str(CAND_S), *cmd] if user else cmd
 
 
+def load_prediction(path, shape):
+    """A candidate's output, read as hostile: never through a link (np.load follows one, so a link to the answers
+    would score them as the prediction), only a regular file, only .npy 1.0/2.0 with a header under 4 KiB (NumPy
+    reads a declared header whole before its own limit), only float32 of `shape`, exactly that size. Any problem
+    with the file is a ValueError, so it is the candidate's error."""
+    import stat, struct
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as e:
+        raise ValueError(f"cannot open the prediction without following it: {e}") from e
+    try:
+        with os.fdopen(fd, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            if not stat.S_ISREG(st.st_mode):
+                raise ValueError("the prediction is not a regular file")
+            head = fh.read(8)
+            if len(head) != 8 or head[:6] != b"\x93NUMPY" or head[6:8] not in (b"\x01\x00", b"\x02\x00"):
+                raise ValueError("not a .npy file of version 1.0 or 2.0")
+            size_fmt = "<H" if head[6] == 1 else "<I"
+            raw = fh.read(struct.calcsize(size_fmt))
+            if len(raw) != struct.calcsize(size_fmt) or struct.unpack(size_fmt, raw)[0] > 4096:
+                raise ValueError("a .npy header over 4 KiB")
+            fh.seek(0)
+            major, _ = np.lib.format.read_magic(fh)
+            got, fortran, dtype = (np.lib.format.read_array_header_1_0 if major == 1
+                                   else np.lib.format.read_array_header_2_0)(fh)
+            n = int(np.prod(shape))
+            if tuple(got) != tuple(shape) or dtype != np.dtype("<f4") or fortran:
+                raise ValueError(f"prediction {tuple(got)} {dtype} (want {tuple(shape)} float32, C order)")
+            if st.st_size != fh.tell() + 4 * n:
+                raise ValueError(f"prediction file is {st.st_size} bytes, want {fh.tell() + 4 * n}")
+            return np.fromfile(fh, dtype="<f4", count=n).reshape(shape)
+    except ValueError:
+        raise
+    except Exception as e:                       # anything else about this file is still the candidate's file
+        raise ValueError(f"unreadable prediction: {type(e).__name__}: {e}") from e
+
+
 def run_fenced(cmd, show, hide, user, timeout):
     """Run a candidate with only `show` open to the sandbox user and every directory in `hide` closed (the other
     direction's X_test is this direction's answer: 2026-10-22, both were open all run), then kill anything it left
@@ -444,8 +482,11 @@ def scorer(val, answers, work, user, python, hide=()):
             return {"error": f"over {CAND_S} s"}
         if r.returncode != 0 or not out.exists():
             return {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
-        p = np.load(out, allow_pickle=False)
-        if p.shape != y_val.shape or not np.isfinite(p).all():
+        try:
+            p = load_prediction(out, y_val.shape)
+        except ValueError as e:
+            return {"error": f"refused prediction file: {e}"}
+        if not np.isfinite(p).all():
             return {"error": f"prediction shape {p.shape} (want {y_val.shape}) or non-finite values"}
         m = {k: round(v, 4) for k, v in metrics(y_val, p).items()}
         if ref_pred is not None:
@@ -573,8 +614,12 @@ def final(work, code, source, out, user, python):
         if r.returncode != 0 or not out_npy.exists():
             res[name] = {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
             continue
-        p = np.load(out_npy, allow_pickle=False)
-        if p.shape != y.shape or not np.isfinite(p).all():
+        try:
+            p = load_prediction(out_npy, y.shape)
+        except ValueError as e:
+            res[name] = {"error": f"refused prediction file: {e}"}
+            continue
+        if not np.isfinite(p).all():
             res[name] = {"error": f"prediction shape {p.shape} (want {y.shape}) or non-finite values"}
             continue
         ad.AnnData(layers={"normalized": csc_matrix(p)}, obs=t1.obs, var=var,

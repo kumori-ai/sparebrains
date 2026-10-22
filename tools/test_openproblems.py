@@ -250,6 +250,64 @@ class Fenced(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
 
 
+class HostileOutput(unittest.TestCase):
+    """A candidate writes its own output file, so the host must not follow it anywhere (2026-10-22: np.load follows
+    a symlink, so a link to answers/Y_val.npy would have scored the answers as a perfect prediction)."""
+
+    def setUp(self):
+        import tempfile
+        self.d = Path(tempfile.mkdtemp())
+        self.shape = (5, 3)
+
+    def test_a_regular_float32_file_of_the_right_shape_loads(self):
+        f = self.d / "p.npy"
+        np.save(f, np.ones(self.shape, dtype=np.float32))
+        self.assertEqual(op.load_prediction(f, self.shape).shape, self.shape)
+
+    def test_a_link_to_the_answers_is_refused(self):
+        answers = self.d / "Y_val.npy"
+        np.save(answers, np.ones(self.shape, dtype=np.float32))
+        (self.d / "p.npy").symlink_to(answers)
+        with self.assertRaises(ValueError):
+            op.load_prediction(self.d / "p.npy", self.shape)
+
+    def test_wrong_shape_dtype_objects_or_a_fifo_are_refused(self):
+        import os
+        for name, arr in (("shape", np.ones((5, 4), dtype=np.float32)), ("dtype", np.ones(self.shape)),
+                          ("obj", np.array([[None] * 3] * 5, dtype=object))):
+            f = self.d / f"{name}.npy"
+            np.save(f, arr, allow_pickle=True)
+            with self.assertRaises(ValueError, msg=name):
+                op.load_prediction(f, self.shape)
+        fifo = self.d / "fifo.npy"
+        os.mkfifo(fifo)
+        with self.assertRaises(ValueError):
+            op.load_prediction(fifo, self.shape)
+
+    def test_a_huge_declared_header_or_an_unknown_version_is_refused_before_reading(self):
+        import struct
+        from unittest import mock
+        big = self.d / "big.npy"                                          # v2 header claiming 4 GiB
+        big.write_bytes(b"\x93NUMPY\x02\x00" + struct.pack("<I", 0xFFFFFFFF) + b"{")
+        with mock.patch.object(np.lib.format, "read_array_header_2_0") as parse:
+            with self.assertRaises(ValueError):
+                op.load_prediction(big, self.shape)
+            parse.assert_not_called()
+        odd = self.d / "odd.npy"
+        np.save(odd, np.ones(self.shape, dtype=np.float32))
+        b = bytearray(odd.read_bytes()); b[6:8] = b"\x09\x07"                # version 9.7
+        odd.write_bytes(bytes(b))
+        with self.assertRaises(ValueError):
+            op.load_prediction(odd, self.shape)
+
+    def test_a_truncated_file_is_refused(self):
+        f = self.d / "p.npy"
+        np.save(f, np.ones(self.shape, dtype=np.float32))
+        f.write_bytes(f.read_bytes()[:-8])
+        with self.assertRaises(ValueError):
+            op.load_prediction(f, self.shape)
+
+
 class BothWays(unittest.TestCase):
     def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
         normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
