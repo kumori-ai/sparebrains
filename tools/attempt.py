@@ -605,6 +605,8 @@ def main():
                "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
+        row["request_config"] = {**row.get("request_config", {}), "router_timeout_s": long_or_not["timeout_s"],   # what was asked:
+                                 "long_call": bool(long_or_not.get("long_call"))}   # a relay try asks 240 s, not 60
         if relay_ctx:                                    # which tools this try had, for the digest and the before/after
             row["tools"] = {"names_shown": sorted((relay_ctx.get("real_names") or {}))[:12],
                             **{k: v for k, v in tools_used.items() if k != "sketch"}}
@@ -706,6 +708,8 @@ def main():
                    "failure_kind": failure_kind(t["verdict"], t.get("reason") or ""), "lemma": statement[:600],
                    "call_seconds": 0.0, "lean_seconds": t.get("seconds", 0.0), "response_chars": len(t.get("reply") or ""),
                    "proof_sha": hashlib.sha256(t["proof"].encode()).hexdigest() if t.get("proof") else None}
+            row["request_config"] = {**row.get("request_config", {}), "router_timeout_s": relay.LEMMA_CALL_S,
+                                     "long_call": True}
             record(row, t["prompt"], t.get("reply"), t.get("proof"),
                    subgoals.lemma_file(prefix, statement, t.get("proof") or ""), t.get("output"))
             print(f"    subgoal {verdict} ← {lane['backend']}: {statement[:110]}", flush=True)
