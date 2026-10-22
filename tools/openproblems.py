@@ -176,7 +176,7 @@ scipy.stats; Ridge, RidgeCV and PLSRegression take no random_state; a sparse mat
 StandardScaler needs with_mean=False on it; SVR/LinearSVR and other single-output models need a wrapper for 134
 outputs; never build a dense n_test x n_train matrix (14,669 x 51,506 is 5.6 GiB); keep n_neighbors <= the
 number of rows it is fit on; index arrays must be integers. PLSRegression is in sklearn.cross_decomposition. In the
-swap direction Y_train is a dense 51,506 x 13,953 float32 array (2.7 GiB of a 13 GiB budget): never cast it or X to
+swap direction Y_train is a dense 51,506 x 13,953 float32 array (2.7 GiB of a 12 GiB budget): never cast it or X to
 float64 or copy it whole; fit on it in place, predict in chunks of test rows, return float32. TruncatedSVD takes no
 dtype argument and KernelRidge no fit_intercept. A z-score of each cell is a row operation on the dense reduced
 matrix, (Z - Z.mean(axis=1, keepdims=True)) / Z.std(axis=1, keepdims=True), applied to train and test rows alike;
@@ -583,7 +583,10 @@ def verdict(normal, swap):
             "competitive": rmse["cand"] <= COMPETITIVE["rmse"] and pear["cand"] >= COMPETITIVE["mean_pearson_per_cell"]}
 
 
-QUALIFY_MEM = "10g"      # under the 12g default: the host holds the loaded layers and the fold's answers meanwhile
+# One envelope for every stage (2026-10-22): qualify-39796223349's swap site 3 (28,921 held cells) hit the 10g it had
+# here while evolve and final gave 12g, so evolve could select what qualify rejects for memory alone. The host's own
+# memory while the candidate runs is measured per fold (host_rss_gb_during_candidate) to show the envelope fits.
+QUALIFY_MEM = SANDBOX_MEM
 QUALIFY_POLICY = ("loso-v1 (2026-10-22): every training site held out in turn, both directions; the candidate must beat "
                   "knnr_chunked (random_state 0) on that site on rmse (lower) and Pearson per cell (higher), every site, "
                   "no execution error; mean and worst-site deltas reported")
@@ -609,6 +612,35 @@ def qualify_verdict(rows):
             "worst_pearson_delta": float(min(d)) if d else None}
 
 
+def host_rss_watch(every=1.0):
+    """The host process's own resident memory (VmRSS, Linux) sampled until the returned stop() is called, which
+    gives its peak in GiB: what the host held beside the container, unlike ru_maxrss's lifetime peak. None elsewhere."""
+    import threading
+    status = Path("/proc/self/status")
+    peak, stop = [None], threading.Event()
+
+    def read():
+        try:
+            kb = int(re.search(r"VmRSS:\s+(\d+)", status.read_text()).group(1))
+            peak[0] = max(peak[0] or 0, kb / 2 ** 20)
+        except (OSError, AttributeError, ValueError):
+            pass
+
+    def loop():
+        read()
+        while not stop.wait(every):
+            read()
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+
+    def done():
+        stop.set()
+        th.join(5)
+        read()
+        return round(peak[0], 2) if peak[0] is not None else None
+    return done
+
+
 def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=None):
     """Each training site held out in turn: the reference and the candidate (in its container) on that site."""
     import shutil
@@ -623,8 +655,11 @@ def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=No
         write_inputs(inp, X[~v], Y[~v], X[v], batches[~v], batches[v])
         y = _dense(Y[v]).astype(np.float32)
         ref = metrics(y, np.asarray(reference(X[~v], _dense(Y[~v]).astype(np.float32), X[v])))
-        diag = {}
-        p, err, _ = predict(code_file, inp, y.shape, CAND_S + 60, mem=QUALIFY_MEM, diag=diag)
+        diag, host = {}, host_rss_watch()
+        try:
+            p, err, _ = predict(code_file, inp, y.shape, CAND_S + 60, mem=QUALIFY_MEM, diag=diag)
+        finally:
+            host_gb = host()
         if err is None and not np.isfinite(p).all():
             err = "non-finite values in the prediction"
         rows.append({"site": s, "n_train": int((~v).sum()), "n_held": int(v.sum()), "error": err,
@@ -632,6 +667,7 @@ def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=No
                      "ref": {k: round(x, 4) for k, x in ref.items()},
                      "seconds": round(time.monotonic() - t0, 1),           # measured, for the runner's budget
                      "host_peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20, 2),
+                     "host_rss_gb_during_candidate": host_gb,  # the host's peak while it ran and its answer came back
                      "container": diag})                  # its own peak and how it ended (2026-10-22: swap site 3, exit 137)
         del p, y                                     # nothing of this fold is held while the next one runs
         shutil.rmtree(inp.parent, ignore_errors=True)

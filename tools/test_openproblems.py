@@ -415,6 +415,21 @@ class Qualify(unittest.TestCase):
         self.assertEqual(rows[0]["container"], {"mem_peak_gb_seen": 9.9, "oom_killed": True, "exit_code": 137,
                                                 "mem_cap": op.QUALIFY_MEM})
 
+    def test_every_stage_gives_a_candidate_the_same_memory(self):
+        self.assertEqual(op.QUALIFY_MEM, op.SANDBOX_MEM)
+        self.assertIn(f"{op.SANDBOX_MEM[:-1]} GiB budget", op.BRIEF, "the writer is told the cap it will get")
+
+    def test_host_memory_is_watched_while_the_candidate_runs(self):
+        import os
+        stop = op.host_rss_watch(every=0.01)
+        held = np.ones(1 << 24)                          # 128 MiB, touched
+        gb = stop()
+        if not os.path.exists("/proc/self/status"):
+            self.assertIsNone(gb)
+        else:
+            self.assertGreater(gb, 0.1)
+        del held
+
     def test_container_exit_reads_dockers_oom_flag(self):
         from unittest import mock
         done = lambda out: mock.Mock(stdout=out, returncode=0)
