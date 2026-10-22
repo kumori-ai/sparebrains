@@ -502,10 +502,41 @@ def both_ways(score_normal, score_swap):
     return score
 
 
-def evolve(rounds, ask, score, ref, writer, seed=None):
+SCREEN_ROWS, SCREEN_S, REPAIRS = (2000, 700), 300, 2   # a screen's train/test cells, its deadline, repair asks a round
+
+
+def repair_prompt(code, why, screen_rows=SCREEN_ROWS):
+    return (f"Your predict() crashed on a small slice of the same data ({screen_rows[0]:,} training cells, "
+            f"{screen_rows[1]:,} test cells from another site, the same features), before any scoring. Fix the error "
+            f"and keep the method; it will also run on the full data (tens of thousands of cells).\n```python\n{code}```"
+            f"\nThe error: {why[-1500:]}\nReply with the whole function and its imports in one ```python block.")
+
+
+def screened(code, ask, screen, repairs):
+    """The evaluation cascade's cheap first stage (AlphaEvolve sec. 2.4; execution feedback per Chen et al. 2023): the
+    code runs on a small slice in the same sandbox, and a crash goes back to the writer with its traceback, up to
+    `repairs` times, before any full scoring. Returns (code, the screen's last error or None, asks, errors seen)."""
+    asks, seen = 0, []
+    while True:
+        why = screen(code)
+        if why is None:
+            return code, None, asks, seen
+        seen.append(why[-300:])
+        if asks >= repairs:
+            return code, why, asks, seen
+        reply = ask(repair_prompt(code, why))
+        asks += 1
+        fixed = extract_code(reply) if isinstance(reply, str) else None
+        if fixed is None:
+            return code, why, asks, seen
+        code = fixed
+
+
+def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
-    beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. Every
-    attempt is a row; the seed is context, not a row."""
+    beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
+    `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
+    more asks; a row records every ask it took. Every attempt is a row; the seed is context, not a row."""
     rows = []
     for i in range(rounds):
         prompt = BRIEF.format(ref=_fmt(ref))
@@ -530,7 +561,11 @@ def evolve(rounds, ask, score, ref, writer, seed=None):
         if code is None:
             row["error"] = "no code in the reply" if isinstance(reply, str) else f"no reply: {reply.get('error')}"
         else:
-            r = score(code)
+            failed = None
+            if screen:
+                code, failed, extra, seen = screened(code, ask, screen, repairs)
+                row.update(repair_asks=extra, screen_errors=seen)
+            r = {"error": "screen: " + failed} if failed else score(code)
             row.update(code=code, **({"error": r["error"]} if "error" in r else {"metrics": r}))
         rows.append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "code"})[:400], flush=True)
@@ -795,6 +830,41 @@ def run_candidate(code_file, val, out):
         np.save(out, arr)
 
 
+def screen_inputs(val, d, rows=SCREEN_ROWS, seed=0):
+    """A small slice for the screen, from the validation split's training cells only (no answer is read): test cells
+    from one training site, train cells from the others, so the row counts and the sites differ, as on the real run."""
+    from scipy import sparse
+    b = np.load(val / "batch_train.npy", allow_pickle=True).astype(str)
+    site = np.array([re.match(r"s(\d+)", x).group(1) for x in b])
+    test_site = sorted(set(site))[-1]
+    rng = np.random.default_rng(seed)
+    tr = np.sort(rng.choice(np.flatnonzero(site != test_site), rows[0], replace=False))
+    te = np.sort(rng.choice(np.flatnonzero(site == test_site), rows[1], replace=False))
+    X = sparse.load_npz(val / "X_train.npz").tocsr()
+    Y = np.load(val / "Y_train.npy", mmap_mode="r")
+    write_inputs(d, X[tr], np.asarray(Y[tr]), X[te], b[tr], b[te])
+    return (rows[1], Y.shape[1])
+
+
+def screener(dirs, work):
+    """code -> None when it runs on every direction's slice and returns a finite prediction of the right shape, else
+    the first error, naming its direction. dirs: [(name, slice dir, prediction shape)]."""
+    n = [0]
+
+    def screen(code):
+        n[0] += 1
+        f = work / f"screen{n[0]}.py"
+        f.write_text(code)
+        for name, d, shape in dirs:
+            p, err, _ = sandboxed_predict(f, d, shape, SCREEN_S)
+            if err is None and not np.isfinite(p).all():
+                err = "non-finite values in the prediction"
+            if err:
+                return f"{name} direction: {err}"
+        return None
+    return screen
+
+
 def scorer(val, answers, work):
     """Score one direction's candidates on its validation split, each in its own container (docker_cmd)."""
     import uuid
@@ -1008,6 +1078,8 @@ def main():
     ap.add_argument("--work", help="scratch: data/, val/ (sandbox-readable), answers/ (not), candidates/")
     ap.add_argument("--out", help="the ledger file to write")
     ap.add_argument("--rounds", type=int, default=12)
+    ap.add_argument("--repairs", type=int, default=REPAIRS,
+                    help="evolve: repair asks a round after a small-slice screen crash; -1 turns the screen off")
     ap.add_argument("--lane", default="leanstral")
     a = ap.parse_args()
     if a.cmd == "run-candidate":
@@ -1052,7 +1124,12 @@ def main():
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
     score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
-    rows = evolve(a.rounds, ask, score, ref, writer, seed)
+    screen = None
+    if a.repairs >= 0:
+        dirs = [(name, cand / f"screen-{name}", screen_inputs(src, cand / f"screen-{name}"))
+                for name, src in (("normal", val), ("swap", work / "val-swap"))]
+        screen = screener(dirs, cand)
+    rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs))
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

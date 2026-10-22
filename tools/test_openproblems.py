@@ -185,6 +185,57 @@ except ImportError:
     HAS_SKLEARN = False
 
 
+class Screen(unittest.TestCase):
+    """2026-10-22, evolve 39721561134: 17 of 20 rounds crashed in full scoring, each crash costing a whole round."""
+    REF = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
+
+    def test_a_screen_crash_goes_back_to_the_writer_and_the_fix_is_what_gets_scored(self):
+        asked, scored = [], []
+        replies = iter([GOOD, GOOD.replace("np.zeros", "np.ones")])
+
+        def ask(prompt):
+            asked.append(prompt)
+            return next(replies)
+        screen = lambda code: None if "np.ones" in code else "swap direction: exit 1: ValueError: shapes (700,50) (2000,1)"
+        rows = op.evolve(1, ask, lambda code: scored.append(code) or {"rmse": 0.95, "mean_pearson_per_cell": 0.79},
+                         self.REF, writer="fake", screen=screen, repairs=2)
+        self.assertIn("shapes (700,50) (2000,1)", asked[1], "the repair ask carries the traceback")
+        self.assertIn("np.zeros", asked[1], "and the code that crashed")
+        self.assertEqual(len(scored), 1)
+        self.assertIn("np.ones", scored[0], "the repaired code is scored, not the crashed one")
+        self.assertEqual((rows[0]["repair_asks"], len(rows[0]["screen_errors"])), (1, 1))
+        self.assertIn("metrics", rows[0])
+
+    def test_repairs_are_bounded_and_a_round_that_never_passes_is_not_scored(self):
+        asks = []
+        rows = op.evolve(1, lambda p: asks.append(p) or GOOD, lambda code: self.fail("scored a screen failure"),
+                         self.REF, writer="fake", screen=lambda code: "normal direction: exit 1: boom", repairs=2)
+        self.assertEqual(len(asks), 3, "one ask for the round, two repairs, no more")
+        self.assertTrue(rows[0]["error"].startswith("screen: normal direction"))
+        self.assertEqual(rows[0]["repair_asks"], 2)
+
+    def test_without_a_screen_rows_are_as_before(self):
+        rows = op.evolve(1, lambda p: GOOD, lambda code: {"rmse": 0.95, "mean_pearson_per_cell": 0.79}, self.REF, writer="fake")
+        self.assertNotIn("repair_asks", rows[0])
+
+    def test_the_slice_uses_training_cells_only_with_unequal_rows_and_a_held_out_site(self):
+        import tempfile
+        from scipy import sparse
+        rng = np.random.default_rng(0)
+        val, d = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp()) / "screen"
+        b = np.array([f"s{2 + i % 3}d1" for i in range(300)])
+        op.write_inputs(val, sparse.random(300, 7, density=0.3, format="csr", random_state=0), rng.normal(size=(300, 4)),
+                        sparse.csr_matrix(np.ones((50, 7))), b, np.array(["s1d1"] * 50))
+        shape = op.screen_inputs(val, d, rows=(120, 40))
+        self.assertEqual(shape, (40, 4))
+        bt, bs = np.load(d / "batch_train.npy", allow_pickle=True), np.load(d / "batch_test.npy", allow_pickle=True)
+        self.assertEqual((len(bt), len(bs)), (120, 40))
+        self.assertEqual(set(bs), {"s4d1"}, "test cells come from one training site")
+        self.assertNotIn("s4d1", set(bt))
+        self.assertNotIn("s1d1", set(bt) | set(bs), "nothing from the held-out validation cells")
+        self.assertTrue(sparse.issparse(sparse.load_npz(d / "X_train.npz")))
+
+
 class SwapValidation(unittest.TestCase):
     @unittest.skipUnless(HAS_SKLEARN, "needs scikit-learn (the openproblems venv)")
     def test_chunked_knnr_equals_the_plain_mean_of_nearest_neighbours(self):
