@@ -1,0 +1,185 @@
+{
+ "at": "2026-10-22T14:53:14+00:00",
+ "policy": "loso-v1 (2026-10-22): every training site held out in turn, both directions; the candidate must beat knnr_chunked (random_state 0) on that site on rmse (lower) and Pearson per cell (higher), every site, no execution error; mean and worst-site deltas reported",
+ "source": {
+  "evolve_file": "ledger/openproblems/evolve-39538429513.jsonl",
+  "round": 12
+ },
+ "code_sha": "f61f2480a9f8fcf16cba22611d897973208365421ac93b1ed04c8084300d7847",
+ "rows": {
+  "normal": [
+   {
+    "site": 1,
+    "n_train": 51506,
+    "n_held": 14669,
+    "error": null,
+    "cand": {
+     "rmse": 0.9304,
+     "mae": 0.6388,
+     "mean_pearson_per_cell": 0.7876
+    },
+    "ref": {
+     "rmse": 0.9692,
+     "mae": 0.6672,
+     "mean_pearson_per_cell": 0.7857
+    },
+    "seconds": 103.3,
+    "host_peak_rss_gb": 5.4,
+    "container": {
+     "mem_peak_gb_seen": 2.42,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "10g"
+    }
+   },
+   {
+    "site": 2,
+    "n_train": 43590,
+    "n_held": 22585,
+    "error": null,
+    "cand": {
+     "rmse": 0.6432,
+     "mae": 0.4913,
+     "mean_pearson_per_cell": 0.7066
+    },
+    "ref": {
+     "rmse": 0.5095,
+     "mae": 0.3741,
+     "mean_pearson_per_cell": 0.7077
+    },
+    "seconds": 103.6,
+    "host_peak_rss_gb": 5.46,
+    "container": {
+     "mem_peak_gb_seen": 2.41,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "10g"
+    }
+   },
+   {
+    "site": 3,
+    "n_train": 37254,
+    "n_held": 28921,
+    "error": null,
+    "cand": {
+     "rmse": 0.5233,
+     "mae": 0.3905,
+     "mean_pearson_per_cell": 0.547
+    },
+    "ref": {
+     "rmse": 0.4557,
+     "mae": 0.3407,
+     "mean_pearson_per_cell": 0.604
+    },
+    "seconds": 104.5,
+    "host_peak_rss_gb": 5.48,
+    "container": {
+     "mem_peak_gb_seen": 2.42,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "10g"
+    }
+   }
+  ],
+  "swap": [
+   {
+    "site": 1,
+    "n_train": 51506,
+    "n_held": 14669,
+    "error": null,
+    "cand": {
+     "rmse": 0.3176,
+     "mae": 0.1497,
+     "mean_pearson_per_cell": 0.7612
+    },
+    "ref": {
+     "rmse": 0.323,
+     "mae": 0.1554,
+     "mean_pearson_per_cell": 0.7496
+    },
+    "seconds": 186.7,
+    "host_peak_rss_gb": 11.31,
+    "container": {
+     "mem_peak_gb_seen": 9.38,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "10g"
+    }
+   },
+   {
+    "site": 2,
+    "n_train": 43590,
+    "n_held": 22585,
+    "error": null,
+    "cand": {
+     "rmse": 0.3658,
+     "mae": 0.1643,
+     "mean_pearson_per_cell": 0.7038
+    },
+    "ref": {
+     "rmse": 0.3623,
+     "mae": 0.1626,
+     "mean_pearson_per_cell": 0.7111
+    },
+    "seconds": 242.1,
+    "host_peak_rss_gb": 11.31,
+    "container": {
+     "mem_peak_gb_seen": 9.8,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "10g"
+    }
+   },
+   {
+    "site": 3,
+    "n_train": 37254,
+    "n_held": 28921,
+    "error": "exit 137: ",
+    "cand": null,
+    "ref": {
+     "rmse": 0.3835,
+     "mae": 0.1751,
+     "mean_pearson_per_cell": 0.6827
+    },
+    "seconds": 270.5,
+    "host_peak_rss_gb": 11.56,
+    "container": {
+     "mem_peak_gb_seen": 9.77,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": true,
+     "exit_code": 137,
+     "mem_cap": "10g"
+    }
+   }
+  ]
+ },
+ "expected_sites": {
+  "normal": [
+   1,
+   2,
+   3
+  ],
+  "swap": [
+   1,
+   2,
+   3
+  ]
+ },
+ "verdict": {
+  "passed": false,
+  "sites": 6,
+  "mean_pearson_delta": -0.01037999999999999,
+  "worst_pearson_delta": -0.05699999999999994
+ }
+}
