@@ -1,0 +1,17 @@
+import Mathlib
+
+/-- Natural Number Game (Lean 4), Implication world, level 10: 1 ≠ 0. Restated over Mathlib's ℕ. Source: https://github.com/leanprover-community/NNG4/blob/main/Game/Levels/Implication/L10one_ne_zero.lean, Apache-2.0. -/
+theorem primer_implication_10_one_ne_zero : (1 : ℕ) ≠ 0 := by
+  intro h
+  have h1 : 1 = 0 := h
+  have h2 : 1 = 0 + 1 := rfl
+  have h3 : 0 + 1 = 1 := add_zero 1
+  have h4 : 1 = 1 := by
+    rw [h2, h3]
+  have h5 : 0 = 1 := by
+    rw [h1]
+  have h6 : 0 = 1 := by
+    rw [h5]
+  have h7 : 1 = 0 := by
+    rw [h6]
+  contradiction
