@@ -224,10 +224,22 @@ class Fenced(unittest.TestCase):
     def test_a_process_that_survives_the_kill_fails_the_run(self):
         import tempfile
         from unittest import mock
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run:
-            run.return_value = mock.Mock(returncode=0)                    # pgrep finds one
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run, \
+                mock.patch.object(op.time, "sleep"):
+            run.return_value = mock.Mock(returncode=0)                    # pgrep keeps finding one
             with self.assertRaises(RuntimeError):
                 op.run_fenced(["cand"], Path(d), [], "sbjudge", timeout=5)
+
+    def test_a_killed_process_still_being_reaped_is_waited_for_not_failed(self):
+        import tempfile
+        from unittest import mock
+        pgreps = iter([0, 0, 1])                                          # seen twice, then gone
+        def fake_run(cmd, **kw):
+            return mock.Mock(returncode=next(pgreps) if cmd[0] == "pgrep" else 0)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(op.time, "sleep") as sleep:
+            op.run_fenced(["cand"], Path(d), [], "sbjudge", timeout=5)
+            self.assertEqual(sleep.call_count, 2)
 
     def test_without_a_sandbox_user_nothing_is_reaped(self):
         import tempfile

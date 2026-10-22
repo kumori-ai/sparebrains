@@ -193,7 +193,11 @@ def run_fenced(cmd, show, hide, user, timeout):
     finally:
         if user:                             # fail closed: nothing of the candidate may outlive it
             subprocess.run(["sudo", "-n", "pkill", "-KILL", "-u", user], capture_output=True)
-            if subprocess.run(["pgrep", "-u", user], capture_output=True).returncode == 0:
+            for _ in range(20):              # a killed process takes a moment to be reaped: up to 10 s
+                if subprocess.run(["pgrep", "-u", user], capture_output=True).returncode != 0:
+                    break
+                time.sleep(0.5)
+            else:
                 raise RuntimeError(f"processes of {user} survived the candidate")
 
 
