@@ -72,6 +72,20 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   adaptation (each kernel model on at most 12,000 cells). Under the bar's "who writes it" clause the brief was chosen
   and adapted by Claude Opus, and every evolve row says so (`brief_assist`). Resource fit is unverified until the
   next run. Codex AGREE after three rounds (round 3 read the upstream script itself).
+- **Every openproblems candidate runs in its own gVisor container (task #477; before shot 2).** Replaces the
+  sandbox user and the permission fence, which left shared scratch space and the network (the answer files are
+  public on S3) open. `docker_cmd`: gVisor `runsc`, no network, read-only root, only this direction's inputs and
+  the code mounted read-only, a 2 GiB tmpfs scratch that dies with it, capped memory/CPU/processes, no
+  capabilities, no privilege escalation, no logs, a non-root user. The prediction streams back on stdout (exactly
+  rows x columns float32; anything more or less is the candidate's error), so there is no output file to trust;
+  the candidate's own prints go to stderr, kept to 64 KiB. Each container is named, killed and removed whatever
+  happens, and confirmed gone (only Docker's "no such container" counts), or the job fails. Pinned image
+  (python:3.12-slim by digest; numpy 2.5.4, scipy 1.18.1, scikit-learn 1.9.1, PyPI 2026-10-22), host numerical
+  libraries pinned to match. `tools/sandbox/check.sh` installs gVisor from its apt repository and runs canaries
+  before any round, and in the final workflow before the shot is reserved: no network, read-only mounts (on
+  world-writable probes), scratch, process and memory limits, and a known prediction streaming back; the network
+  canary was seen going red without a container. Practice per a deep-search (Docker + gVisor for LLM-written code
+  on your own inputs). Codex AGREE after four rounds. Runner proof is a smoke run; real candidates only after it.
 
 ## 2026-10-20
 

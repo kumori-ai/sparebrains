@@ -12,7 +12,7 @@ as the sandbox user on the validation split only, and sees the best so far and t
 never touched here. Needs anndata, scikit-learn and pyyaml; `reproduce` also needs Docker, for the task's R
 correlation metric in its own image. Validation uses `metrics`, which matches the R script on the same prediction.
 """
-import argparse, base64, hashlib, json, os, re, subprocess, sys, time, urllib.request
+import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -187,70 +187,173 @@ def extract_code(text):
     return blocks[-1] if blocks else None
 
 
-def candidate_cmd(code_file, val_dir, out, user, python):
-    """The command that runs one candidate on the validation arrays: as the sandbox user with an empty
-    environment when there is one (tools/judge_sandbox.sh), so no secret of this job is in reach."""
-    cmd = [python, "-I", str(Path(__file__).resolve()), "run-candidate", code_file, val_dir, out]
-    return ["sudo", "-n", "-u", user, "env", "-i", "PATH=/usr/bin:/bin", f"HOME=/tmp/{user}",
-            "prlimit", f"--as={CAND_MEM}", "timeout", str(CAND_S), *cmd] if user else cmd
+SANDBOX_IMAGE, SANDBOX_MEM, STDERR_TAIL = "sb-candidate", "12g", 64 * 1024
+TOOL = Path(__file__).resolve()
 
 
-def load_prediction(path, shape):
-    """A candidate's output, read as hostile: never through a link (np.load follows one, so a link to the answers
-    would score them as the prediction), only a regular file, only .npy 1.0/2.0 with a header under 4 KiB (NumPy
-    reads a declared header whole before its own limit), only float32 of `shape`, exactly that size. Any problem
-    with the file is a ValueError, so it is the candidate's error."""
-    import stat, struct
+def docker_cmd(name, code_file, val_dir, mem=SANDBOX_MEM):
+    """One candidate in its own container (2026-10-22, replacing the sandbox user): no network (the answer files are
+    public), a read-only root, only this direction's inputs mounted read-only, scratch on a capped tmpfs that dies
+    with it, capped memory/CPU/processes, no capabilities, gVisor when SB_RUNTIME=runsc. Its prediction comes back
+    on stdout, so there is no output file to trust. SANDBOX_MEM is a budget, not a measured fit."""
+    rt = os.environ.get("SB_RUNTIME")
+    ro = lambda src, dst: ["--mount", f"type=bind,src={src},dst={dst},readonly"]
+    return ["docker", "run", "--rm", "--name", name, *(["--runtime", rt] if rt else []),
+            "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=2g,mode=1777",
+            "--memory", mem, "--memory-swap", mem, "--cpus", "4", "--pids-limit", "512",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-driver", "none",
+            "--user", "65534:65534", "-e", "HOME=/tmp",
+            *ro(code_file, "/app/cand.py"), *ro(val_dir, "/in"), *ro(TOOL, "/app/openproblems.py"),
+            SANDBOX_IMAGE, "python", "-I", "/app/openproblems.py", "run-candidate", "/app/cand.py", "/in", "-"]
+
+
+def docker_cleanup(name):
+    """Kill and remove the container whatever happened, then confirm it is gone. Only Docker's own "no such
+    container/object" counts as gone: a daemon or API failure, or a hang, is not absence, so the job fails."""
+    absent = lambda r: "no such container" in r.stderr.lower() or "no such object" in r.stderr.lower()
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except OSError as e:
-        raise ValueError(f"cannot open the prediction without following it: {e}") from e
-    try:
-        with os.fdopen(fd, "rb") as fh:
-            st = os.fstat(fh.fileno())
-            if not stat.S_ISREG(st.st_mode):
-                raise ValueError("the prediction is not a regular file")
-            head = fh.read(8)
-            if len(head) != 8 or head[:6] != b"\x93NUMPY" or head[6:8] not in (b"\x01\x00", b"\x02\x00"):
-                raise ValueError("not a .npy file of version 1.0 or 2.0")
-            size_fmt = "<H" if head[6] == 1 else "<I"
-            raw = fh.read(struct.calcsize(size_fmt))
-            if len(raw) != struct.calcsize(size_fmt) or struct.unpack(size_fmt, raw)[0] > 4096:
-                raise ValueError("a .npy header over 4 KiB")
-            fh.seek(0)
-            major, _ = np.lib.format.read_magic(fh)
-            got, fortran, dtype = (np.lib.format.read_array_header_1_0 if major == 1
-                                   else np.lib.format.read_array_header_2_0)(fh)
-            n = int(np.prod(shape))
-            if tuple(got) != tuple(shape) or dtype != np.dtype("<f4") or fortran:
-                raise ValueError(f"prediction {tuple(got)} {dtype} (want {tuple(shape)} float32, C order)")
-            if st.st_size != fh.tell() + 4 * n:
-                raise ValueError(f"prediction file is {st.st_size} bytes, want {fh.tell() + 4 * n}")
-            return np.fromfile(fh, dtype="<f4", count=n).reshape(shape)
-    except ValueError:
-        raise
-    except Exception as e:                       # anything else about this file is still the candidate's file
-        raise ValueError(f"unreadable prediction: {type(e).__name__}: {e}") from e
+        rm = subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True, timeout=60)
+        if rm.returncode != 0 and not absent(rm):
+            raise RuntimeError(f"docker rm {name} failed: {rm.stderr[-300:]}")
+        seen = subprocess.run(["docker", "inspect", name], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"docker did not answer about {name}: {e}") from e
+    if seen.returncode == 0 or not absent(seen):
+        raise RuntimeError(f"container {name} not confirmed gone: {seen.stderr[-300:] or 'still listed'}")
 
 
-def run_fenced(cmd, show, hide, user, timeout):
-    """Run a candidate with only `show` open to the sandbox user and every directory in `hide` closed (the other
-    direction's X_test is this direction's answer: 2026-10-22, both were open all run), then kill anything it left
-    running, so nothing outlives it to read the next direction's inputs."""
-    for h in hide:
-        os.chmod(h, 0o700)
-    os.chmod(show, 0o755)
+def run_sandboxed(cmd, shape, timeout, cleanup):
+    """Run one candidate and read its prediction: exactly 4 x prod(shape) float32 bytes on stdout (more or fewer is
+    the candidate's error), stderr kept to its last 64 KiB, a hard deadline, and cleanup() always, before any
+    result is used. Returns (prediction, None, stderr) or (None, why, stderr); stderr is its last 64 KiB."""
+    import threading
+    need = 4 * int(np.prod(shape))
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    data, tail, extra = bytearray(), bytearray(), [0]
+
+    def read_out():
+        while len(data) < need:
+            chunk = proc.stdout.read(min(1 << 20, need - len(data)))
+            if not chunk:
+                return
+            data.extend(chunk)
+        extra[0] = len(proc.stdout.read(1) or b"")             # anything past the prediction
+
+    def read_err():
+        for chunk in iter(lambda: proc.stderr.read(65536), b""):
+            tail.extend(chunk)
+            del tail[:-STDERR_TAIL]
+    readers = [threading.Thread(target=f, daemon=True) for f in (read_out, read_err)]
+    for th in readers:
+        th.start()
+    deadline, timed_out, rc = time.monotonic() + timeout, False, None
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        readers[0].join(max(0, deadline - time.monotonic()))
+        timed_out = readers[0].is_alive()
+        if not timed_out:
+            try:
+                rc = proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                timed_out = True
     finally:
-        if user:                             # fail closed: nothing of the candidate may outlive it
-            subprocess.run(["sudo", "-n", "pkill", "-KILL", "-u", user], capture_output=True)
-            for _ in range(20):              # a killed process takes a moment to be reaped: up to 10 s
-                if subprocess.run(["pgrep", "-u", user], capture_output=True).returncode != 0:
-                    break
-                time.sleep(0.5)
-            else:
-                raise RuntimeError(f"processes of {user} survived the candidate")
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            proc.wait(timeout=30)
+            stuck = None
+        except subprocess.TimeoutExpired as e:
+            stuck = e
+        cleanup()                                            # always attempted, even if the client hangs
+        readers[1].join(5)
+        if stuck:
+            raise RuntimeError("the candidate's client did not exit after kill") from stuck
+    err_text = tail.decode(errors="replace")
+    why = err_text[-1500:]
+    if timed_out:
+        return None, f"over {timeout} s", err_text
+    if rc != 0:
+        return None, f"exit {rc}: {why}", err_text
+    if len(data) != need or extra[0]:
+        return None, f"prediction is {len(data)}{' and more' if extra[0] else ''} bytes, want {need}", err_text
+    return np.frombuffer(bytes(data), dtype="<f4").reshape(shape), None, err_text
+
+
+SANDBOX_CANARIES = {   # each must come back as its expected prediction: a breach makes it crash instead
+    "network": ("import socket, urllib.request, numpy as np\n"
+                "def predict(a, b, c, d, e):\n"
+                "    for host in ('1.1.1.1', 'openproblems-data.s3.amazonaws.com'):\n"
+                "        try:\n"
+                "            socket.create_connection((host, 443), timeout=5).close()\n"
+                "        except OSError:\n"
+                "            continue\n"
+                "        raise SystemExit('network reachable: ' + host)\n"
+                "    return np.zeros((c.shape[0], b.shape[1]))\n"),
+    "filesystem": ("import os, stat, numpy as np\n"         # only the mount can refuse: both dirs are o+w
+                   "def predict(a, b, c, d, e):\n"
+                   "    for d_ in ('/in', '/var/tmp'):\n"
+                   "        if not os.path.isdir(d_) or not os.stat(d_).st_mode & stat.S_IWOTH:\n"
+                   "            raise SystemExit('probe invalid, not world-writable: ' + d_)\n"
+                   "        try:\n"
+                   "            open(d_ + '/x', 'w').write('x')\n"
+                   "        except OSError:\n"
+                   "            continue\n"
+                   "        raise SystemExit('writable: ' + d_)\n"
+                   "    return np.zeros((c.shape[0], b.shape[1]))\n"),
+    "scratch": ("import numpy as np\n"                    # /tmp is a 2 GiB tmpfs: 3 GiB must not fit
+                "def predict(a, b, c, d, e):\n"
+                "    try:\n"
+                "        with open('/tmp/fill', 'wb') as f:\n"
+                "            for _ in range(3 * 1024):\n"
+                "                f.write(b'x' * (1 << 20))\n"
+                "    except OSError as x:\n"
+                "        print('scratch refused:', x)\n"
+                "        return np.zeros((c.shape[0], b.shape[1]))\n"
+                "    raise SystemExit('3 GiB fit in /tmp')\n"),
+    "pids": ("import threading, time, numpy as np\n"           # --pids-limit 512: 600 threads must not all start
+             "def predict(a, b, c, d, e):\n"
+             "    try:\n"
+             "        for _ in range(600):\n"
+             "            threading.Thread(target=time.sleep, args=(60,), daemon=True).start()\n"
+             "    except RuntimeError as x:\n"
+             "        print('pids refused after', threading.active_count(), 'threads:', x)\n"
+             "        return np.zeros((c.shape[0], b.shape[1]))\n"
+             "    raise SystemExit('600 threads started under --pids-limit 512')\n"),
+    "memory": ("import numpy as np\n"                       # run with --memory 512m: touching 1 GiB must be killed
+               "def predict(a, b, c, d, e):\n"
+               "    print('MEMORY-CANARY allocating 1 GiB', flush=True)\n"
+               "    x = np.ones(1 << 28, dtype=np.float32)\n"
+               "    return np.zeros((c.shape[0], b.shape[1])) + x[:1].sum() * 0\n"),
+    "stream": ("import numpy as np\n"
+               "def predict(a, b, c, d, e):\n"
+               "    print('noise on stdout')\n"
+               "    return np.arange(c.shape[0] * b.shape[1]).reshape(c.shape[0], b.shape[1])\n"),
+}
+
+
+def sandbox_check(work):
+    """Before any real candidate: the container has no network, cannot write where it should not, and streams a
+    prediction back exactly. Raises on any failure, so the job stops before a shot or a round is spent."""
+    from scipy import sparse
+    inp = Path(work) / "sandbox-check"
+    write_inputs(inp, sparse.csr_matrix(np.ones((6, 4))), np.ones((6, 3)), sparse.csr_matrix(np.ones((5, 4))),
+                 np.array(["s1d1"] * 6), np.array(["s2d1"] * 5))
+    zeros = np.zeros((5, 3))
+    want = {"network": zeros, "filesystem": zeros, "scratch": zeros, "pids": zeros, "memory": "killed",
+            "stream": np.arange(15.0).reshape(5, 3)}
+    for name, code in SANDBOX_CANARIES.items():
+        f = Path(work) / f"canary-{name}.py"
+        f.write_text(code)
+        p, err, seen = sandboxed_predict(f, inp, (5, 3), 300, dir_mode=0o777 if name == "filesystem" else 0o755,
+                                         mem="512m" if name == "memory" else SANDBOX_MEM)
+        if isinstance(want[name], str):          # "killed": reached the allocation, then SIGKILLed (exit 137)
+            if p is not None or not (err or "").startswith("exit 137") or "MEMORY-CANARY allocating" not in seen:
+                raise SystemExit(f"sandbox check {name} failed: want a SIGKILL after the allocation began, got "
+                                 f"{'a prediction' if p is not None else err[:300]}")
+        elif err or not np.array_equal(p, want[name]):
+            raise SystemExit(f"sandbox check {name} failed: {err or 'wrong prediction'}")
+        lines = [l for l in seen.splitlines() if l.strip()]
+        print(f"sandbox check {name}: ok  [{err[:60] if err else (lines[-1][:160] if lines else 'no output')}]", flush=True)
+    return 0
 
 
 def _swap_ok(m, ref):
@@ -490,37 +593,42 @@ def prepare_swap(data, val, answers):
 
 
 def run_candidate(code_file, val, out):
-    """Inside the sandbox: one candidate's predict() on the validation inputs, its output saved as plain floats."""
+    """Inside the sandbox: one candidate's predict() on the inputs. With out "-" its prediction is the only thing on
+    stdout (raw float32, row-major); the candidate's own prints go to stderr, moved there before its code runs."""
     from scipy import sparse
+    data = None
+    if out == "-":
+        data = os.fdopen(os.dup(1), "wb")
+        os.dup2(2, 1)
+        sys.stdout = sys.stderr
     ns = {"__name__": "candidate"}
     exec(compile(Path(code_file).read_text(), "candidate.py", "exec"), ns)
     val = Path(val)
     y = ns["predict"](sparse.load_npz(val / "X_train.npz"), np.load(val / "Y_train.npy"), sparse.load_npz(val / "X_test.npz"),
                       np.load(val / "batch_train.npy", allow_pickle=True), np.load(val / "batch_test.npy", allow_pickle=True))
-    np.save(out, np.asarray(y, dtype=np.float32))
+    arr = np.ascontiguousarray(y, dtype="<f4")
+    if data:
+        data.write(arr.tobytes())
+        data.flush()
+    else:
+        np.save(out, arr)
 
 
-def scorer(val, answers, work, user, python, hide=()):
+def scorer(val, answers, work):
+    """Score one direction's candidates on its validation split, each in its own container (docker_cmd)."""
+    import uuid
     y_val = np.load(answers / "Y_val.npy")
     n = [0]
 
     def score(code):
         n[0] += 1
-        code_file, out = work / f"cand{n[0]}.py", work / f"cand{n[0]}.npy"
+        code_file = work / f"cand{n[0]}.py"
         code_file.write_text(code)
-        try:
-            r = run_fenced(candidate_cmd(str(code_file), str(val), str(out), user, python), val, hide, user,
-                           timeout=CAND_S + 60)
-        except subprocess.TimeoutExpired:
-            return {"error": f"over {CAND_S} s"}
-        if r.returncode != 0 or not out.exists():
-            return {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
-        try:
-            p = load_prediction(out, y_val.shape)
-        except ValueError as e:
-            return {"error": f"refused prediction file: {e}"}
+        p, err, _ = sandboxed_predict(code_file, val, y_val.shape, CAND_S + 60)
+        if err:
+            return {"error": err}
         if not np.isfinite(p).all():
-            return {"error": f"prediction shape {p.shape} (want {y_val.shape}) or non-finite values"}
+            return {"error": "non-finite values in the prediction"}
         m = {k: round(v, 4) for k, v in metrics(y_val, p).items()}
         if ref_pred is not None:
             m["ci"] = gate_ci(y_val, p, ref_pred)
@@ -528,6 +636,18 @@ def scorer(val, answers, work, user, python, hide=()):
     ref_file = answers / "ref_pred.npy"
     ref_pred = np.load(ref_file) if ref_file.exists() else None
     return score
+
+
+def sandboxed_predict(code_file, inputs, shape, timeout, dir_mode=0o755, mem=SANDBOX_MEM):
+    """A candidate's prediction from its own container; the inputs and its code made readable to the container's
+    user (only the inputs directory is mounted, so nothing else needs to be)."""
+    import uuid
+    for f in [inputs, *Path(inputs).iterdir()]:
+        os.chmod(f, dir_mode if Path(f).is_dir() else 0o644)
+    os.chmod(code_file, 0o644)
+    name = f"sb-cand-{uuid.uuid4().hex[:12]}"
+    return run_sandboxed(docker_cmd(name, Path(code_file).resolve(), Path(inputs).resolve(), mem), shape, timeout,
+                         lambda: docker_cleanup(name))
 
 
 def writer_ask(lane):
@@ -610,7 +730,7 @@ def official(sha, data, prediction):
     return got
 
 
-def final(work, code, source, out, user, python):
+def final(work, code, source, out):
     """One candidate on the test set, both directions, scored and judged by the bar. The answers stay unreadable
     to the candidate; the reference is the task's own knnr_py, re-run here."""
     import anndata as ad
@@ -620,7 +740,6 @@ def final(work, code, source, out, user, python):
     sha, res = pinned_sha(), {}
     cand_dir = work / "candidates"
     cand_dir.mkdir(parents=True, exist_ok=True)
-    cand_dir.chmod(0o1777)
     for name, ds in (("normal", DATASET), ("swap", SWAP)):
         data, inp = work / f"final-{name}" / "data", work / f"final-{name}" / "in"
         download(data, ds)
@@ -637,23 +756,15 @@ def final(work, code, source, out, user, python):
                        {"input_train_mod1": str(data / "train_mod1.h5ad"), "input_train_mod2": str(data / "train_mod2.h5ad"),
                         "input_test_mod1": str(data / "test_mod1.h5ad"), "output": str(data / "ref.h5ad"), **PARAMS},
                        {"name": METHOD})
-        code_file, out_npy = cand_dir / f"final-{name}.py", cand_dir / f"final-{name}.npy"
+        code_file = cand_dir / f"final-{name}.py"
         code_file.write_text(code)
-        code_file.chmod(0o644)
-        others = [work / f"final-{o}" / "in" for o in ("normal", "swap") if o != name and (work / f"final-{o}" / "in").exists()]
-        r = run_fenced(candidate_cmd(str(code_file), str(inp), str(out_npy), user, python), inp, others, user,
-                       timeout=CAND_S + 120)        # the normal inputs hold the swap answer's RNA
         y = _dense(t2.layers["normalized"]).astype(np.float32)
-        if r.returncode != 0 or not out_npy.exists():
-            res[name] = {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
-            continue
-        try:
-            p = load_prediction(out_npy, y.shape)
-        except ValueError as e:
-            res[name] = {"error": f"refused prediction file: {e}"}
+        p, err, _ = sandboxed_predict(code_file, inp, y.shape, CAND_S + 120)   # only this direction's inputs mounted
+        if err:
+            res[name] = {"error": err}
             continue
         if not np.isfinite(p).all():
-            res[name] = {"error": f"prediction shape {p.shape} (want {y.shape}) or non-finite values"}
+            res[name] = {"error": "non-finite values in the prediction"}
             continue
         ad.AnnData(layers={"normalized": csc_matrix(p)}, obs=t1.obs, var=var,
                    uns={"dataset_id": dataset_id, "method_id": "sparebrains_candidate"}).write_h5ad(data / "cand.h5ad")
@@ -681,13 +792,15 @@ def final(work, code, source, out, user, python):
                          "ref_source": res["swap"].get("ref_source")},
                    verdict=verdict(normal, {"cand": res["swap"]["cand"], "ref": res["swap"]["ref"]}))
     Path(out).write_text(json.dumps(row, indent=1) + "\n")
+    if source == "smoke" and "errors" in row:              # the smoke proves the pipeline: it must run both ways
+        sys.exit(f"smoke failed: {row['errors']}")
     print(json.dumps({k: row[k] for k in ("source", "verdict")} | ({"normal": row["normal"]["bootstrap"]} if "normal" in row else {"errors": row.get("errors")})), flush=True)
     return 0
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final"])
+    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -701,6 +814,8 @@ def main():
     if a.cmd == "run-candidate":
         run_candidate(*a.args)
         return 0
+    if a.cmd == "sandbox-check":
+        return sandbox_check(Path(a.work or tempfile.mkdtemp()))
     if a.cmd == "reserve":                  # --out names the final-<run>.json this reservation is for
         run = Path(a.out).stem.split("-", 1)[1]
         f = reserve(Path(a.out).parent, run, {"evolve_file": a.evolve_file, "round": a.round},
@@ -712,10 +827,9 @@ def main():
         return reproduce(work, a.out)
     if a.cmd == "final":
         if a.smoke:
-            return final(work, SMOKE, "smoke", a.out, os.environ.get("SB_JUDGE_USER"), sys.executable)
+            return final(work, SMOKE, "smoke", a.out)
         code = candidate_from(a.evolve_file, a.round)
-        return final(work, code, {"evolve_file": a.evolve_file, "round": a.round}, a.out,
-                     os.environ.get("SB_JUDGE_USER"), sys.executable)
+        return final(work, code, {"evolve_file": a.evolve_file, "round": a.round}, a.out)
     val, answers = work / "val", work / "answers"
     if a.cmd == "prepare":
         download(work / "data")
@@ -730,15 +844,12 @@ def main():
     cand.mkdir(parents=True, exist_ok=True)
     for sub in ("normal", "swap"):
         (cand / sub).mkdir(exist_ok=True)
-        (cand / sub).chmod(0o1777)
     ask, writer = writer_ask(a.lane)
     prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
     seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
-    user = os.environ.get("SB_JUDGE_USER")
-    score = both_ways(scorer(val, answers, cand / "normal", user, sys.executable, hide=[work / "val-swap"]),
-                      scorer(work / "val-swap", work / "answers-swap", cand / "swap", user, sys.executable, hide=[val]))
+    score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
     rows = evolve(a.rounds, ask, score, ref, writer, seed)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")

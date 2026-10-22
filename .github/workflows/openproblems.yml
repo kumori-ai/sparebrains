@@ -35,7 +35,7 @@ jobs:
       - name: python env (readable by the sandbox user)
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q numpy scipy scikit-learn anndata pyyaml requests
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests   # numerical libs pinned with the candidate image (the host runs the reference)
           chmod -R o+rX "$RUNNER_TEMP/venv"
 
       - name: the task's data
@@ -53,20 +53,13 @@ jobs:
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py prepare --work "$RUNNER_TEMP/op"
 
-      # The candidates' user reads the validation inputs and writes its output; it cannot read the answers, the
-      # downloaded test data, or this job's processes (so no secret below is in reach).
-      - name: sandbox user
+      # Each candidate runs in its own gVisor container: no network, read-only root, only its direction's inputs
+      # mounted read-only, its prediction streamed back (tools/openproblems.py docker_cmd, DECISIONS 2026-10-22).
+      # The check proves runsc, the network block and the stream before any round is spent.
+      - name: candidate sandbox
         run: |
-          u=sbjudge
-          id "$u" >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$u"
-          sudo install -d -o "$u" -m 700 "/tmp/$u"
-          d="$GITHUB_WORKSPACE"; while [ "$d" != / ]; do sudo chmod o+x "$d"; d=$(dirname "$d"); done
-          chmod -R o+rX "$GITHUB_WORKSPACE"
-          chmod o+x "$RUNNER_TEMP" "$RUNNER_TEMP/op"
-          chmod -R o+rX "$RUNNER_TEMP/op/val" "$RUNNER_TEMP/op/val-swap"
           chmod 700 "$RUNNER_TEMP/op/answers" "$RUNNER_TEMP/op/data" "$RUNNER_TEMP/op/answers-swap" "$RUNNER_TEMP/op/data-swap"
-          install -d -m 1777 "$RUNNER_TEMP/op/candidates"
-          echo "SB_JUDGE_USER=$u" >> "$GITHUB_ENV"
+          PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
 
       - name: evolve
         env:

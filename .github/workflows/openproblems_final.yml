@@ -38,8 +38,12 @@ jobs:
       - name: python env (readable by the sandbox user)
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q numpy scipy scikit-learn anndata pyyaml requests
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests   # numerical libs pinned with the candidate image (the host runs the reference)
           chmod -R o+rX "$RUNNER_TEMP/venv"
+
+      # The sandbox is proven before the shot is reserved, so a broken image or runtime spends no shot.
+      - name: candidate sandbox
+        run: PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
 
       # The shot is taken and published before any test data is read, so a run lost mid-scoring still counts
       # (2026-10-22). The push token is written for this step only and removed before untrusted code exists.
@@ -57,25 +61,18 @@ jobs:
           git config user.email "sparebrains-bot@users.noreply.github.com"
           python3 tools/publish.py --message "openproblems shot reserved ${GITHUB_RUN_ID}: ${{ inputs.evolve_file }} round ${{ inputs.round }}: $(tail -1 "$RUNNER_TEMP/reserve.txt")"
 
-      - name: sandbox user
-        run: |
-          u=sbjudge
-          id "$u" >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$u"
-          sudo install -d -o "$u" -m 700 "/tmp/$u"
-          d="$GITHUB_WORKSPACE"; while [ "$d" != / ]; do sudo chmod o+x "$d"; d=$(dirname "$d"); done
-          chmod -R o+rX "$GITHUB_WORKSPACE"
-          mkdir -p "$RUNNER_TEMP/op" && chmod o+x "$RUNNER_TEMP" "$RUNNER_TEMP/op"
-          echo "SB_JUDGE_USER=$u" >> "$GITHUB_ENV"
-
       - name: score on the test set
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ inputs.smoke }}" = "true" ]; then
+            set +e
             "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py final --work "$RUNNER_TEMP/op" --smoke \
               --out "$RUNNER_TEMP/final-smoke.json" | tee "$RUNNER_TEMP/out.txt"
-            exit 0
+            status=${PIPESTATUS[0]}
+            cat "$RUNNER_TEMP/final-smoke.json" 2>/dev/null   # the smoke's evidence in the run log, pass or fail
+            exit "$status"
           fi
           out="ledger/openproblems/final-${GITHUB_RUN_ID}.json"
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py final --work "$RUNNER_TEMP/op" \

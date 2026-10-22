@@ -90,11 +90,20 @@ class Evolve(unittest.TestCase):
         self.assertIn("def predict(", op.extract_code(text))
         self.assertIsNone(op.extract_code("no code here"))
 
-    def test_a_candidate_runs_as_the_sandbox_user_with_an_empty_environment(self):
-        cmd = op.candidate_cmd("c.py", "val", "out.npy", user="sbjudge", python="/v/bin/python")
-        self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "sbjudge", "env", "-i"])
-        self.assertNotIn("KUMORI_API_KEY", " ".join(cmd))
-        self.assertEqual(op.candidate_cmd("c.py", "val", "out.npy", user=None, python="py")[:2], ["py", "-I"])
+    def test_a_candidate_runs_in_a_container_with_no_network_and_only_its_own_inputs(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SB_RUNTIME": "runsc"}):
+            cmd = op.docker_cmd("sb-cand-x", "/w/c.py", "/w/val-swap")
+        s = " ".join(cmd)
+        for flag in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges",
+                     "--runtime runsc", "--log-driver none", f"--memory {op.SANDBOX_MEM}", "--pids-limit"):
+            self.assertIn(flag, s)
+        mounts = [cmd[i + 1] for i, x in enumerate(cmd) if x == "--mount"]
+        self.assertEqual({m.split(",")[1] for m in mounts}, {"src=/w/c.py", "src=/w/val-swap", f"src={op.TOOL}"})
+        self.assertTrue(all(m.endswith(",readonly") for m in mounts), "every host path is read-only")
+        self.assertNotIn("KUMORI_API_KEY", s)
+        self.assertEqual(cmd[-1], "-", "the prediction comes back on stdout, not as a file")
 
     def test_the_best_is_the_largest_pearson_lead_among_those_that_beat_the_reference_on_both(self):
         # shot 1 (2026-10-21): ranked by rmse, it won rmse on test and lost Pearson; Pearson is the metric we lose
@@ -213,115 +222,91 @@ class SwapValidation(unittest.TestCase):
         self.assertEqual(ci["rmse"], [round(x, 5) for x in op.paired_bootstrap(y, cand, ref_pred, "rmse", n=500)])
 
 
-class Fenced(unittest.TestCase):
-    def test_a_candidate_sees_only_its_own_directions_inputs_and_leaves_nothing_running(self):
-        # 2026-10-22: val/ and val-swap/ were both readable all run; swap's X_test is the normal direction's answer
-        import os, stat, tempfile
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d:
-            show, hide = Path(d) / "val", Path(d) / "val-swap"
-            show.mkdir(); hide.mkdir()
-            seen = {}
-            def fake_run(cmd, **kw):
-                if cmd[:3] == ["sudo", "-n", "pkill"]:
-                    seen["reaped"] = cmd
-                elif cmd[0] == "pgrep":
-                    return mock.Mock(returncode=1)                       # nothing left
-                else:
-                    seen["show"] = stat.S_IMODE(os.stat(show).st_mode)
-                    seen["hide"] = stat.S_IMODE(os.stat(hide).st_mode)
-                return mock.Mock(returncode=0, stdout="", stderr="")
-            with mock.patch.object(op.subprocess, "run", side_effect=fake_run):
-                op.run_fenced(["cand"], show, [hide], "sbjudge", timeout=5)
-            self.assertEqual(seen["hide"] & 0o007, 0, "the other direction is closed to the sandbox user")
-            self.assertEqual(seen["show"] & 0o005, 0o005, "its own inputs are readable")
-            self.assertEqual(seen["reaped"], ["sudo", "-n", "pkill", "-KILL", "-u", "sbjudge"])
-
-    def test_a_process_that_survives_the_kill_fails_the_run(self):
-        import tempfile
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run, \
-                mock.patch.object(op.time, "sleep"):
-            run.return_value = mock.Mock(returncode=0)                    # pgrep keeps finding one
-            with self.assertRaises(RuntimeError):
-                op.run_fenced(["cand"], Path(d), [], "sbjudge", timeout=5)
-
-    def test_a_killed_process_still_being_reaped_is_waited_for_not_failed(self):
-        import tempfile
-        from unittest import mock
-        pgreps = iter([0, 0, 1])                                          # seen twice, then gone
-        def fake_run(cmd, **kw):
-            return mock.Mock(returncode=next(pgreps) if cmd[0] == "pgrep" else 0)
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run", side_effect=fake_run), \
-                mock.patch.object(op.time, "sleep") as sleep:
-            op.run_fenced(["cand"], Path(d), [], "sbjudge", timeout=5)
-            self.assertEqual(sleep.call_count, 2)
-
-    def test_without_a_sandbox_user_nothing_is_reaped(self):
-        import tempfile
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run:
-            run.return_value = mock.Mock(returncode=0)
-            op.run_fenced(["cand"], Path(d), [], None, timeout=5)
-            self.assertEqual(run.call_count, 1)
-
-
-class HostileOutput(unittest.TestCase):
-    """A candidate writes its own output file, so the host must not follow it anywhere (2026-10-22: np.load follows
-    a symlink, so a link to answers/Y_val.npy would have scored the answers as a perfect prediction)."""
+class Sandboxed(unittest.TestCase):
+    """The streaming protocol, run with plain local Python in place of docker (the same run-candidate code path)."""
 
     def setUp(self):
         import tempfile
         self.d = Path(tempfile.mkdtemp())
-        self.shape = (5, 3)
+        val = self.d / "in"
+        from scipy import sparse
+        op.write_inputs(val, sparse.csr_matrix(np.ones((6, 4))), np.ones((6, 3)), sparse.csr_matrix(np.ones((5, 4))),
+                        np.array(["s1d1"] * 6), np.array(["s2d1"] * 5))
+        self.val, self.shape = val, (5, 3)
+        self.cleaned = []
 
-    def test_a_regular_float32_file_of_the_right_shape_loads(self):
-        f = self.d / "p.npy"
-        np.save(f, np.ones(self.shape, dtype=np.float32))
-        self.assertEqual(op.load_prediction(f, self.shape).shape, self.shape)
+    def go(self, code, timeout=60, cleanup=None):
+        f = self.d / "c.py"
+        f.write_text(code)
+        cmd = [sys.executable, "-I", str(op.TOOL), "run-candidate", str(f), str(self.val), "-"]
+        return op.run_sandboxed(cmd, self.shape, timeout, cleanup or (lambda: self.cleaned.append(1)))
 
-    def test_a_link_to_the_answers_is_refused(self):
-        answers = self.d / "Y_val.npy"
-        np.save(answers, np.ones(self.shape, dtype=np.float32))
-        (self.d / "p.npy").symlink_to(answers)
-        with self.assertRaises(ValueError):
-            op.load_prediction(self.d / "p.npy", self.shape)
+    def test_a_prediction_streams_back_whole_even_if_the_candidate_prints(self):
+        code = "import numpy as np\ndef predict(a, b, c, d, e):\n    print('debug ' * 999)\n    return np.full((c.shape[0], b.shape[1]), 2.0)\n"
+        p, err, _ = self.go(code)
+        self.assertIsNone(err)
+        self.assertEqual(p.shape, self.shape)
+        self.assertTrue((p == 2.0).all())
+        self.assertEqual(self.cleaned, [1], "cleanup always runs")
 
-    def test_wrong_shape_dtype_objects_or_a_fifo_are_refused(self):
-        import os
-        for name, arr in (("shape", np.ones((5, 4), dtype=np.float32)), ("dtype", np.ones(self.shape)),
-                          ("obj", np.array([[None] * 3] * 5, dtype=object))):
-            f = self.d / f"{name}.npy"
-            np.save(f, arr, allow_pickle=True)
-            with self.assertRaises(ValueError, msg=name):
-                op.load_prediction(f, self.shape)
-        fifo = self.d / "fifo.npy"
-        os.mkfifo(fifo)
-        with self.assertRaises(ValueError):
-            op.load_prediction(fifo, self.shape)
+    def test_too_few_or_too_many_bytes_is_the_candidates_error(self):
+        short = "import numpy as np\ndef predict(a, b, c, d, e):\n    return np.ones((2, 3))\n"
+        p, err, _ = self.go(short)
+        self.assertIsNone(p)
+        self.assertIn("bytes", err)
+        extra = ("import numpy as np, os\ndef predict(a, b, c, d, e):\n"
+                 "    os.write(3, b'x' * 64)\n    return np.ones((c.shape[0], b.shape[1]))\n")   # fd 3: the data dup
+        p, err, _ = self.go(extra)
+        self.assertIsNone(p)
 
-    def test_a_huge_declared_header_or_an_unknown_version_is_refused_before_reading(self):
-        import struct
+    def test_a_candidate_past_its_time_is_stopped_and_cleaned_up(self):
+        slow = "import time\ndef predict(a, b, c, d, e):\n    time.sleep(60)\n"
+        p, err, _ = self.go(slow, timeout=2)
+        self.assertIsNone(p)
+        self.assertIn("over", err)
+        self.assertEqual(self.cleaned, [1])
+
+    def test_the_sandbox_check_goes_red_outside_a_sandbox(self):
+        # the canary seen failing: run without a container (network open here), the network canary must trip
         from unittest import mock
-        big = self.d / "big.npy"                                          # v2 header claiming 4 GiB
-        big.write_bytes(b"\x93NUMPY\x02\x00" + struct.pack("<I", 0xFFFFFFFF) + b"{")
-        with mock.patch.object(np.lib.format, "read_array_header_2_0") as parse:
-            with self.assertRaises(ValueError):
-                op.load_prediction(big, self.shape)
-            parse.assert_not_called()
-        odd = self.d / "odd.npy"
-        np.save(odd, np.ones(self.shape, dtype=np.float32))
-        b = bytearray(odd.read_bytes()); b[6:8] = b"\x09\x07"                # version 9.7
-        odd.write_bytes(bytes(b))
-        with self.assertRaises(ValueError):
-            op.load_prediction(odd, self.shape)
+        def local(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None):
+            cmd = [sys.executable, "-I", str(op.TOOL), "run-candidate", str(code_file), str(inputs), "-"]
+            return op.run_sandboxed(cmd, shape, timeout, lambda: None)
+        with mock.patch.object(op, "sandboxed_predict", side_effect=local):
+            with self.assertRaises(SystemExit) as e:
+                op.sandbox_check(self.d / "chk")
+        self.assertIn("network", str(e.exception))
 
-    def test_a_truncated_file_is_refused(self):
-        f = self.d / "p.npy"
-        np.save(f, np.ones(self.shape, dtype=np.float32))
-        f.write_bytes(f.read_bytes()[:-8])
-        with self.assertRaises(ValueError):
-            op.load_prediction(f, self.shape)
+    def test_cleanup_believes_only_dockers_own_no_such_container(self):
+        from unittest import mock
+        gone = mock.Mock(returncode=1, stderr="Error: No such object: sb-cand-x")
+        removed = mock.Mock(returncode=0, stderr="")
+        daemon = mock.Mock(returncode=1, stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock")
+        with mock.patch.object(op.subprocess, "run", side_effect=[removed, gone]):
+            op.docker_cleanup("sb-cand-x")                                         # removed, then confirmed absent
+        for replies in ([daemon, daemon], [removed, daemon]):
+            with mock.patch.object(op.subprocess, "run", side_effect=replies), self.assertRaises(RuntimeError):
+                op.docker_cleanup("sb-cand-x")                                     # an API failure is not absence
+        with mock.patch.object(op.subprocess, "run", side_effect=op.subprocess.TimeoutExpired("docker", 30)), \
+                self.assertRaises(RuntimeError):
+            op.docker_cleanup("sb-cand-x")
+
+    def test_a_client_that_will_not_exit_still_gets_its_container_cleaned_up(self):
+        import io
+        from unittest import mock
+        proc = mock.Mock(stdout=io.BytesIO(b""), stderr=io.BytesIO(b""))
+        proc.poll.return_value = None
+        proc.wait.side_effect = op.subprocess.TimeoutExpired("docker", 30)
+        cleaned = []
+        with mock.patch.object(op.subprocess, "Popen", return_value=proc), self.assertRaises(RuntimeError):
+            op.run_sandboxed(["docker"], (5, 3), 1, lambda: cleaned.append(1))
+        self.assertEqual(cleaned, [1], "cleanup runs before the hang is reported")
+
+    def test_a_cleanup_that_cannot_confirm_the_container_is_gone_fails_the_run(self):
+        def bad():
+            raise RuntimeError("container still there")
+        with self.assertRaises(RuntimeError):
+            self.go("import numpy as np\ndef predict(a, b, c, d, e):\n    return np.ones((5, 3))\n", cleanup=bad)
 
 
 class BothWays(unittest.TestCase):

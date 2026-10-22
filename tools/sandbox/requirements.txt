@@ -1,0 +1,5 @@
+# The candidate image's libraries, pinned (PyPI, read 2026-10-22): numpy 2.5.4 (2026-10-10), scipy 1.18.1
+# (2026-08-21), scikit-learn 1.9.1 (2026-09-10). Change them here and the image is rebuilt with them.
+numpy==2.5.4
+scipy==1.18.1
+scikit-learn==1.9.1
