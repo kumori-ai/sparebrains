@@ -36,6 +36,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   too), each `lean -M 6000`, so a runaway proof fails alone; and a check that hits the memory cap or the timeout
   is verdict `resource`, which decides nothing, so the declaration is asked again instead of counting as a reject.
   Codex ACCEPT after three rounds (round 2 found effort() still counting resource rows).
+- **The evolve brief names the swap direction's memory trap (task #477).** Evolve 39698543319 (the first with the
+  validation gate) ran only 2 of 20 rounds: 12 crashed on swap allocating 5.35 GiB to cast its 51,506 x 13,953
+  float32 Y_train to float64 inside a 13 GiB budget, 2 imported PLSRegression from the wrong module, 3 got empty
+  replies. Two lines in the brief; the crash rate is measured on the next run. Its gate also showed a limit: with
+  ~15,000 validation cells the intervals are tiny (round 6: Pearson +0.0021 to +0.0037), so shot 1's lead would
+  likely have passed it and still failed on test. The miss is the shift from site 1 to site 4, not noise; a
+  shift-robust check comes before shot 2 (task #477).
 
 ## 2026-10-20
 

@@ -80,7 +80,9 @@ class Evolve(unittest.TestCase):
 
     def test_the_brief_names_the_pitfalls_that_crashed_earlier_candidates(self):
         for hint in ("sklearn.multioutput", "scipy.stats", "no random_state", "with_mean=False", "n_neighbors <=",
-                     "the other way round", "no clipping"):
+                     "the other way round", "no clipping",
+                     # evolve 39698543319 (2026-10-22): 12 of 18 crashes, then 2 more
+                     "51,506 x 13,953", "float32", "sklearn.cross_decomposition"):
             self.assertIn(hint, op.BRIEF)
 
     def test_the_code_is_the_last_python_block_that_defines_predict(self):

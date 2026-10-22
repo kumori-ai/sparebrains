@@ -161,7 +161,9 @@ Pitfalls that crashed earlier attempts here: MultiOutputRegressor is in sklearn.
 scipy.stats; Ridge, RidgeCV and PLSRegression take no random_state; a sparse matrix has no .std() and
 StandardScaler needs with_mean=False on it; SVR/LinearSVR and other single-output models need a wrapper for 134
 outputs; never build a dense n_test x n_train matrix (14,669 x 51,506 is 5.6 GiB); keep n_neighbors <= the
-number of rows it is fit on; index arrays must be integers.
+number of rows it is fit on; index arrays must be integers. PLSRegression is in sklearn.cross_decomposition. In the
+swap direction Y_train is a dense 51,506 x 13,953 float32 array (2.7 GiB of a 13 GiB budget): never cast it or X to
+float64 or copy it whole; fit on it in place, predict in chunks of test rows, return float32.
 Reply with the whole function and its imports in one ```python block."""
 
 
