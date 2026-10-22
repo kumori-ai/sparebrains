@@ -9,6 +9,7 @@ Rungs are provenance, never our own results (that would be circular):
   amc12, custom, aime, imo   the rest of miniF2F by problem source
 """
 import json, re
+import ledger_files
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
@@ -123,7 +124,7 @@ def owed_history(ledger_root=None, relay_rows=False):
     import bisect
     hist = defaultdict(lambda: {"answered": 0, "errors": 0, "router_errors": 0})
     answered_at, lane_errors = defaultdict(list), []
-    for f in Path(ledger_root or ROOT / "ledger").glob("**/*.jsonl"):
+    for f in ledger_files.try_files(ledger_root or ROOT / "ledger"):
         for line in f.read_text().splitlines():
             try:
                 r = json.loads(line)

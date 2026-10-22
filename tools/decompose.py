@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import ledger_files
 import goal_closer, subgoals
 from ladder import RUNGS
 from proof_text import extract_proof
@@ -227,7 +228,7 @@ def main():
         from utilities.kumori_api_client import init
         init()
         known, unknown = attempt.lanes(None, skip_benched=True)
-        rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl") for l in f.read_text().splitlines() if l.strip()]
+        rows = [json.loads(l) for f in ledger_files.try_files(ROOT / "ledger") for l in f.read_text().splitlines() if l.strip()]
         picked = pick_lane(known + unknown, rows, datetime.now(timezone.utc).isoformat())
         if not picked:
             sys.exit("auto: no live lane has a solve above MATH level 2 in the ledger")

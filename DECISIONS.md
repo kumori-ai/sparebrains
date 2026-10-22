@@ -21,6 +21,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   publishes nothing, and a rerun writes the same bytes. A GitHub issue stays Andy's call each time. First page
   (2026-W42, dry run): 8,746 tries, 14 first-time solves (5 checked against the date each first entered
   `verified/`, all inside the week), "1 step left for a model" grew most (705 to 944).
+- **Benchmark rows are fenced off from every reader of tries (task #191, step 1).** The speed receipt's re-solves will
+  live in `ledger/speed/`. Eight readers walked the ledger themselves (attempt, ladder, decompose, goal_closer,
+  retro, prover, problem_issues twice); a speed row would have retired ladder cells, owed prover samples or closed
+  an issue. All go through `tools/ledger_files.try_files` now, which leaves out `speed/` by where a file sits and
+  where it points, and a test fails if a tool walks the ledger itself again. On today's ledger it returns the same
+  1,405 files. Reviewed by Codex to ACCEPT in three rounds (round 1 found the missed `--digest` reader and the
+  `--ledger ledger/speed` bypass; round 2 the links out of `speed/` and the per-set reader).
 
 ## 2026-10-20
 

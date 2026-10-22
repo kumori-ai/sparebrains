@@ -26,6 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import ledger_files
 from check import judge                                              # the judge, unchanged
 from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S,
                     owed_history, build_ladder_queue, interleave_by_provider)   # the ladder's queue, read from the committed ledger
@@ -255,7 +256,7 @@ def main():
         names = [n.strip() for n in args.only.split(",") if n.strip()]
     elif args.unattempted:
         answered = defaultdict(int)          # target → lanes that actually answered in sweep runs
-        for f in (ROOT / "ledger" / target_set).glob("*.jsonl"):
+        for f in ledger_files.try_files(ROOT / "ledger" / target_set, recursive=False):
             for line in f.read_text().splitlines():
                 try:
                     r = json.loads(line)
@@ -273,7 +274,7 @@ def main():
     else:
         names = random.Random(args.seed).sample(names, min(args.sample, len(names)))
     known, unknown = lanes(args.lanes, args.min_tier, args.skip_benched)
-    ledger_rows = [json.loads(l) for f in (ROOT / "ledger").glob("**/*.jsonl")
+    ledger_rows = [json.loads(l) for f in ledger_files.try_files(ROOT / "ledger")
                    for l in f.read_text().splitlines() if l.strip()]
     RUNNING_DRY.update(l["backend"] for l in known + unknown if relay.running_dry(ledger_rows, l["backend"]))
     for b in sorted(RUNNING_DRY):

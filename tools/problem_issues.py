@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import ledger_files
 import relay
 
 REPO = "kumori-ai/sparebrains"
@@ -185,7 +186,7 @@ def row_day(line):
 def load_rows(since_day):
     """Every ledger row from `since_day` (YYYY-MM-DD) on; older lines are skipped unparsed."""
     out = []
-    for f in (ROOT / "ledger").glob("**/*.jsonl"):
+    for f in ledger_files.try_files(ROOT / "ledger"):
         for l in f.read_text().splitlines():
             if l.strip() and row_day(l) >= since_day:
                 out.append(json.loads(l))
@@ -390,7 +391,7 @@ def main():
                 i = gh.call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
                 print(f"{k}: opened #{i['number']} {i['html_url']}")
     if args.digest:
-        rows = [json.loads(l) for f in (ROOT / "ledger").glob(f"**/{args.digest}.jsonl")
+        rows = [json.loads(l) for f in ledger_files.try_files(ROOT / "ledger", f"{args.digest}.jsonl")
                 for l in f.read_text().splitlines() if l.strip()]
         comments = {}
         for i in {i for r in rows for i in r.get("comment_ids") or []}:

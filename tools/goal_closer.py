@@ -26,6 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import ledger_files
 import subgoals
 from proof_text import PROOF_SEP, extract_proof
 
@@ -363,7 +364,7 @@ def _load(keys="open"):
     sweep's back-check: how today's recipes would have done on what is already done)."""
     import relay
     rows = []
-    for f in (ROOT / "ledger").glob("**/*.jsonl"):
+    for f in ledger_files.try_files(ROOT / "ledger"):
         for line in f.open():
             if '"sketch"' in line:
                 try:

@@ -9,6 +9,7 @@ file in our own repository, not a GitHub issue (an issue is Andy's call, each ti
     python3 tools/retro.py --today 2026-10-22   # as if run that day
 """
 import argparse, json, sys
+import ledger_files
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -30,7 +31,7 @@ def week_of(ts):
 def load(ledger):
     """Every ledger row that is a try: it has a time, a target, a mode and a verdict. Other files are skipped."""
     rows = []
-    for f in sorted(Path(ledger).rglob("*.jsonl")):
+    for f in sorted(ledger_files.try_files(ledger)):
         for line in f.read_text().splitlines():
             try:
                 r = json.loads(line)
@@ -93,7 +94,8 @@ def main(argv=None):
         return 0
     page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text(render(s))
-    print(f"wrote {page}: {sum(t for t, _ in s['modes'].values()):,} tries, {len(s['first_time'])} first-time solves")
+    shown = page.resolve().relative_to(ROOT) if page.resolve().is_relative_to(ROOT) else page   # the commit message's
+    print(f"wrote {shown}: {sum(t for t, _ in s['modes'].values()):,} tries, {len(s['first_time'])} first-time solves")
     return 0
 
 

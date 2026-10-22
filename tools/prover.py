@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import ledger_files
 from ladder import failure_kind, rung_of
 from proof_text import FENCE, PROOF_SEP, extract_proof
 
@@ -56,7 +57,7 @@ REACHABLE = ROOT / "ledger" / "reachable.json"
 
 def prover_rows(ledger_root=ROOT / "ledger", lane=PROVER):
     rows = []
-    for f in Path(ledger_root).glob("**/*.jsonl"):
+    for f in ledger_files.try_files(ledger_root):
         for line in f.open():
             if lane["backend"] in line:
                 try:
