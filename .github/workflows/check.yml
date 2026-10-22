@@ -60,7 +60,7 @@ jobs:
       - name: contract test environment
         run: |
           python3 -m venv "$RUNNER_TEMP/contract-tests"
-          "$RUNNER_TEMP/contract-tests/bin/pip" install numpy requests
+          "$RUNNER_TEMP/contract-tests/bin/pip" install -c tools/sandbox/requirements.txt numpy scipy requests   # scipy: the sandbox streaming tests (2026-10-22)
 
       - name: attempt and publishing contracts (no LLM calls)
         run: '"$RUNNER_TEMP/contract-tests/bin/python" -m unittest discover -s tools -p "test_*.py"'

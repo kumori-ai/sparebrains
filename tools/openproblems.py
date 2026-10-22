@@ -309,15 +309,24 @@ SANDBOX_CANARIES = {   # each must come back as its expected prediction: a breac
                 "        print('scratch refused:', x)\n"
                 "        return np.zeros((c.shape[0], b.shape[1]))\n"
                 "    raise SystemExit('3 GiB fit in /tmp')\n"),
-    "pids": ("import threading, time, numpy as np\n"           # --pids-limit 512: 600 threads must not all start
-             "def predict(a, b, c, d, e):\n"
-             "    try:\n"
-             "        for _ in range(600):\n"
-             "            threading.Thread(target=time.sleep, args=(60,), daemon=True).start()\n"
-             "    except RuntimeError as x:\n"
-             "        print('pids refused after', threading.active_count(), 'threads:', x)\n"
-             "        return np.zeros((c.shape[0], b.shape[1]))\n"
-             "    raise SystemExit('600 threads started under --pids-limit 512')\n"),
+    "threads": ("import threading, time, numpy as np\n"   # in --memory 512m: a thread explosion must be stopped
+                "hold = []\n"
+                "def grab():\n"
+                "    hold.append(np.ones(1 << 21, dtype=np.float32))\n"   # 8 MiB each, touched
+                "    time.sleep(120)\n"
+                "def predict(a, b, c, d, e):\n"
+                "    print('THREADS-CANARY starting', flush=True)\n"
+                "    n = 0\n"
+                "    try:\n"
+                "        for n in range(1, 2001):\n"
+                "            threading.Thread(target=grab, daemon=True).start()\n"
+                "            if n % 25 == 0:\n"
+                "                print('threads started:', n, flush=True)\n"
+                "    except RuntimeError as x:\n"
+                "        print('THREADS-CANARY refused after', n, 'threads:', x, flush=True)\n"
+                "        return np.zeros((c.shape[0], b.shape[1]))\n"
+                "    time.sleep(30)\n"
+                "    raise SystemExit('2000 threads holding 8 MiB each ran inside --memory 512m')\n"),
     "memory": ("import numpy as np\n"                       # run with --memory 512m: touching 1 GiB must be killed
                "def predict(a, b, c, d, e):\n"
                "    print('MEMORY-CANARY allocating 1 GiB', flush=True)\n"
@@ -338,17 +347,24 @@ def sandbox_check(work):
     write_inputs(inp, sparse.csr_matrix(np.ones((6, 4))), np.ones((6, 3)), sparse.csr_matrix(np.ones((5, 4))),
                  np.array(["s1d1"] * 6), np.array(["s2d1"] * 5))
     zeros = np.zeros((5, 3))
-    want = {"network": zeros, "filesystem": zeros, "scratch": zeros, "pids": zeros, "memory": "killed",
+    want = {"network": zeros, "filesystem": zeros, "scratch": zeros, "threads": "killed or refused", "memory": "killed",
             "stream": np.arange(15.0).reshape(5, 3)}
     for name, code in SANDBOX_CANARIES.items():
         f = Path(work) / f"canary-{name}.py"
         f.write_text(code)
         p, err, seen = sandboxed_predict(f, inp, (5, 3), 300, dir_mode=0o777 if name == "filesystem" else 0o755,
-                                         mem="512m" if name == "memory" else SANDBOX_MEM)
-        if isinstance(want[name], str):          # "killed": reached the allocation, then SIGKILLed (exit 137)
-            if p is not None or not (err or "").startswith("exit 137") or "MEMORY-CANARY allocating" not in seen:
+                                         mem="512m" if name in ("memory", "threads") else SANDBOX_MEM)
+        killed = p is None and (err or "").startswith("exit 137")
+        expect = want[name] if isinstance(want[name], str) else None
+        if expect == "killed":                   # reached the allocation, then SIGKILLed (exit 137)
+            if not (killed and "MEMORY-CANARY allocating" in seen):
                 raise SystemExit(f"sandbox check {name} failed: want a SIGKILL after the allocation began, got "
                                  f"{'a prediction' if p is not None else err[:300]}")
+        elif expect == "killed or refused":      # the memory cap stopped it, or thread creation was refused
+            refused = p is not None and np.array_equal(p, zeros) and "THREADS-CANARY refused after" in seen
+            if not ("THREADS-CANARY starting" in seen and (killed or refused)):
+                raise SystemExit(f"sandbox check {name} failed: want killed (exit 137) or refused after starting, got "
+                                 f"{'a prediction' if p is not None else (err or '')[:300]}")
         elif err or not np.array_equal(p, want[name]):
             raise SystemExit(f"sandbox check {name} failed: {err or 'wrong prediction'}")
         lines = [l for l in seen.splitlines() if l.strip()]
