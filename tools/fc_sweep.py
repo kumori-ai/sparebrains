@@ -20,6 +20,8 @@ FC_COMMIT = "90d18f666eb98adec4eee4d12f1d37e30b4eb204"
 CATEGORIES = ("textbook", "test")
 STANDARD_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 TIMEOUT_S = 300
+JUDGE_WORKERS, LEAN_MEM_MB = 2, 6000      # fc_prove 39695793555 (2026-10-22): the runner shut down mid-judge with
+                                          # 4 at once; suspected memory pressure (one check with Mathlib: 3.35 GB)
 
 
 def declarations(text):
@@ -106,8 +108,13 @@ def proved(output, name, span):
 def lean_cmd(file, user, path):
     """Lean on one file; as the sandbox user with an emptied environment when there is one (tools/judge_sandbox.sh),
     because a prover's proof is untrusted code (#eval runs IO while Lean elaborates)."""
-    cmd = ["lake", "env", "lean", str(file)]
+    cmd = ["lake", "env", "lean", "-M", str(LEAN_MEM_MB), str(file)]   # a runaway proof fails alone
     return ["sudo", "-n", "-u", user, "env", "-i", f"PATH={path}", f"HOME=/tmp/{user}", *cmd] if user else cmd
+
+
+def resource_limited(out):
+    """Lean stopped at its memory cap or our timeout: the check says nothing about the proof."""
+    return out == "timeout" or "excessive memory consumption" in out
 
 
 def run_lean(fc, text, tag):
@@ -150,9 +157,14 @@ def _capped(r):
     return r.get("verdict") == "no_proof" and r.get("finish") == "length" and (r.get("tokens") or 0) >= leanstral_cap()
 
 
+def _decided(rows):
+    """Rows that say something: a check that ran out of memory or time (verdict resource) decided nothing."""
+    return [r for r in rows if r.get("verdict") != "resource"]
+
+
 def effort(w, rows):
     """'none' for a declaration whose answers so far all ran out at today's cap (probe 2026-10-21: 6 of 8)."""
-    mine = [r for r in rows if (r["file"], r["name"]) == (w[0], w[2]["name"])]
+    mine = [r for r in _decided(rows) if (r["file"], r["name"]) == (w[0], w[2]["name"])]
     return "none" if mine and all(_capped(r) for r in mine) else None
 
 
@@ -160,7 +172,7 @@ def owed(work, rows, limit):
     """Cut-off declarations once more, without long reasoning, first; then the ones with no row yet, so runs resume
     where the last one stopped. A declaration asked both ways, or answered in full, is done."""
     by = {}
-    for r in rows:
+    for r in _decided(rows):
         by.setdefault((r["file"], r["name"]), []).append(r)
     retry = [w for w in work if (k := (w[0], w[2]["name"])) in by and all(_capped(r) for r in by[k])
              and not any(r.get("effort") == "none" for r in by[k])]
@@ -206,10 +218,12 @@ def judge(fc, answers, texts, out):
         o, secs = run_lean(fc, cand, hashlib.sha1(f"{a['file']}:{a['name']}:lp".encode()).hexdigest()[:12])
         if proved(o, d["name"], region(cand, d["name"])):
             return {**row, "verdict": "proved", "seconds": secs, "proof": extract_proof(a["text"], d["name"])}
+        if resource_limited(o):                       # inconclusive, so owed() asks it again
+            return {**row, "verdict": "resource", "seconds": secs, "reason": "timeout" if o == "timeout" else "lean memory cap"}
         err = re.search(r"error: (.*)", o)
         return {**row, "verdict": "reject", "seconds": secs, "reason": (err.group(1) if err else o[-200:])[:300]}
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    with ThreadPoolExecutor(4) as ex, open(out, "w") as fh:
+    with ThreadPoolExecutor(JUDGE_WORKERS) as ex, open(out, "w") as fh:
         for row in ex.map(one, answers):
             fh.write(json.dumps({"at": stamp, "fc_commit": FC_COMMIT, **row}) + "\n")
             if row["verdict"] == "proved":
@@ -242,7 +256,7 @@ def main():
     ap.add_argument("--fc", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--answers", help="judge: the generate step's answers")
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=JUDGE_WORKERS)
     ap.add_argument("--limit", type=int)
     a = ap.parse_args()
     fc = Path(a.fc)

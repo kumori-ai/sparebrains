@@ -28,6 +28,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   where it points, and a test fails if a tool walks the ledger itself again. On today's ledger it returns the same
   1,405 files. Reviewed by Codex to ACCEPT in three rounds (round 1 found the missed `--digest` reader and the
   `--ledger ledger/speed` bypass; round 2 the links out of `speed/` and the per-set reader).
+- **fc_prove keeps its answers and judges two at a time under Lean's memory cap (task #478).** Run 39695793555 lost
+  all 40 Leanstral answers (77 min of generation): the runner shut down 3 min into judging (exit 143; even the
+  `always()` publish step was skipped), with 4 Lean checks at once in formal-conjectures' build. Suspected memory
+  pressure, not proven: one check with `import Mathlib` peaks at 3.35 GB resident, so 4 sit near 13.4 GB on a 16 GB
+  runner before any proof. Now: the answers are an artifact before any Lean runs; 2 checks at once (the sweep
+  too), each `lean -M 6000`, so a runaway proof fails alone; and a check that hits the memory cap or the timeout
+  is verdict `resource`, which decides nothing, so the declaration is asked again instead of counting as a reject.
+  Codex ACCEPT after three rounds (round 2 found effort() still counting resource rows).
 
 ## 2026-10-20
 

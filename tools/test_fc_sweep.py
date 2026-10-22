@@ -90,14 +90,30 @@ class Prover(unittest.TestCase):
         cmd = fc.lean_cmd("/w/fc/.sweep/x.lean", user="sbjudge", path="/h/.elan/bin:/usr/bin")
         self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "sbjudge", "env", "-i"])
         self.assertIn("PATH=/h/.elan/bin:/usr/bin", cmd)
-        self.assertEqual(cmd[-4:], ["lake", "env", "lean", "/w/fc/.sweep/x.lean"])
-        self.assertEqual(fc.lean_cmd("/f.lean", user=None, path="p"), ["lake", "env", "lean", "/f.lean"])
+        self.assertEqual(cmd[-6:], ["lake", "env", "lean", "-M", str(fc.LEAN_MEM_MB), "/w/fc/.sweep/x.lean"])
+        self.assertEqual(fc.lean_cmd("/f.lean", user=None, path="p"), ["lake", "env", "lean", "-M", str(fc.LEAN_MEM_MB), "/f.lean"])
+
+    def test_the_judges_lean_processes_fit_the_runner_together(self):
+        # fc_prove 39695793555 (2026-10-22): the runner died 3 min into judging 4 at once, so nothing after it ran
+        self.assertLessEqual(fc.JUDGE_WORKERS * fc.LEAN_MEM_MB, 12 * 1024, "16 GB runner, room left for the OS")
 
     def test_each_run_takes_declarations_without_a_prover_row_yet(self):
         work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"}), ("b.lean", "", {"name": "x"})]
         rows = [{"file": "a.lean", "name": "x", "verdict": "open"}]
         self.assertEqual([(w[0], w[2]["name"]) for w in fc.owed(work, rows, 5)], [("a.lean", "y"), ("b.lean", "x")])
         self.assertEqual(len(fc.owed(work, rows, 1)), 1)
+
+    def test_a_check_that_ran_out_of_memory_or_time_says_nothing_about_the_proof(self):
+        self.assertTrue(fc.resource_limited("x.lean:1:4: error: (kernel) excessive memory consumption detected"))
+        self.assertTrue(fc.resource_limited("timeout"))
+        self.assertFalse(fc.resource_limited("x.lean:3:2: error: unsolved goals"))
+        work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"})]
+        rows = [{"file": "a.lean", "name": "x", "verdict": "resource"}, {"file": "a.lean", "name": "y", "verdict": "reject"}]
+        self.assertEqual([w[2]["name"] for w in fc.owed(work, rows, 5)], ["x"], "inconclusive: asked again")
+        capped = {"file": "a.lean", "name": "x", "verdict": "no_proof", "finish": "length", "tokens": fc.leanstral_cap()}
+        mixed = [capped, {"file": "a.lean", "name": "x", "verdict": "resource", "effort": "none"}]
+        self.assertEqual(fc.effort(work[0], mixed), "none", "a resource row neither counts as an answer nor as asked")
+        self.assertEqual([w[2]["name"] for w in fc.owed(work[:1], mixed, 5)], ["x"])
 
     def test_a_declaration_cut_off_at_the_cap_comes_back_first_without_long_reasoning(self):
         work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"}), ("b.lean", "", {"name": "z"})]

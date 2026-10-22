@@ -41,6 +41,17 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
         run: python3 tools/fc_sweep.py generate --fc fc --out "$RUNNER_TEMP/answers.jsonl" --limit "${{ inputs.limit }}"
 
+      # Before any Lean runs: run 39695793555 (2026-10-22) lost 82 minutes of answers when the runner died mid-judge,
+      # and `if: always()` steps do not run on a dead runner. Re-judge from this artifact with a new run.
+      - name: keep the answers
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fc-answers-${{ github.run_id }}
+          path: ${{ runner.temp }}/answers.jsonl
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: elan (as their CI installs it)
         run: |
           curl -sSfL https://github.com/leanprover/elan/releases/download/v1.4.2/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
