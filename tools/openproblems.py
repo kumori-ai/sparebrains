@@ -140,6 +140,11 @@ def paired_bootstrap(y, a, b, metric, n=10000, seed=0):
     return tuple(float(q) for q in np.percentile(diffs, [2.5, 97.5]))
 
 
+# The bar's "who writes it" clause: frontier help is labeled with its drafter and reported apart. The published
+# starting point in BRIEF was chosen and adapted by Claude Opus (2026-10-22, task #477), so every evolve row says so.
+BRIEF_ASSIST = ("brief seeded with a published method (Guanlab-dengkw, Lance et al. 2022), chosen and adapted by "
+                "Claude Opus, 2026-10-22; code written by the evolve writer")
+
 BRIEF = """Write a Python function that predicts surface protein levels (ADT, 134 proteins) of single cells from
 their RNA expression (13,953 genes), for the openproblems.bio task predict_modality (bmmc_cite, NeurIPS 2021).
 Both are normalized (log CP10k for RNA). Cells come from donors at several sites; the test cells are mostly from
@@ -157,6 +162,15 @@ Scored by rmse over every value (lower is better) and the mean Pearson correlati
 Machine: 4 CPU cores, 16 GB RAM, no GPU, 20 minutes for the whole call. Libraries: numpy, scipy, scikit-learn
 only, no internet. The reference to beat is k-nearest-neighbor regression on a 50-component TruncatedSVD of the
 RNA (train and test together), 100 neighbors, which scores {ref} here.
+A strong published starting point, credited: the NeurIPS 2021 GEX->ADT winner, team Guanlab-dengkw (Kaiwen
+Deng; Lance et al., PMLR 176, 2022, sec. 3.2.2). The organizers report that expression scales differ by site, which
+limits generalization to an unseen site; the winner's answer: truncated SVD of train and test inputs together (300
+components, capped by the feature count), a z-score of each cell's row of the reduced matrix (it removes the
+per-cell scale), kernel ridge regression with an RBF kernel (length scale ~10, alpha ~0.2) predicting a truncated
+SVD of the output (70 components, capped), mapped back through its components; several models fit on random halves
+of the training batches, then averaged. Its own code, in the swap direction (134 protein inputs), uses no input SVD
+and 50 output components. Our adaptation for this machine: a kernel model on n cells needs an n x n matrix, so fit
+each one on a random subset of at most 12,000 training cells (0.58 GB in float32) and average several. Improve on it if you can.
 Pitfalls that crashed earlier attempts here: MultiOutputRegressor is in sklearn.multioutput and pearsonr in
 scipy.stats; Ridge, RidgeCV and PLSRegression take no random_state; a sparse matrix has no .std() and
 StandardScaler needs with_mean=False on it; SVR/LinearSVR and other single-output models need a wrapper for 134
@@ -262,18 +276,35 @@ def _ci_ok(m, ref):
 
 
 def best(rows, ref):
-    """The lowest validation rmse among candidates at least as good as the reference on Pearson per cell, and no
-    worse on swap (the bar's second check, seen in validation as well); with a validation bootstrap, only a lead
-    clear of zero on both metrics counts."""
-    ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] >= ref["mean_pearson_per_cell"]
-          and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref)]
-    return min(ok, key=lambda r: r["metrics"]["rmse"]) if ok else None
+    """The largest validation Pearson-per-cell lead among candidates better than the reference on rmse and Pearson
+    (the bar's own pair), no worse on swap, and, with a validation bootstrap, clear of zero on both. Ranked by
+    Pearson since 2026-10-22: ranked by rmse, shot 1 won rmse on test and lost Pearson (our hypothesis, not
+    established: shrinkage toward the mean lowers rmse and flattens correlation); rmse breaks ties."""
+    ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] > ref["mean_pearson_per_cell"]
+          and r["metrics"]["rmse"] < ref["rmse"] and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref)]
+    return max(ok, key=lambda r: (r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"])) if ok else None
+
+
+def failed_checks(m, ref):
+    """Which of best()'s checks a candidate's validation metrics fail, in words the writer can act on."""
+    out = []
+    if not m["rmse"] < ref["rmse"]:
+        out.append("rmse below the reference's")
+    if not m["mean_pearson_per_cell"] > ref["mean_pearson_per_cell"]:
+        out.append("Pearson per cell above the reference's")
+    if not _swap_ok(m, ref):
+        out.append("no worse than the reference on the swap direction")
+    if not _ci_ok(m, ref):
+        out.append("both leads clear of zero in the validation bootstrap")
+    return out
 
 
 def best_or_closest(rows, ref):
-    """The best candidate by the bar's rule, else the lowest validation rmse among those that ran."""
+    """The best candidate by the bar's rule, else the highest validation Pearson among those that ran (rmse breaks
+    ties), the same order best() uses."""
     ran = [r for r in rows if "metrics" in r and r.get("code")]
-    return best(ran, ref) or (min(ran, key=lambda r: r["metrics"]["rmse"]) if ran else None)
+    return best(ran, ref) or (max(ran, key=lambda r: (r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"]))
+                              if ran else None)
 
 
 def _fmt(m):
@@ -306,7 +337,9 @@ def evolve(rounds, ask, score, ref, writer, seed=None):
         prompt = BRIEF.format(ref=_fmt(ref))
         top = best_or_closest(rows + ([seed] if seed else []), ref)
         if top:          # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
-            prompt += (f"\n\nThe strongest so far scores {_fmt(top['metrics'])}; beat the reference on both:"
+            standing = ("the best so far, past every check" if best([top], ref)
+                        else f"the closest so far; it does not yet pass: {', '.join(failed_checks(top['metrics'], ref))}")
+            prompt += (f"\n\nThis is {standing}: {_fmt(top['metrics'])}. Beat the reference on both:"
                        f"\n```python\n{top['code']}```")
         if rows:
             last = rows[-1]
@@ -318,7 +351,7 @@ def evolve(rounds, ask, score, ref, writer, seed=None):
                 prompt += f"\n\nThe last attempt scored {_fmt(last['metrics'])}."
         t = time.time()
         reply = ask(prompt)
-        row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1)}
+        row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1), "brief_assist": BRIEF_ASSIST}
         code = extract_code(reply) if isinstance(reply, str) else None
         if code is None:
             row["error"] = "no code in the reply" if isinstance(reply, str) else f"no reply: {reply.get('error')}"
@@ -715,7 +748,7 @@ def main():
             fh.write(json.dumps({"at": stamp, "task": REPO, "dataset": DATASET, "split": "validation: site 1 held out",
                                  "reference": {METHOD: ref}, **r}) + "\n")
     print(f"evolve: {len(rows)} rounds by {writer}, {sum('metrics' in r for r in rows)} ran, "
-          + (f"best {_fmt(top['metrics'])} (round {top['round']})" if top else "none at the reference's Pearson")
+          + (f"best {_fmt(top['metrics'])} (round {top['round']})" if top else "none passes the bar's checks on validation")
           + f"; reference {_fmt(ref)}")
     return 0
 

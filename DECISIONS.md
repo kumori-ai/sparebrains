@@ -61,6 +61,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
     links, takes only a regular `.npy` 1.0/2.0 file whose header is under 4 KiB (checked before NumPy reads it),
     float32 of the expected shape and exact size, after the candidate's processes are gone. Codex AGREE after two
     rounds (round 1 found NumPy reads a declared header whole, up to 4 GiB, before its own limit).
+- **Evolve now ranks by the metric we lose, and starts from the published winner, credited and disclosed (task
+  #477).** Shot 1 won rmse on test and lost Pearson per cell; selection had picked the lowest rmse among candidates
+  merely tied on Pearson. `best()` now needs both metrics strictly better than knnr_py on validation (the bar's
+  pair) and ranks by Pearson, rmse breaking ties (shrinkage as the cause is our hypothesis, not established). A
+  deep-search found the cause the two models had not: the organizers' results paper (Lance et al., PMLR 176, 2022)
+  says expression scales differ by site, limiting generalization to an unseen site. The brief now describes their
+  GEX->ADT winner (Guanlab-dengkw: train+test SVD, a z-score of each cell's reduced row, RBF kernel ridge on an
+  output SVD, models on batch halves averaged; swap per its own code: no input SVD, 50 output components), plus our
+  adaptation (each kernel model on at most 12,000 cells). Under the bar's "who writes it" clause the brief was chosen
+  and adapted by Claude Opus, and every evolve row says so (`brief_assist`). Resource fit is unverified until the
+  next run. Codex AGREE after three rounds (round 3 read the upstream script itself).
 
 ## 2026-10-20
 

@@ -96,14 +96,28 @@ class Evolve(unittest.TestCase):
         self.assertNotIn("KUMORI_API_KEY", " ".join(cmd))
         self.assertEqual(op.candidate_cmd("c.py", "val", "out.npy", user=None, python="py")[:2], ["py", "-I"])
 
-    def test_the_best_is_lowest_rmse_among_those_at_least_as_good_on_pearson(self):
+    def test_the_best_is_the_largest_pearson_lead_among_those_that_beat_the_reference_on_both(self):
+        # shot 1 (2026-10-21): ranked by rmse, it won rmse on test and lost Pearson; Pearson is the metric we lose
         ref = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
         rows = [{"metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.70}},      # lower rmse, worse Pearson
-                {"metrics": {"rmse": 0.95, "mean_pearson_per_cell": 0.79}},
-                {"metrics": {"rmse": 0.93, "mean_pearson_per_cell": 0.80}},
+                {"metrics": {"rmse": 0.93, "mean_pearson_per_cell": 0.79}},      # lowest rmse that qualifies
+                {"metrics": {"rmse": 0.96, "mean_pearson_per_cell": 0.80}},      # larger Pearson lead
+                {"metrics": {"rmse": 0.97, "mean_pearson_per_cell": 0.81}},      # rmse not below the reference
                 {"error": "Traceback"}]
         self.assertIs(op.best(rows, ref), rows[2])
-        self.assertIsNone(op.best([rows[0], rows[3]], ref))
+        self.assertIsNone(op.best([rows[0], rows[3], rows[4]], ref))
+        tie = {"metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.7855}}
+        self.assertIsNone(op.best([tie], ref), "a tie on Pearson is not a lead")
+
+    def test_the_closest_candidate_is_told_exactly_which_checks_it_fails(self):
+        ref = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855, "swap": {"rmse": 0.40, "mean_pearson_per_cell": 0.70}}
+        m = {"rmse": 0.94, "mean_pearson_per_cell": 0.79, "swap": {"rmse": 0.45, "mean_pearson_per_cell": 0.71}}
+        self.assertEqual(op.failed_checks(m, ref), ["no worse than the reference on the swap direction"])
+
+    def test_the_brief_starts_from_the_published_winner_and_credits_it(self):
+        for hint in ("Guanlab-dengkw", "Lance et al.", "z-score", "kernel ridge", "12,000", "average", "no input SVD"):
+            self.assertIn(hint, op.BRIEF)
+        self.assertIn("Claude Opus", op.BRIEF_ASSIST, "frontier help is labeled with its drafter (the bar)")
 
     def test_each_round_shows_the_model_the_best_so_far_and_the_last_outcome(self):
         asked, ref = [], {"rmse": 0.969, "mean_pearson_per_cell": 0.7855}
@@ -143,10 +157,12 @@ class Evolve(unittest.TestCase):
         def ask(prompt):
             asked.append(prompt)
             return next(replies)
-        op.evolve(3, ask, lambda code: next(scores), ref, writer="fake")
+        rows = op.evolve(3, ask, lambda code: next(scores), ref, writer="fake")
+        self.assertTrue(all(r["brief_assist"] == op.BRIEF_ASSIST for r in rows), "every row carries the disclosure")
         self.assertIn("np.ones", asked[1], "the crashed code is shown to be fixed")
         self.assertIn("ValueError: boom", asked[1])
         self.assertIn("0.9400", asked[2], "the closest candidate is shown though its Pearson is below the reference")
+        self.assertIn("does not yet pass: Pearson per cell above the reference's", asked[2])
 
 
 try:
