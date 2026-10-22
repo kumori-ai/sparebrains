@@ -133,10 +133,18 @@ jobs:
           SLICE: ${{ matrix.slice }}
           CRON: ${{ github.event.schedule }}
         run: |
-          if [ "$CRON" = "17 10 * * *" ]; then
-            # nightly: every cold reject the day added, re-run with Lean only (B, C), 6 slices side by side
+          if [ "$CRON" = "17 10 * * *" ] || [ "$FIXER_TARGET" = "retro" ]; then
+            # nightly: every cold reject the day added, re-run with Lean only (B, C), 6 slices side by side. The
+            # retro dispatch (the backup when GitHub drops this cron) runs the same night, so nothing in it is skipped.
+            SLICE="${SLICE:-0/1}"
             START=$(date +%s)
-            python3 tools/attempt.py --retro --slice "$SLICE" --max-minutes 320 --max-calls 1000
+            # the speed receipt's re-solve layer first (task #191 step 2), with time of its own: fresh cold tries on
+            # the frozen sample from one pinned lane, then the chain; ~123 tries a week, ~21 a slice, resumed night by
+            # night until the run week is covered, rows only in ledger/speed/
+            python3 tools/toolscore.py --resolve --slice "$SLICE" --max-minutes 60 \
+              || echo "::warning::resolve failed (task #191); the retro and the scoreboard still run"
+            LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
+            python3 tools/attempt.py --retro --slice "$SLICE" --max-minutes "$LEFT" --max-calls 1000
             # then the tool scoreboard (task #463) with the time left: it catches up night by night, and grades
             # the chain afresh whenever a tool's code changes
             LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
@@ -157,11 +165,6 @@ jobs:
           elif [ "$FIXER_TARGET" = "all" ] && [ -n "$SLICE" ]; then
             # one slice of the matrix: automation only, no model asked; the sketches it leaves feed the lemma queue
             python3 tools/attempt.py --fixer --only all --slice "$SLICE" --max-calls "${{ inputs.max_calls }}"
-          elif [ "$FIXER_TARGET" = "retro" ]; then
-            # the loop's ablation: every stored cold reject re-run with Lean only (B = the fixer, C = plus holes and
-            # Lean's automation), results to kumori's sparebrains_ablation; a slice stops at 320 minutes and the
-            # next dispatch picks up what is left (the queue is "not yet re-run")
-            python3 tools/attempt.py --retro --slice "${SLICE:-0/1}" --max-minutes 320 --max-calls "${{ inputs.max_calls }}"
           elif [ "$FIXER_TARGET" = "toolscore" ]; then
             # the tool scoreboard (task #463): stored rejects the chain touched, re-run whole and then once per tool
             # it used with that tool left out; the report half (odd ids), Lean only, results to sparebrains_toolscore

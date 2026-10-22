@@ -83,3 +83,95 @@ class Arms(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Resolve(unittest.TestCase):
+    """The re-solve layer (task #191 step 2): a frozen weekly sample, owed tries resumed by key, one cold try."""
+    @staticmethod
+    def report(n, tset="primer"):
+        """n distinct problems on the report half."""
+        out, i = [], 0
+        while len(out) < n:
+            if toolscore.problem_half(tset, f"p{i}") == "report":
+                out.append(f"p{i}")
+            i += 1
+        return out
+
+    def test_weeks_are_mondays_utc(self):
+        self.assertEqual(toolscore.week_of("2026-10-18T23:59:00+00:00"), "2026-10-12")
+        self.assertEqual(toolscore.week_of("2026-10-19T00:00:00+00:00"), "2026-10-19")
+
+    def test_the_sample_takes_solved_then_and_open_then_from_finished_weeks_only(self):
+        a, b, c, d = self.report(4)
+        rows = [{"ts": "2026-10-13T01:00:00+00:00", "target_set": "primer", "target": a, "verdict": "accept"},
+                {"ts": "2026-10-13T02:00:00+00:00", "target_set": "primer", "target": b, "verdict": "reject"},
+                {"ts": "2026-10-20T02:00:00+00:00", "target_set": "primer", "target": b, "verdict": "accept"},
+                {"ts": "2026-10-14T02:00:00+00:00", "target_set": "primer", "target": c, "verdict": "reject"},
+                {"ts": "2026-10-20T03:00:00+00:00", "target_set": "primer", "target": d, "verdict": "reject"}]
+        got = toolscore.freeze_sample(rows, "2026-10-22T00:00:00+00:00", set(), lambda s, t: "sha", per_week=(3, 3))
+        kinds = {(g["target"], g["kind"]) for g in got}
+        self.assertEqual(kinds, {(a, "solved_then"), (b, "open_then"), (c, "open_then")})
+        self.assertTrue(all(g["week"] == "2026-10-12" for g in got), "the current week is never frozen")
+        self.assertEqual(toolscore.freeze_sample(rows, "2026-10-22T00:00:00+00:00", {"2026-10-12"}, lambda s, t: "sha"),
+                         [], "a frozen week is never re-drawn")
+        self.assertEqual(toolscore.freeze_sample(rows, "2026-10-22T00:00:00+00:00", set(), lambda s, t: None), [],
+                         "a problem whose file is gone is not frozen")
+
+    def test_the_tune_half_never_enters_the_sample(self):
+        i = 0
+        while toolscore.problem_half("primer", f"q{i}") == "report":
+            i += 1
+        rows = [{"ts": "2026-10-13T01:00:00+00:00", "target_set": "primer", "target": f"q{i}", "verdict": "accept"}]
+        self.assertEqual(toolscore.freeze_sample(rows, "2026-10-22T00:00:00+00:00", set(), lambda s, t: "x"), [])
+
+    def test_owed_tries_resume_by_key(self):
+        s = {"week": "2026-10-12", "target_set": "primer", "target": "p1", "kind": "open_then", "statement_sha": "x"}
+        done = {("2026-10-19", "c1", "lane", "2026-10-12", "primer", "p1", 1)}
+        q = toolscore.resolve_queue([s], done, "2026-10-19", "c1", "lane", 0, 1, tries=3)
+        self.assertEqual([t for _, t in q], [2, 3])
+        self.assertEqual(len(toolscore.resolve_queue([s], done, "2026-10-19", "c2", "lane", 0, 1, tries=3)), 3,
+                         "a new chain owes every try again")
+        self.assertEqual(sum(len(toolscore.resolve_queue([s], set(), "w", "c", "l", k, 3)) for k in range(3)), 3,
+                         "slices split the queue, every try in exactly one")
+
+    def test_an_error_row_leaves_its_try_owed(self):
+        row = {"run_week": "w", "chain": "c", "lane": "l", "week": "2026-10-12", "target_set": "primer", "target": "p1",
+               "try": 1}
+        self.assertEqual(toolscore.resolved_keys([{**row, "verdict": "error"}]), set())
+        self.assertEqual(len(toolscore.resolved_keys([{**row, "verdict": "reject"}])), 1)
+
+    def test_slices_share_the_report_half_evenly(self):
+        sample = [{"week": "w", "target_set": "minif2f/test", "target": t, "kind": "open_then", "statement_sha": "x"}
+                  for t in self.report(60, "minif2f/test")]
+        loads = [len(toolscore.resolve_queue(sample, set(), "r", "c", "l", k, 6, tries=1)) for k in range(6)]
+        self.assertEqual(sum(loads), 60)
+        self.assertTrue(all(n > 0 for n in loads), f"every slice gets work: {loads}")
+
+    S = {"week": "2026-10-12", "target_set": "primer", "target": "t", "kind": "open_then", "statement_sha": "x"}
+
+    def test_router_errors_are_retried_and_kept_apart_from_tries(self):
+        calls = []
+        def ask(prompt):
+            calls.append(prompt)
+            raise RuntimeError("HTTP 504 : timed out")
+        r = toolscore.resolve_one(self.S, 1, PREFIX + " sorry", PREFIX, ask, FakeLean().judge_text, None, retries=2)
+        self.assertEqual((r["verdict"], r["router_errors"], len(calls)), ("error", 3, 3))
+        self.assertNotIn("cold", r, "an error is not a try")
+
+    def test_a_refused_lane_stops_the_run(self):
+        def ask(prompt):
+            raise RuntimeError("HTTP 503 : minimax is gated: the 'sparebrains' share is spent")
+        self.assertIsNone(toolscore.resolve_one(self.S, 1, "x", PREFIX, ask, FakeLean().judge_text, None))
+
+    def test_the_cold_prompt_is_the_statement_only_and_the_chain_runs_on_a_reject(self):
+        import attempt
+        seen, chained = [], []
+        def ask(prompt):
+            seen.append(prompt)
+            return "```lean\n" + PREFIX + "\n  by rfl\n```", {"returned_backend": "lane"}
+        chain = lambda proof, prefix, said: chained.append(proof) or {"c_verdict": "accept", "fixes": ["double_by"],
+                                                                     "rep": {}}
+        r = toolscore.resolve_one(self.S, 1, PREFIX + " sorry", PREFIX, ask, FakeLean().judge_text, chain)
+        self.assertEqual(seen, [attempt.ASK + PREFIX + " sorry"])
+        self.assertEqual((r["cold"], r["verdict"], r["fixes"]), ("reject", "accept", ["double_by"]))
+        self.assertEqual(len(chained), 1)
