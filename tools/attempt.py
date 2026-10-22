@@ -74,6 +74,9 @@ ASK = ("Complete the proof in this Lean 4 file (Lean v4.33.1, mathlib v4.33.1, `
 
 
 ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s, doubling to 30 min)
+# kumori quotas.py: prompt + max_tokens over a lane's tokens-a-minute limit is refused before any provider call, and
+# no wait changes that; asking again cost 1,281 refusals in 2026-10-15..22, each logged as a lane error
+NEVER_FITS_WHY = "router: prompt + max_tokens exceed this lane's tokens a minute (never_fits); not retried this job"
 
 
 RUNNING_DRY = set()   # lanes whose recent calls mostly came back empty, from the ledger at job start
@@ -400,6 +403,7 @@ def main():
     bench = {"t": 0.0, "state": {}, "told": {}, "streak": {}, "gone": set()}   # told: backend → monotonic time the router said to come back
                                                          # gone: lanes the router 404s, not asked again this job
     exhausted = {}                                       # provider → why it is parked for the rest of the run
+    too_big = {}                                         # backend → shortest prompt (chars) the router said never fits
 
     def benched(backend):
         """Router bench state, refreshed at most every 30 s. True = the router would 503 this lane now.
@@ -438,11 +442,11 @@ def main():
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
 
-    def skip(name, lane, attempt_no, why):
+    def skip(name, lane, attempt_no, why, tset=None, tdir_=None):
         """A pair the router would refuse: recorded honestly, no model call, no Lean."""
-        target_text = (tdir / f"{name}.lean").read_text()
+        target_text = ((tdir_ or tdir) / f"{name}.lean").read_text()
         prefix = target_text[:PROOF_SEP.search(target_text).end()]
-        row = {**base_row(name, lane, attempt_no, hashlib.sha256(prefix.encode()).hexdigest()),
+        row = {**base_row(name, lane, attempt_no, hashlib.sha256(prefix.encode()).hexdigest(), tset),
                "verdict": "skipped", "reason": why, "call_seconds": 0.0, "lean_seconds": 0.0,
                "response_chars": 0, "proof_sha": None}
         with lock:
@@ -484,6 +488,12 @@ def main():
             # Another worker may have benched this lane while we waited for the provider.
             if benched(lane["backend"]):
                 return "defer"
+            with lock:                                   # rechecked here: a waiting worker may hold an older view
+                floor = too_big.get(lane["backend"])
+            if floor is not None and len(prompt) >= floor:
+                skip(name, lane, attempt_no, f"{NEVER_FITS_WHY}: a {floor:,}-char prompt already did this job",
+                     tset, tdir_)
+                return "too_big"
             for tries in (1, 2):
                 try:
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
@@ -509,6 +519,11 @@ def main():
                                     bench["told"][other["backend"]] = max(bench["told"].get(other["backend"], 0), until)
                         print(f"{lane['provider']}: share held for other tenants; parked for {wait:.0f}s", flush=True)
                         return "defer"
+                    if "never_fits" in msg:              # prompt + max_tokens over the lane's tokens a minute: no wait helps
+                        with lock:
+                            too_big[lane["backend"]] = min(too_big.get(lane["backend"], len(prompt)), len(prompt))
+                        skip(name, lane, attempt_no, f"{NEVER_FITS_WHY} ({len(prompt):,}-char prompt)", tset, tdir_)
+                        return "too_big"
                     if "spent its share" in msg or "is gated" in msg:
                         with lock:                        # the router's fair-share or pool gate: done for today
                             exhausted[lane["provider"]] = msg.split(" : ", 1)[-1][:120]
@@ -1134,7 +1149,7 @@ def main():
                     if state["calls"] >= args.max_calls:
                         break
                     v = relay_ask(name, lane, attempt_no, ctx)
-                    if v in ("accept", "exhausted", "gave_up"):
+                    if v in ("accept", "exhausted", "gave_up", "too_big"):
                         break
         if state["calls"] >= args.max_calls:
             print(f"cap reached: {args.max_calls} calls")
@@ -1159,7 +1174,7 @@ def main():
                     if v == "exhausted":
                         skip(name, lane, attempt_no, f"provider parked for the run: {exhausted[lane['provider']]}")
                         break
-                    if v == "accept":
+                    if v in ("accept", "too_big"):
                         break
             if state["calls"] >= args.max_calls:
                 print(f"cap reached: {args.max_calls} calls")
@@ -1193,6 +1208,8 @@ def main():
                     skip(name, lane, a, "lane benched by the router for the whole run")
                     continue
                 v = run_one(name, lane, a)
+                if v == "too_big":                       # recorded as a skip; a later attempt is no smaller
+                    continue
                 if v == "exhausted":
                     skip(name, lane, a, f"provider parked for the run: {exhausted[lane['provider']]}")
                     continue

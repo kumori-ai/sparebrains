@@ -1,7 +1,7 @@
 """Small parser contract tests. Lean remains the end-to-end verifier in Actions."""
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -63,7 +63,7 @@ class RetryPacingTests(unittest.TestCase):
                    planned_per_target=1, previous_id=Mock(return_value=None),
                    benched=Mock(return_value=False), llm_chat=Mock(),
                    args=SimpleNamespace(max_tokens=256, call_timeout=60, max_calls=99, stop_on_accept=False),
-                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={},
+                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={}, too_big={}, skip=Mock(),
                    order=[{'backend': 'test-lane', 'provider': 'test'}, {'backend': 'test-sibling', 'provider': 'test'},
                           {'backend': 'other-lane', 'provider': 'other'}],
                    extract_proof=Mock(side_effect=RuntimeError('verifier boundary')))
@@ -135,6 +135,34 @@ class DeadLaneTests(RetryPacingTests):
         env['llm_chat'].side_effect = self.share_refusal('borrow_cap', 40000)
         self.assertEqual(env['run_one']('demo', lane, 1), 'exhausted')
         self.assertIn('test', env['exhausted'])
+
+    def test_never_fits_is_a_skip_and_no_bigger_prompt_is_asked_again(self):
+        """2026-10-15..22: 1,281 never_fits refusals, groq-qwen3-8-27b asked primer_tutorial_07 105 times."""
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 : test-lane is pacing to the provider limit (tokens/minute:never_fits); '
+            'retry in 60s', status_code=503, retry_after=60)
+        self.assertEqual(env['run_one']('demo', lane, 1), 'too_big')
+        self.assertEqual(env['llm_chat'].call_count, 1)
+        self.assertEqual(env['run_one']('demo', lane, 2), 'too_big')   # same prompt: not asked again
+        self.assertEqual(env['llm_chat'].call_count, 1)
+        self.assertEqual(env['skip'].call_count, 2)
+        self.assertEqual((env['state']['calls'], env['bench']['streak']), (0, {}))
+
+    def test_a_floor_learned_while_waiting_for_the_provider_stops_the_call(self):
+        env, lane = self.runner()
+        env['provider_lock']['test'] = Mock(__enter__=Mock(side_effect=lambda *a: env['too_big'].update({'test-lane': 1})),
+                                            __exit__=Mock(return_value=False))
+        self.assertEqual(env['run_one']('demo', lane, 1), 'too_big')
+        env['llm_chat'].assert_not_called()
+
+    def test_a_shorter_prompt_than_the_floor_is_still_asked(self):
+        env, lane = self.runner()
+        env['too_big']['test-lane'] = 10 ** 6
+        env['llm_chat'].return_value = ('answer', 'test-lane', {})
+        with self.assertRaisesRegex(RuntimeError, 'verifier boundary'):
+            env['run_one']('demo', lane, 1)
+        env['llm_chat'].assert_called_once()
 
     def test_a_timeout_on_this_target_is_the_lanes_own_error(self):
         env, lane = self.runner()
