@@ -143,6 +143,7 @@ jobs:
             # night until the run week is covered, rows only in ledger/speed/
             python3 tools/toolscore.py --resolve --slice "$SLICE" --max-minutes 60 \
               || echo "::warning::resolve failed (task #191); the retro and the scoreboard still run"
+            python3 tools/toolscore.py --resolve-report || true   # the table so far, in the log
             LEFT=$(( 320 - ($(date +%s) - START) / 60 ))
             python3 tools/attempt.py --retro --slice "$SLICE" --max-minutes "$LEFT" --max-calls 1000
             # then the tool scoreboard (task #463) with the time left: it catches up night by night, and grades

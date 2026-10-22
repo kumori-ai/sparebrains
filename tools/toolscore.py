@@ -143,7 +143,7 @@ def resolve_one(s, t, text, prefix, ask, judge, chain_fn, retries=RESOLVE_RETRIE
             row["last_error"] = str(e)[:200]
     else:
         return {**row, "verdict": "error", "call_seconds": round(time.monotonic() - t0, 1)}
-    row.update(call_seconds=round(time.monotonic() - t0, 1), **meta)
+    row.update(call_seconds=round(time.monotonic() - t0, 1), response_chars=len(reply or ""), **meta)
     proof = extract_proof(reply or "", s["target"])
     if not proof:
         return {**row, "cold": "reject", "verdict": "reject", "reason": "no proof extracted from reply"}
@@ -152,8 +152,10 @@ def resolve_one(s, t, text, prefix, ask, judge, chain_fn, retries=RESOLVE_RETRIE
     row.update(cold=cold, lean_seconds=j.get("seconds"))
     if cold == "accept":
         return {**row, "verdict": "accept"}
+    t1 = time.monotonic()
     c = chain_fn(proof, prefix, j.get("output") or "")
-    return {**row, "verdict": c["c_verdict"], "fixes": c["fixes"], "closers": c["rep"].get("closers") or []}
+    return {**row, "verdict": c["c_verdict"], "fixes": c["fixes"], "closers": c["rep"].get("closers") or [],
+            "chain_seconds": round(time.monotonic() - t1, 1)}
 
 
 def chain_version():
@@ -240,6 +242,53 @@ def grade_one(a, prefix, names_ix, lean, full_only=False):
     return out
 
 
+def speed_report(rows, sample, tries=RESOLVE_TRIES):
+    """Compute to first accept on the frozen sample, per run week, chain and lane, then per frozen week. Every frozen
+    problem counts, tried or not. A problem's answered tries (accept/reject; errors left out) are taken in the order
+    they were answered (ts), and calls to first accept = answered tries up to and including the first accept, so an
+    error between them or a slot filled later cannot change it. None accepted: censored when `tries` were answered,
+    else owed (still in the run week's queue). The router reports no tokens, so compute is counted in calls for a
+    fixed lane; seconds = call + Lean + chain for those tries. 'turned' = the first accept came from the chain. A series
+    (run week, chain, lane) appears once it has any row, an error-only one as all owed; one with no rows does not."""
+    from collections import defaultdict
+    answered = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        if r.get("verdict") in ("accept", "reject"):
+            answered[(r["run_week"], r["chain"], r["lane"])][(r["week"], r["target_set"], r["target"])].append(r)
+    series = sorted({(r["run_week"], r["chain"], r["lane"]) for r in rows})
+    out = []
+    for key in series:
+        weeks = defaultdict(lambda: {"problems": 0, "solved": 0, "censored": 0, "owed": 0, "calls_to_first": [],
+                                     "seconds_to_first": [], "open_then_solved": 0, "turned": 0})
+        for p in sample:
+            w = weeks[p["week"]]
+            w["problems"] += 1
+            rs = sorted(answered[key].get((p["week"], p["target_set"], p["target"]), []), key=lambda r: r["ts"])
+            hit = next((i for i, r in enumerate(rs) if r["verdict"] == "accept"), None)
+            if hit is None:
+                w["censored" if len(rs) >= tries else "owed"] += 1
+                continue
+            w["solved"] += 1
+            w["calls_to_first"].append(hit + 1)
+            w["seconds_to_first"].append(round(sum((r.get("call_seconds") or 0) + (r.get("lean_seconds") or 0)
+                                                   + (r.get("chain_seconds") or 0) for r in rs[:hit + 1]), 1))
+            w["open_then_solved"] += p["kind"] == "open_then"
+            w["turned"] += rs[hit].get("cold") == "reject"
+        for wk, w in sorted(weeks.items()):
+            out.append({"run_week": key[0], "chain": key[1], "lane": key[2], "week": wk, **w})
+    return out
+
+
+def render_speed(report):
+    lines = ["| run week | chain | lane | frozen week | solved | calls to first accept, among solved | censored | owed "
+             "| open then, solved | turned by the chain |", "|---|---|---|---|---|---|---|---|---|---|"]
+    for r in report:
+        at = ", ".join(str(c) for c in sorted(r["calls_to_first"])) or "-"
+        lines.append(f"| {r['run_week']} | {r['chain']} | {r['lane']} | {r['week']} | {r['solved']}/{r['problems']} | "
+                     f"{at} | {r['censored']} | {r['owed']} | {r['open_then_solved']} | {r['turned']} |")
+    return "\n".join(lines)
+
+
 def statement_sha(tset, target):
     f = ROOT / "targets" / tset / f"{target}.lean"
     if not f.exists():
@@ -317,7 +366,12 @@ def main():
     ap.add_argument("--max-rows", type=int, default=100000)
     ap.add_argument("--speed", action="store_true", help="the speed receipt's frozen weekly sample, whole chain only")
     ap.add_argument("--resolve", action="store_true", help="fresh cold tries on the frozen weekly sample (task #191)")
+    ap.add_argument("--resolve-report", action="store_true", help="print the re-solve layer's table (no model, no Lean)")
     args = ap.parse_args()
+    if args.resolve_report:
+        print(render_speed(speed_report(load_jsonl(sorted(SPEED_DIR.glob("resolve-*.jsonl"))),
+                                        load_jsonl(sorted(SPEED_DIR.glob("sample-*.jsonl"))))))
+        return 0
     if args.speed and args.half != "report":
         sys.exit("--speed is the report half only")
     if not os.environ.get("KUMORI_API_KEY"):

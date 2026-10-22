@@ -174,4 +174,37 @@ class Resolve(unittest.TestCase):
         r = toolscore.resolve_one(self.S, 1, PREFIX + " sorry", PREFIX, ask, FakeLean().judge_text, chain)
         self.assertEqual(seen, [attempt.ASK + PREFIX + " sorry"])
         self.assertEqual((r["cold"], r["verdict"], r["fixes"]), ("reject", "accept", ["double_by"]))
+        self.assertIn("chain_seconds", r, "the chain is timed too")
         self.assertEqual(len(chained), 1)
+
+
+class SpeedReport(unittest.TestCase):
+    SAMPLE = [{"week": "2026-10-12", "target_set": "s", "target": x, "kind": k, "statement_sha": "x"}
+              for x, k in (("a", "open_then"), ("b", "open_then"), ("c", "open_then"), ("d", "open_then"),
+                           ("e", "solved_then"), ("f", "open_then"))]
+
+    @staticmethod
+    def row(target, t, verdict, ts, cold=None, lane="l"):
+        return {"run_week": "2026-10-19", "chain": "c", "lane": lane, "week": "2026-10-12", "target_set": "s",
+                "target": target, "try": t, "verdict": verdict, "cold": cold or verdict, "ts": ts,
+                "call_seconds": 10, "lean_seconds": 5, "chain_seconds": 0}
+
+    def test_the_population_is_the_frozen_sample_and_calls_count_answers_in_order(self):
+        rows = [self.row("a", 2, "accept", "T2", cold="reject"), {**self.row("a", 1, "reject", "T1"), "verdict": "error"},
+                self.row("b", 1, "reject", "T1"), self.row("b", 2, "reject", "T2"), self.row("b", 3, "reject", "T3"),
+                self.row("c", 1, "reject", "T1"),
+                {**self.row("d", 1, "accept", "T1"), "verdict": "error"},
+                self.row("e", 3, "reject", "T1"), self.row("e", 1, "accept", "T2")]   # slot 1 filled later
+        (r,) = toolscore.speed_report(rows, self.SAMPLE)
+        self.assertEqual(r["problems"], 6, "every frozen problem, f never tried")
+        self.assertEqual((r["solved"], r["censored"], r["owed"]), (2, 1, 3), "a and e solved; b censored; c, d, f owed")
+        self.assertEqual(sorted(r["calls_to_first"]), [1, 2], "a: 1 answer (the error is no call); e: 2nd answer")
+        self.assertEqual((r["open_then_solved"], r["turned"]), (1, 1))
+        self.assertIn(15.0, r["seconds_to_first"])
+
+    def test_lanes_are_kept_apart_and_shown(self):
+        rows = [self.row("a", 1, "accept", "T1", lane="l1"), self.row("a", 1, "reject", "T1", lane="l2")]
+        rep = toolscore.speed_report(rows, self.SAMPLE[:1])
+        self.assertEqual([(r["lane"], r["solved"]) for r in rep], [("l1", 1), ("l2", 0)])
+        self.assertIn("| l1 |", toolscore.render_speed(rep))
+        self.assertIn("among solved", toolscore.render_speed(rep))
