@@ -14,6 +14,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and every candidate carries the same paired bootstrap the bar uses (2,000 resamples over the site-1 cells); a
   candidate qualifies for a scoring only if its rmse interval sits below zero and its Pearson interval above, as on
   test. Rows scored before this can still seed a run but cannot qualify.
+- **The weekly retro is a page in the ledger, not an issue (task #460).** `tools/retro.py` reads the ledger
+  alone and writes `ledger/retro/<year>-W<week>.md` for the last closed ISO week: tries and accepts by mode,
+  first-time solves (a target's first accept ever) and the loop's stop reasons beside the week before, with the one
+  that grew most. `retro.yml` runs it daily as a backup for GitHub's dropped crons; a week whose page exists
+  publishes nothing, and a rerun writes the same bytes. A GitHub issue stays Andy's call each time. First page
+  (2026-W42, dry run): 8,746 tries, 14 first-time solves (5 checked against the date each first entered
+  `verified/`, all inside the week), "1 step left for a model" grew most (705 to 944).
 
 ## 2026-10-20
 

@@ -1,0 +1,40 @@
+# The weekly retro (Kumori task #460; tools/retro.py): last week's tries and accepts by mode, first-time solves,
+# and where the loop stopped, as ledger/retro/<year>-W<week>.md. Read from the ledger only, no model, $0. Daily,
+# because GitHub's schedule drops events here (attempt.yml, 2026-10-09): a day whose page exists publishes nothing.
+name: retro
+
+on:
+  schedule:
+    - cron: "40 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # publish the page
+
+concurrency:
+  group: retro
+  cancel-in-progress: false
+
+jobs:
+  retro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: last week's page
+        run: python3 tools/retro.py | tee "$RUNNER_TEMP/out.txt"
+
+      - name: publish the page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "retro: $(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-200)
+
+          Generated-by: no model; tools/retro.py over the ledger, cost \$0"
