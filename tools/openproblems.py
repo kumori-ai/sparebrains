@@ -187,11 +187,26 @@ def _swap_ok(m, ref):
     return bool(s) and s["rmse"] <= ref["swap"]["rmse"] and s["mean_pearson_per_cell"] >= ref["swap"]["mean_pearson_per_cell"]
 
 
+def gate_ci(y, p, ref_pred, n=2000):
+    """The bar's paired bootstrap (candidate minus reference), on the validation cells: a point lead is not enough
+    (shot 1, 2026-10-21: +0.002 Pearson on validation, -0.020 on test)."""
+    return {m: [round(x, 5) for x in paired_bootstrap(y, p, ref_pred, m, n=n)] for m in ("rmse", "mean_pearson_per_cell")}
+
+
+def _ci_ok(m, ref):
+    """When the reference carries validation predictions (2026-10-22 on), both intervals must clear zero, as on test."""
+    if not ref.get("bootstrap"):
+        return True
+    ci = m.get("ci")
+    return bool(ci) and ci["rmse"][1] < 0 and ci["mean_pearson_per_cell"][0] > 0
+
+
 def best(rows, ref):
     """The lowest validation rmse among candidates at least as good as the reference on Pearson per cell, and no
-    worse on swap (the bar's second check, seen in validation as well)."""
+    worse on swap (the bar's second check, seen in validation as well); with a validation bootstrap, only a lead
+    clear of zero on both metrics counts."""
     ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] >= ref["mean_pearson_per_cell"]
-          and _swap_ok(r["metrics"], ref)]
+          and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref)]
     return min(ok, key=lambda r: r["metrics"]["rmse"]) if ok else None
 
 
@@ -329,7 +344,9 @@ def prepare(data, val, answers):
     run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
                {"input_train_mod1": str(h5 / "train_mod1.h5ad"), "input_train_mod2": str(h5 / "train_mod2.h5ad"),
                 "input_test_mod1": str(h5 / "test_mod1.h5ad"), "output": str(h5 / "ref.h5ad"), **PARAMS}, {"name": METHOD})
-    ref = metrics(y_val, dense(ad.read_h5ad(h5 / "ref.h5ad").layers["normalized"]))
+    ref_pred = dense(ad.read_h5ad(h5 / "ref.h5ad").layers["normalized"]).astype(np.float32)
+    np.save(answers / "ref_pred.npy", ref_pred)                  # the validation bootstrap's other arm
+    ref = {**metrics(y_val, ref_pred), "bootstrap": True}
     (answers / "ref.json").write_text(json.dumps(ref))
     return ref
 
@@ -381,7 +398,12 @@ def scorer(val, answers, work, user, python):
         p = np.load(out, allow_pickle=False)
         if p.shape != y_val.shape or not np.isfinite(p).all():
             return {"error": f"prediction shape {p.shape} (want {y_val.shape}) or non-finite values"}
-        return {k: round(v, 4) for k, v in metrics(y_val, p).items()}
+        m = {k: round(v, 4) for k, v in metrics(y_val, p).items()}
+        if ref_pred is not None:
+            m["ci"] = gate_ci(y_val, p, ref_pred)
+        return m
+    ref_file = answers / "ref_pred.npy"
+    ref_pred = np.load(ref_file) if ref_file.exists() else None
     return score
 
 

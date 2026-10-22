@@ -3,6 +3,18 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-22
+
+- **openproblems test scoring 1 of 3 missed the bar; validation now asks for the bar's own intervals.** Evolve
+  39538429513 round 12 led knnr_py on validation by points only (normal rmse 0.9304 vs 0.9688, Pearson per cell
+  0.7876 vs 0.7856; swap 0.3176 vs 0.3229, 0.7612 vs 0.7497). On the test set (run 39696762308,
+  `ledger/openproblems/final-39696762308.json`) rmse held (0.6927 vs 0.7239, interval -0.040 to -0.023) but
+  Pearson per cell fell (0.7508 vs 0.7706, interval -0.024 to -0.016), and swap was a shade worse on both. Not
+  useful; 2 scorings left. The +0.002 Pearson lead was noise. Now `prepare` keeps knnr_py's validation predictions
+  and every candidate carries the same paired bootstrap the bar uses (2,000 resamples over the site-1 cells); a
+  candidate qualifies for a scoring only if its rmse interval sits below zero and its Pearson interval above, as on
+  test. Rows scored before this can still seed a run but cannot qualify.
+
 ## 2026-10-20
 
 - **Leanstral's token cap 40,000 -> 120,000, and a cut-off answer is not a try.** The lane went idle at

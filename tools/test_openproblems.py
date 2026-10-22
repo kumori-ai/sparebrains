@@ -173,6 +173,28 @@ class SwapValidation(unittest.TestCase):
         self.assertIs(op.best([both, one_way, old], ref), both)
 
 
+    def test_with_a_validation_bootstrap_only_a_lead_clear_of_zero_counts(self):
+        # shot 1 (2026-10-21): +0.002 Pearson on validation became -0.020 on test; a point lead is not enough
+        ref = {"rmse": 0.969, "mean_pearson_per_cell": 0.7855, "bootstrap": True}
+        clear = {"metrics": {"rmse": 0.94, "mean_pearson_per_cell": 0.80,
+                             "ci": {"rmse": [-0.03, -0.01], "mean_pearson_per_cell": [0.004, 0.02]}}}
+        thin = {"metrics": {"rmse": 0.93, "mean_pearson_per_cell": 0.7876,
+                            "ci": {"rmse": [-0.05, -0.02], "mean_pearson_per_cell": [-0.003, 0.007]}}}
+        unscored = {"metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.81}}             # scored before the gate
+        self.assertIs(op.best([clear, thin, unscored], ref), clear)
+        self.assertIsNone(op.best([thin, unscored], ref))
+
+    def test_the_validation_interval_is_the_bars_paired_bootstrap_against_the_reference(self):
+        rng = np.random.default_rng(1)
+        y = rng.normal(size=(300, 12))
+        ref_pred = y + rng.normal(scale=1.0, size=y.shape)
+        cand = y + rng.normal(scale=0.5, size=y.shape)
+        ci = op.gate_ci(y, cand, ref_pred, n=500)
+        self.assertLess(ci["rmse"][1], 0)
+        self.assertGreater(ci["mean_pearson_per_cell"][0], 0)
+        self.assertEqual(ci["rmse"], [round(x, 5) for x in op.paired_bootstrap(y, cand, ref_pred, "rmse", n=500)])
+
+
 class BothWays(unittest.TestCase):
     def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
         normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
