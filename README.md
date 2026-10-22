@@ -144,7 +144,7 @@ site draws who clears what. Rungs are provenance, never our own results:
 | amc12, custom, aime, imo | 114 | the rest of miniF2F, by problem source | upstream's, not shipped |
 
 A lane clears a rung at verified ÷ answered ≥ 0.5 over at least 3 answered asks. A reject is
-classified (`tools/ladder.py`): `lean3_syntax` and `no_fence` mean the model could not write a Lean 4
+classified (`tools/ladder.py`): `parse_error`, `lean3_syntax` and `no_fence` mean the model could not write a Lean 4
 file in the required shape, which says nothing about the math. Every number on the site carries the
 equation it came from, with the live inputs substituted.
 

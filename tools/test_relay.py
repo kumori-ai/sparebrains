@@ -352,5 +352,19 @@ class FailingLaneTests(unittest.TestCase):
         self.assertFalse(relay.relay_failing(rows, "lane", self.NOW))
 
 
+class FailureKind(unittest.TestCase):
+    """2026-10-22: every parse error was labeled lean3_syntax; 2026-10-07 found 10 of 400 really were Lean 3."""
+    def test_a_parse_error_is_lean3_only_when_the_proof_or_the_error_says_so(self):
+        from ladder import failure_kind
+        lean4 = "  nlinarith [sq_nonneg (a - b)]\n  ..."
+        lean3 = "begin\n  intros x y,\n  linarith,\nend"
+        err = "proof.lean:3:2: error: unexpected token '...'; expected command"
+        self.assertEqual(failure_kind("reject", err, lean4), "parse_error")
+        self.assertEqual(failure_kind("reject", err), "parse_error")
+        self.assertEqual(failure_kind("reject", err, lean3), "lean3_syntax")
+        self.assertEqual(failure_kind("reject", "error: unexpected identifier; expected 'begin'"), "lean3_syntax")
+        self.assertEqual(failure_kind("reject", "error: unknown identifier 'Nat.foo'", lean3), "unknown_name")
+
+
 if __name__ == "__main__":
     unittest.main()

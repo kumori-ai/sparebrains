@@ -129,7 +129,7 @@ def check(key, handoff, author, comment, timeout=600):
         verdict, reason, lean_s, lean_out = judge(str(path), timeout)
     row["_transcript"] = {"proof": proof, "candidate": candidate, "lean_output": (lean_out or "")[-20000:]}
     row.update(verdict=verdict, reason=(reason or "")[:300], lean_seconds=round(lean_s or 0, 1),
-               failure_kind=failure_kind(verdict, reason), proof_sha=hashlib.sha256(proof.encode()).hexdigest())
+               failure_kind=failure_kind(verdict, reason, proof), proof_sha=hashlib.sha256(proof.encode()).hexdigest())
     return row, (candidate if verdict == "accept" else None)
 
 

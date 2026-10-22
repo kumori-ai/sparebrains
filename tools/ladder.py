@@ -65,7 +65,7 @@ def rung_of(target_set, name):
 # IMO problem, and the scoreboard must say "syntax", never "cannot add".
 _KINDS = [
     ("no_fence",       re.compile(r"no proof extracted")),
-    ("lean3_syntax",   re.compile(r"unexpected token|unexpected identifier|expected command|expected '\}'|'begin'|'end'", re.I)),
+    ("parse_error",    re.compile(r"unexpected token|unexpected identifier|expected command|expected '\}'|'begin'|'end'", re.I)),
     ("unknown_name",   re.compile(r"unknown (identifier|constant|tactic|namespace)|unknownIdentifier|unknownConstant", re.I)),
     ("sorry",          re.compile(r"sorry|admit|native_decide|axiom", re.I)),
     ("timeout",        re.compile(r"timeout|timed out|maximum recursion|deterministic", re.I)),
@@ -96,13 +96,20 @@ def lane_is_gone(reason):
     return bool(re.search(r"HTTP 404|unknown backend", reason or "", re.I))
 
 
-def failure_kind(verdict, reason):
+def failure_kind(verdict, reason, proof=None):
+    """Why a try failed. A parse error is `lean3_syntax` only when the proof reads as Lean 3 (fixer.looks_lean3) or
+    Lean names `begin`/`end`; otherwise `parse_error` (2026-10-22: the old label put every parse error under Lean 3,
+    and 2026-10-07 measured only 10 of 400 such rejects really were; kumori's FORM lists take both names)."""
     if verdict == "accept":
         return None
     if verdict == "error":
         return "lane_error"
     for kind, rx in _KINDS:
         if rx.search(reason or ""):
+            if kind == "parse_error":
+                import fixer
+                if re.search(r"'begin'|'end'", reason or "") or (proof and fixer.looks_lean3(proof.splitlines())):
+                    return "lean3_syntax"
             return kind
     return "other"
 

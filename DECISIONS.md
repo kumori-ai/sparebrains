@@ -5,6 +5,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-22
 
+- **A parse error is `parse_error`; `lean3_syntax` now means Lean 3.** The old label put every parse error
+  ("unexpected token", a stray `...`) under Lean 3: 6,630 ledger rows, of which 5 name `begin`/`end`, and on
+  2026-10-07 only 10 of 400 such rejects on open problems were really Lean 3. `ladder.failure_kind` now returns
+  `lean3_syntax` only when the proof reads as Lean 3 (`fixer.looks_lean3`) or Lean names `begin`/`end`, else
+  `parse_error`. Past rows keep their label (a ledger row is a record, not rewritten). Shipped after kumori's
+  FORM, FORM_FIXABLE and `_NOT_MATH` took `parse_error` beside `lean3_syntax`, so the fixer's near-miss feed
+  loses nothing.
+
 - **openproblems test scoring 1 of 3 missed the bar; validation now asks for the bar's own intervals.** Evolve
   39538429513 round 12 led knnr_py on validation by points only (normal rmse 0.9304 vs 0.9688, Pearson per cell
   0.7876 vs 0.7856; swap 0.3176 vs 0.3229, 0.7612 vs 0.7497). On the test set (run 39696762308,

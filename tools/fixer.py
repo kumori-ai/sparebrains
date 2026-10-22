@@ -29,8 +29,8 @@ def _open_brackets(line):
 
 def looks_lean3(lines):
     """Lean 3, not Lean 4 with an odd token: wrapped in begin/end, or most tactic lines end in a comma.
-    A Lean 4 proof legitimately ends lines in commas inside lists (`simp only [a,` / `b]`), and the
-    failure label lean3_syntax also catches Lean 4 with a stray `...` (2026-10-07 preview)."""
+    A Lean 4 proof legitimately ends lines in commas inside lists (`simp only [a,` / `b]`). ladder.failure_kind
+    uses it to tell `lean3_syntax` from a plain `parse_error` (2026-10-22)."""
     code = [l.strip() for l in lines if l.strip() and not l.strip().startswith("--")]
     if not code:
         return False

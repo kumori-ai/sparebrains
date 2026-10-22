@@ -599,7 +599,7 @@ def main():
                     tools_used["sketch"] = rep["sketch"]
         row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict, "reason": reason[:300],
                "returned_backend": returned_backend, "inference": inference,
-               "failure_kind": failure_kind(verdict, reason),
+               "failure_kind": failure_kind(verdict, reason, proof),
                "try_mode": "repair" if repair else "cold", "prev_id": previous_id(prev) if repair else None,
                **({k: meta[k] for k in ("try_mode", "prev_id", "comment_ids", "dossier_sha")} if meta else {}),
                "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
@@ -810,7 +810,7 @@ def main():
                           + (f" and the lane proved {rep['lemmas_proved']} open step(s) as lemmas" if rep.get("lemmas_proved") else ""))
         lane = own or {"backend": near["backend"], "provider": None, "model": None, "tier": None, "rank": None}
         row = {**base_row(name, lane, 1, hashlib.sha256(prefix.encode()).hexdigest(), tset), "verdict": verdict,
-               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason), "try_mode": "fixer+loop", "fixes": fixes,
+               "reason": reason[:300], "failure_kind": failure_kind(verdict, reason, fixed), "try_mode": "fixer+loop", "fixes": fixes,
                "prev_id": near["id"], "call_seconds": 0.0, "lean_seconds": round(lean_s, 1), "response_chars": 0,
                "proof_sha": hashlib.sha256(fixed.encode()).hexdigest(), "tools": {"subgoals": loop}}
         if verdict == "reject" and rep_sketch.get("sketch") and loop.get("goals"):   # for the lemma queue
