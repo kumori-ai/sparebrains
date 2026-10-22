@@ -1,5 +1,6 @@
 """tools/openproblems.py: the upstream script runs with only its VIASH block swapped, the published score is read
 from the maintainers' own results file, and the 1% gate fails a wrong run (the canary). No network, no data."""
+import json
 import sys
 import unittest
 
@@ -82,7 +83,10 @@ class Evolve(unittest.TestCase):
         for hint in ("sklearn.multioutput", "scipy.stats", "no random_state", "with_mean=False", "n_neighbors <=",
                      "the other way round", "no clipping",
                      # evolve 39698543319 (2026-10-22): 12 of 18 crashes, then 2 more
-                     "51,506 x 13,953", "float32", "sklearn.cross_decomposition"):
+                     "51,506 x 13,953", "float32", "sklearn.cross_decomposition",
+                     # evolve 39713090991 (2026-10-22): 7 broadcast errors, 3 TruncatedSVD dtype, 1 KernelRidge
+                     # fit_intercept, and round 1 called StandardScaler a per-cell z-score
+                     "no\ndtype argument", "fit_intercept", "keepdims=True", "standardizes columns"):
             self.assertIn(hint, op.BRIEF)
 
     def test_the_code_is_the_last_python_block_that_defines_predict(self):
@@ -309,6 +313,75 @@ class Sandboxed(unittest.TestCase):
             self.go("import numpy as np\ndef predict(a, b, c, d, e):\n    return np.ones((5, 3))\n", cleanup=bad)
 
 
+class Qualify(unittest.TestCase):
+    """Leave-one-site-out before any test scoring (DECISIONS 2026-10-22): every training site held out in turn, both
+    directions; the candidate must beat the reference on rmse and Pearson at every site."""
+
+    def test_sites_come_from_the_batch_names_and_a_bad_name_stops_it(self):
+        self.assertEqual(op.sites_of(np.array(["s2d1", "s1d3", "s1d1", "s3d7"])), [1, 2, 3])
+        with self.assertRaises(ValueError):
+            op.sites_of(np.array(["s1d1", "donor7"]))
+
+    def test_the_verdict_needs_a_strict_win_at_every_site_and_no_error(self):
+        win = {"error": None, "cand": {"rmse": 0.9, "mean_pearson_per_cell": 0.8},
+               "ref": {"rmse": 1.0, "mean_pearson_per_cell": 0.7}}
+        tie = {**win, "cand": {"rmse": 0.9, "mean_pearson_per_cell": 0.7}}
+        err = {**win, "error": "exit 137"}
+        self.assertTrue(op.qualify_verdict([win, win])["passed"])
+        self.assertFalse(op.qualify_verdict([win, tie])["passed"], "a tie on Pearson at one site is not a lead")
+        self.assertFalse(op.qualify_verdict([win, err])["passed"], "an execution failure is not a pass")
+        self.assertFalse(op.qualify_verdict([])["passed"], "no sites, no qualification")
+        v = op.qualify_verdict([win, {**win, "cand": {"rmse": 0.95, "mean_pearson_per_cell": 0.75}}])
+        self.assertAlmostEqual(v["worst_pearson_delta"], 0.05)
+        self.assertAlmostEqual(v["mean_pearson_delta"], 0.075)
+
+    def test_each_held_out_site_is_scored_against_the_reference_on_that_site(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(40, 6)); Y = X[:, :3] * 2 + rng.normal(scale=0.1, size=(40, 3))
+        batches = np.array([f"s{1 + i % 2}d1" for i in range(40)])
+        seen = []
+        def fake(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None):
+            seen.append(shape)
+            assert mem == op.QUALIFY_MEM
+            return np.zeros(shape, dtype=np.float32), None, ""
+        import tempfile
+        rows = op.qualify_direction(X, Y, batches, Path(tempfile.mkdtemp()), Path("c.py"), predict=fake,
+                                    reference=lambda a, b, c: np.zeros((c.shape[0], b.shape[1])))
+        self.assertEqual([r["site"] for r in rows], [1, 2])
+        self.assertEqual(seen, [(20, 3), (20, 3)])
+        self.assertTrue(all(r["error"] is None and "rmse" in r["cand"] for r in rows))
+
+    def test_a_shot_needs_a_passing_receipt_for_this_exact_code_and_policy(self):
+        import tempfile
+        led = Path(tempfile.mkdtemp())
+        src = {"evolve_file": "e.jsonl", "round": 4}
+        win = {"site": 1, "error": None, "cand": {"rmse": 0.9, "mean_pearson_per_cell": 0.8},
+               "ref": {"rmse": 1.0, "mean_pearson_per_cell": 0.7}}
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, src, "code")                                  # none
+        op.write_receipt(led / "qualify-1.json", src, "code", {"normal": [win], "swap": [win]})
+        op.check_qualified(led, src, "code")
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, src, "other code")
+        lose = {**win, "cand": {"rmse": 1.1, "mean_pearson_per_cell": 0.8}}
+        op.write_receipt(led / "qualify-2.json", {**src, "round": 5}, "c5", {"normal": [win], "swap": [lose]})
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, {**src, "round": 5}, "c5")                    # a failing receipt
+        r = json.loads((led / "qualify-1.json").read_text())
+        part = {**r, "rows": {"normal": [win]}}                                   # a direction missing
+        (led / "qualify-3.json").write_text(json.dumps({**part, "source": {**src, "round": 7}}))
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, {**src, "round": 7}, "code")
+        short = {**r, "source": {**src, "round": 8}, "expected_sites": {"normal": [1, 2], "swap": [1, 2]}}
+        (led / "qualify-4.json").write_text(json.dumps(short))                     # site 2 never scored
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, {**src, "round": 8}, "code")
+        r["verdict"]["passed"] = True
+        r["rows"]["swap"] = [lose]; (led / "qualify-1.json").write_text(json.dumps(r))
+        with self.assertRaises(SystemExit):
+            op.check_qualified(led, src, "code")                                  # verdict recomputed from rows
+
+
 class BothWays(unittest.TestCase):
     def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
         normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
@@ -353,6 +426,10 @@ class Final(unittest.TestCase):
             (led / "shot-1.json").write_text("{}")                          # reserved, then scored: one shot
             (led / "shot-2.json").write_text("{}")                          # reserved, run died: still a shot
             self.assertEqual(op.shots_used(led), 2)
+            win = {"site": 1, "error": None, "cand": {"rmse": 0.9, "mean_pearson_per_cell": 0.8}, "ref": {"rmse": 1.0, "mean_pearson_per_cell": 0.7}}
+            for rnd in (4, 5):
+                op.write_receipt(led / f"qualify-{rnd}.json", {"evolve_file": "e.jsonl", "round": rnd}, "code",
+                                 {"normal": [win], "swap": [win]})
             op.reserve(led, "3", {"evolve_file": "e.jsonl", "round": 4}, "code")
             self.assertEqual(op.shots_used(led), 3)
             with self.assertRaises(SystemExit):
@@ -365,6 +442,10 @@ class Final(unittest.TestCase):
             src = {"evolve_file": "e.jsonl", "round": 4}
             with self.assertRaises(SystemExit):
                 op.check_reservation(led / "final-9.json", src, "code")          # none
+            with self.assertRaises(SystemExit):
+                op.reserve(led, "9", src, "code")                                # not qualified: no shot
+            win = {"site": 1, "error": None, "cand": {"rmse": 0.9, "mean_pearson_per_cell": 0.8}, "ref": {"rmse": 1.0, "mean_pearson_per_cell": 0.7}}
+            op.write_receipt(led / "qualify-9.json", src, "code", {"normal": [win], "swap": [win]})
             op.reserve(led, "9", src, "code")
             op.check_reservation(led / "final-9.json", src, "code")              # passes
             with self.assertRaises(SystemExit):

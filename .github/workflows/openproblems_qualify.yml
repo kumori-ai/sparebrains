@@ -1,0 +1,61 @@
+# Leave-one-site-out before any test scoring (task #477; DECISIONS 2026-10-22): one evolve candidate, every training
+# site held out in turn, both directions, each run in its own gVisor container; it must beat knnr on rmse and Pearson
+# at every site. Training files only: the test set is never downloaded here. A shot can be reserved only for a
+# candidate whose exact code has a passing receipt. Dispatch by hand.
+name: openproblems-qualify
+
+on:
+  workflow_dispatch:
+    inputs:
+      evolve_file:
+        description: "ledger/openproblems/evolve-RUN.jsonl holding the candidate"
+        required: true
+      round:
+        description: "the candidate's round in that file"
+        required: true
+
+permissions:
+  contents: write        # publish the receipt
+
+concurrency:
+  group: openproblems-qualify
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted code runs
+
+      - name: python env
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests
+
+      - name: candidate sandbox
+        run: PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
+
+      - name: leave one site out
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py qualify --work "$RUNNER_TEMP/op" \
+            --evolve-file "${{ inputs.evolve_file }}" --round "${{ inputs.round }}" \
+            --out "ledger/openproblems/qualify-${GITHUB_RUN_ID}.json" | tee "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
+
+      - name: publish the receipt
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f "ledger/openproblems/qualify-${GITHUB_RUN_ID}.json" ] || exit 0
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "openproblems qualify $GITHUB_RUN_ID: ${{ inputs.evolve_file }} round ${{ inputs.round }}: $SUMMARY
+
+          Training data only, each fold's candidate in its own gVisor container, reference knnr_chunked (random_state 0), cost \$0"

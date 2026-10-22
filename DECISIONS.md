@@ -86,7 +86,28 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   world-writable probes), scratch, process and memory limits, and a known prediction streaming back; the network
   canary was seen going red without a container. gVisor is one accepted option for LLM-written code, not a
   settled consensus: guides split, some defaulting to Firecracker/Kata microVMs for all untrusted code (deep-search
-  2026-10-22; kumori's work ask --research run 20261022T032225101775Z_codex). Codex AGREE after four rounds. Runner proof is a smoke run; real candidates only after it.
+  2026-10-22; kumori's work ask --research run 20261022T032225101775Z_codex). Codex AGREE after four rounds.
+  Proven on the runner by smoke 39718520624 (every canary green; gVisor's pids limit bounds host tasks, not guest
+  threads, so a thread explosion is bounded by the memory cap, checked by its own canary).
+- **Leave-one-site-out comes before any test scoring: a protocol amendment, frozen before its canary (task #477).**
+  Shot 1 passed site-1 validation and lost Pearson on site 4, and the organizers' paper names per-site scale as the
+  reason. So the honest-selection rule gains a second check, still on training data only, motivated by an observed
+  test result (disclosed as such). Policy loso-v1, fixed now and not tuned afterwards: every training site held out
+  in turn, both directions, the candidate in its own gVisor container; it must beat `knnr_chunked` (seed 0) on that
+  site on rmse (lower) and Pearson per cell (higher), strictly, at every site, with no execution error; mean and
+  worst-site Pearson deltas are reported beside the verdict. `openproblems_qualify.yml` writes
+  `ledger/openproblems/qualify-<run>.json`, bound to the candidate's code hash and the policy; `reserve` and
+  `final()` refuse a candidate without a passing receipt for its exact code, recomputing the verdict from the rows.
+  It supplements the site-1 validation gate, which still selects candidates. Canary: shot 1's candidate (evolve
+  39538429513 round 12) must fail on its metrics; a crash or timeout would be an execution failure, not a pass.
+- **The seeded brief's first run (evolve 39713090991): one candidate with a real Pearson lead, short on swap rmse.**
+  Round 1 (kernel ridge on input and output SVDs, from the Guanlab-dengkw starting point) reached validation
+  Pearson per cell 0.8072 vs knnr_py's 0.7857 (+0.021, interval +0.0207 to +0.0223; shot 1 had +0.002) and rmse
+  0.9228 vs 0.9686, and led on swap Pearson (0.7568 vs 0.7494), but swap rmse was 0.3768 vs 0.3230, so it fails
+  the bar's swap check and is not selected. Its "per-cell z-score" was StandardScaler, which standardizes columns:
+  the recipe's per-cell step is still untried. 14 of 20 rounds crashed (7 broadcasting a statistic of one set's rows
+  against the other's, 3 TruncatedSVD has no dtype, 1 KernelRidge has no fit_intercept, 1 centring a sparse matrix);
+  each is now named in the brief, with the row-wise z-score written out. Runner proof is a smoke run; real candidates only after it.
 
 ## 2026-10-20
 

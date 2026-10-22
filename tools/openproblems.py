@@ -84,7 +84,7 @@ def compare(got, pub):
     return {"metrics": metrics, "pass": bool(metrics) and all(abs(m["diff_pct"]) <= TOLERANCE_PCT for m in metrics.values())}
 
 
-def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=None):
+def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=None, random_state=None):
     """knnr_py's algorithm (an SVD of train and test together, then the mean of the k nearest training rows,
     Euclidean) with the test rows taken in chunks: on swap validation the upstream script's 14,669 x 100 x 13,953
     neighbour array would be ~82 GB. `embed` replaces the SVD in tests."""
@@ -93,7 +93,7 @@ def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=Non
         from scipy.sparse import vstack, csr_matrix
         from sklearn.decomposition import TruncatedSVD
         both = vstack([csr_matrix(X_train), csr_matrix(X_test)])
-        E = TruncatedSVD(n_components=min(n_pcs, both.shape[1] - 1)).fit_transform(both)
+        E = TruncatedSVD(n_components=min(n_pcs, both.shape[1] - 1), random_state=random_state).fit_transform(both)
         etr, ete = E[:X_train.shape[0]], E[X_train.shape[0]:]
     else:
         etr, ete = embed(X_train, X_test)
@@ -177,7 +177,11 @@ StandardScaler needs with_mean=False on it; SVR/LinearSVR and other single-outpu
 outputs; never build a dense n_test x n_train matrix (14,669 x 51,506 is 5.6 GiB); keep n_neighbors <= the
 number of rows it is fit on; index arrays must be integers. PLSRegression is in sklearn.cross_decomposition. In the
 swap direction Y_train is a dense 51,506 x 13,953 float32 array (2.7 GiB of a 13 GiB budget): never cast it or X to
-float64 or copy it whole; fit on it in place, predict in chunks of test rows, return float32.
+float64 or copy it whole; fit on it in place, predict in chunks of test rows, return float32. TruncatedSVD takes no
+dtype argument and KernelRidge no fit_intercept. A z-score of each cell is a row operation on the dense reduced
+matrix, (Z - Z.mean(axis=1, keepdims=True)) / Z.std(axis=1, keepdims=True), applied to train and test rows alike;
+StandardScaler standardizes columns, not cells. Train and test have different row counts: never broadcast a
+statistic computed over one set's rows against the other's.
 Reply with the whole function and its imports in one ```python block."""
 
 
@@ -493,6 +497,112 @@ def verdict(normal, swap):
             "competitive": rmse["cand"] <= COMPETITIVE["rmse"] and pear["cand"] >= COMPETITIVE["mean_pearson_per_cell"]}
 
 
+QUALIFY_MEM = "10g"      # under the 12g default: the host holds the loaded layers and the fold's answers meanwhile
+QUALIFY_POLICY = ("loso-v1 (2026-10-22): every training site held out in turn, both directions; the candidate must beat "
+                  "knnr_chunked (random_state 0) on that site on rmse (lower) and Pearson per cell (higher), every site, "
+                  "no execution error; mean and worst-site deltas reported")
+
+
+def sites_of(batches):
+    """The training sites, from batch names like s2d4; any other name stops qualification (the folds must be real)."""
+    sites = set()
+    for b in batches:
+        m = re.fullmatch(r"s(\d+)d\d+", str(b))
+        if not m:
+            raise ValueError(f"batch {b!r} is not s<site>d<donor>")
+        sites.add(int(m.group(1)))
+    return sorted(sites)
+
+
+def qualify_verdict(rows):
+    """Passed only if there are sites and every one ran and won on both metrics, strictly."""
+    ok = bool(rows) and all(r.get("error") is None and r["cand"]["rmse"] < r["ref"]["rmse"]
+                            and r["cand"]["mean_pearson_per_cell"] > r["ref"]["mean_pearson_per_cell"] for r in rows)
+    d = [r["cand"]["mean_pearson_per_cell"] - r["ref"]["mean_pearson_per_cell"] for r in rows if r.get("error") is None]
+    return {"passed": ok, "sites": len(rows), "mean_pearson_delta": float(np.mean(d)) if d else None,
+            "worst_pearson_delta": float(min(d)) if d else None}
+
+
+def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=None):
+    """Each training site held out in turn: the reference and the candidate (in its container) on that site."""
+    import shutil
+    predict = predict or sandboxed_predict
+    reference = reference or (lambda a, b, c: knnr_chunked(a, b, c, random_state=0))
+    import resource
+    rows = []
+    for s in sites_of(batches):
+        t0 = time.monotonic()
+        v = np.array([re.fullmatch(rf"s{s}d\d+", str(b)) is not None for b in batches])
+        inp = Path(work) / f"site{s}" / "in"
+        write_inputs(inp, X[~v], Y[~v], X[v], batches[~v], batches[v])
+        y = _dense(Y[v]).astype(np.float32)
+        ref = metrics(y, np.asarray(reference(X[~v], _dense(Y[~v]).astype(np.float32), X[v])))
+        p, err, _ = predict(code_file, inp, y.shape, CAND_S + 60, mem=QUALIFY_MEM)
+        if err is None and not np.isfinite(p).all():
+            err = "non-finite values in the prediction"
+        rows.append({"site": s, "n_train": int((~v).sum()), "n_held": int(v.sum()), "error": err,
+                     "cand": None if err else {k: round(x, 4) for k, x in metrics(y, p).items()},
+                     "ref": {k: round(x, 4) for k, x in ref.items()},
+                     "seconds": round(time.monotonic() - t0, 1),           # measured, for the runner's budget
+                     "host_peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20, 2)})
+        del p, y                                     # nothing of this fold is held while the next one runs
+        shutil.rmtree(inp.parent, ignore_errors=True)
+        print(f"qualify site {s}: {rows[-1]['cand'] or err} vs {rows[-1]['ref']}", flush=True)
+    return rows
+
+
+def write_receipt(out, source, code, rows_by_direction, expected=None):
+    """`expected`: the sites discovered in each direction's training data, so a receipt missing a fold can be seen."""
+    allrows = [r for rows in rows_by_direction.values() for r in rows]
+    expected = expected or {d: [r["site"] for r in rows] for d, rows in rows_by_direction.items()}
+    receipt = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": QUALIFY_POLICY,
+               "source": source, "code_sha": hashlib.sha256(code.encode()).hexdigest(), "rows": rows_by_direction,
+               "expected_sites": expected, "verdict": qualify_verdict(allrows)}
+    Path(out).write_text(json.dumps(receipt, indent=1) + "\n")
+    return receipt
+
+
+def receipt_complete(r):
+    """Both directions, each with exactly the sites its training data has (the same sites both ways)."""
+    rows, exp = r.get("rows") or {}, r.get("expected_sites") or {}
+    if set(rows) != {"normal", "swap"} or set(exp) != {"normal", "swap"} or sorted(exp["normal"]) != sorted(exp["swap"]):
+        return False
+    return all(exp[d] and sorted(x["site"] for x in rows[d]) == sorted(exp[d]) for d in rows)
+
+
+def check_qualified(ledger_dir, source, code):
+    """A test scoring only for a candidate whose exact code passed qualification under today's policy; the verdict
+    is recomputed from the receipt's rows, never taken from its own field."""
+    sha = hashlib.sha256(code.encode()).hexdigest()
+    for f in sorted(Path(ledger_dir).glob("qualify-*.json")):
+        r = json.loads(f.read_text())
+        if r.get("source") == source and r.get("code_sha") == sha and r.get("policy") == QUALIFY_POLICY:
+            if receipt_complete(r) and qualify_verdict([x for rows in r["rows"].values() for x in rows])["passed"]:
+                return f
+    sys.exit("no passing leave-one-site-out receipt for this candidate's exact code (run openproblems_qualify)")
+
+
+def qualify(work, code, source, out):
+    """Leave-one-site-out on the training data only (the test files are never downloaded here), both directions."""
+    import anndata as ad
+    Path(work).mkdir(parents=True, exist_ok=True)
+    code_file = Path(work) / "qualify-cand.py"
+    code_file.write_text(code)
+    rows, expected = {}, {}
+    for name, ds in (("normal", DATASET), ("swap", SWAP)):
+        data = Path(work) / f"q-{name}"
+        download(data, ds, files=("train_mod1", "train_mod2"))
+        m1, m2 = (ad.read_h5ad(data / f"{f}.h5ad") for f in ("train_mod1", "train_mod2"))
+        b = m1.obs["batch"].astype(str).values
+        expected[name] = sites_of(b)
+        rows[name] = qualify_direction(m1.layers["normalized"], m2.layers["normalized"], b,
+                                       Path(work) / f"q-{name}-folds", code_file)
+        del m1, m2
+    r = write_receipt(out, source, code, rows, expected)
+    print(json.dumps({"source": source, "verdict": r["verdict"]}), flush=True)
+    return 0
+
+
 def shots_used(ledger_dir):
     """Runs that reserved or spent a test scoring: a reservation (shot-<run>.json) is published before the test set
     is read, so a run lost mid-scoring still counts (2026-10-22: before, only a finished final-<run>.json did)."""
@@ -504,7 +614,9 @@ def shot_left(ledger_dir):
 
 
 def reserve(ledger_dir, run_id, source, code):
-    """Take one of the test scorings for this run and this exact candidate, before any test data is read."""
+    """Take one of the test scorings for this run and this exact candidate, before any test data is read; only a
+    candidate that passed leave-one-site-out under today's policy can take one."""
+    check_qualified(ledger_dir, source, code)
     if not shot_left(ledger_dir):
         sys.exit(f"{MAX_TEST_SCORINGS} candidates have already seen the test set (the bar's limit)")
     f = Path(ledger_dir) / f"shot-{run_id}.json"
@@ -683,9 +795,9 @@ def writer_ask(lane):
     return decompose.router_ask(lane)[0], f"router lane {lane}"
 
 
-def download(data, dataset=DATASET):
+def download(data, dataset=DATASET, files=FILES):
     data.mkdir(parents=True, exist_ok=True)
-    for f in FILES:
+    for f in files:
         if not (data / f"{f}.h5ad").exists():
             urllib.request.urlretrieve(f"{S3}/datasets/{dataset}/{NORM}/{f}.h5ad", data / f"{f}.h5ad")
 
@@ -752,6 +864,7 @@ def final(work, code, source, out):
     import anndata as ad
     from scipy.sparse import csc_matrix
     if source != "smoke":
+        check_qualified(Path(out).parent, source, code)
         check_reservation(out, source, code)
     sha, res = pinned_sha(), {}
     cand_dir = work / "candidates"
@@ -816,7 +929,8 @@ def final(work, code, source, out):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check"])
+    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check",
+                                   "qualify"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -832,6 +946,9 @@ def main():
         return 0
     if a.cmd == "sandbox-check":
         return sandbox_check(Path(a.work or tempfile.mkdtemp()))
+    if a.cmd == "qualify":
+        return qualify(Path(a.work), candidate_from(a.evolve_file, a.round), {"evolve_file": a.evolve_file, "round": a.round},
+                       a.out)
     if a.cmd == "reserve":                  # --out names the final-<run>.json this reservation is for
         run = Path(a.out).stem.split("-", 1)[1]
         f = reserve(Path(a.out).parent, run, {"evolve_file": a.evolve_file, "round": a.round},
