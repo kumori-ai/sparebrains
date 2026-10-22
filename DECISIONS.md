@@ -5,6 +5,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-22
 
+- **Sparebrains' needle metrics, for the tracker's impact field (trial agreed 2026-10-22 by the sparebrains,
+  kumori, cardstock, code-56 and rog-gateway sessions and Codex with deep-search; Andy took the
+  recommendations).** M1: first-time accepted targets per week, from the ledger (`tools/retro.py`'s
+  first-ever-accept count; 39 in 10-15..22). M2: an openproblems method passing the pre-registered bar (0 of 1
+  shot used so far). M4: named outside users of a sparebrains result (0 as of 2026-10-22; #465). A needle task
+  cites one of these. formal-conjectures (#478) is not declared a metric: Leanstral 0 of 88 declarations and the
+  automation sweep 0 of 139, so it ranks as nice until a prover reaches it.
+
 - **A parse error is `parse_error`; `lean3_syntax` now means Lean 3.** The old label put every parse error
   ("unexpected token", a stray `...`) under Lean 3: 6,630 ledger rows, of which 5 name `begin`/`end`, and on
   2026-10-07 only 10 of 400 such rejects on open problems were really Lean 3. `ladder.failure_kind` now returns
