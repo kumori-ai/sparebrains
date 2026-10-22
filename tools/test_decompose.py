@@ -104,6 +104,30 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(pick(False), ["g3", "g1"], "bar problem out, reachable first, a tried goal skipped")
         self.assertEqual(pick(True), ["g2", "g3", "g1"])
 
+    def test_a_goal_restating_its_theorem_goes_last(self):
+        q = [{"sha": "r", "target_set": "minif2f/test", "target": "imo_c", "file_ok": True, "restates": True},
+             {"sha": "s", "target_set": "minif2f/test", "target": "imo_a", "file_ok": True}]
+        rung = {("minif2f/test", "imo_a"): "imo", ("minif2f/test", "imo_c"): "imo"}
+        got = [g["sha"] for g in decompose.pick_goals(q, rung, set(), {("minif2f/test", "imo_c")}, True, 10)]
+        self.assertEqual(got, ["s", "r"], "a real step first, though only the restating goal's problem is reachable")
+
+    def test_a_goal_cut_at_the_cap_twice_is_asked_with_effort_none(self):
+        cut = {"stopped": "no answer: empty reply (finish=length, 120000 tokens)"}
+        rows = [{"sha": "a", "levels": [cut, cut]}, {"sha": "b", "levels": [cut]},
+                {"sha": "c", "levels": [cut], "backend": "other-decompose"}, {"sha": "c", "levels": [cut]}]
+        self.assertEqual(decompose.cut_at_cap(rows, decompose.LANE["backend"]), {"a"})
+        old = {"stopped": "no answer: empty reply (finish=length, 40000 tokens)"}
+        self.assertEqual(decompose.cut_at_cap([{"sha": "m", "levels": [old, cut]}], decompose.LANE["backend"]), set(),
+                         "a cut at an older, smaller cap does not count (imo_1977_p6: one 40k, one 120k)")
+        seen = []
+        ask = lambda p, effort=None: seen.append(effort) or None
+        goals = [{"sha": s, "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by\n  sorry"}
+                 for s in ("a", "b")]
+        rows, _ = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask, None, None, jobs=1,
+                                effort_of=lambda g: "none" if g["sha"] == "a" else None)
+        self.assertEqual([r["effort"] for r in rows], ["none", None])
+        self.assertEqual(seen, ["none", None], "the effort reaches the ask")
+
     def test_each_lane_skips_only_the_goals_it_tried_itself(self):
         rows = [{"sha": "a"}, {"sha": "b", "backend": "groq-gptoss-decompose"}]
         self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"a"})     # old rows are Leanstral's

@@ -17,6 +17,7 @@ goal-closer try through prover.judge_goals, the goal batches' own path.
     python3 tools/decompose.py run --max-goals 40 --out ledger/decompose/run-ID.jsonl   # needs the Mistral key (leanstral.KEY_ENV)
 """
 import argparse, json, re, sys, threading, time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,9 +120,9 @@ def leanstral_ask(key):
     import leanstral
     pacer = leanstral.Pacer(leanstral.MIN_GAP_S)
 
-    def ask(prompt):
+    def ask(prompt, effort=None):
         try:
-            return leanstral.reply(leanstral.call_prompt(key, prompt, pacer))
+            return leanstral.reply(leanstral.call_prompt(key, prompt, pacer, effort))
         except Exception as e:                        # the reason goes into the goal's row, not away
             return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     return ask, pacer
@@ -141,7 +142,23 @@ def pick_goals(queue, rung, tried, reachable, bar, n):
     (tools/reachable.py), else the queue's order (real steps first)."""
     ok = [g for g in queue if g.get("file_ok") and (g["target_set"], g["target"]) in rung and g["sha"] not in tried
           and (bar or rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS)]
-    return sorted(ok, key=lambda g: (g["target_set"], g["target"]) not in reachable)[:n]
+    # a goal that restates its whole theorem goes last (2026-10-22: 20 of 20 failed in runs 39513404578 and
+    # 39541439510, 25% and 34% of their goals, pulled forward because their problems are reachable)
+    return sorted(ok, key=lambda g: (bool(g.get("restates")), (g["target_set"], g["target"]) not in reachable))[:n]
+
+
+def cut_at_cap(rows, backend):
+    """Goals whose asks on this lane ran out at the token cap twice or more: asked with reasoning_effort 'none' next,
+    the prover lane's rule (leanstral.effort_for). 2026-10-22: 'empty reply (finish=length, 120000 tokens)' was the
+    most common stop in decompose runs 39513404578 (24 levels) and 39541439510 (18), and such a goal counts as
+    untried, so it was asked the same way again every run."""
+    import leanstral
+    at_cap = f"finish=length, {leanstral.MAX_TOKENS} tokens"         # today's cap only, as effort_for counts
+    n = Counter()
+    for r in rows:
+        if r.get("backend", LANE["backend"]) == backend and not r.get("effort"):
+            n[r["sha"]] += sum(at_cap in str(e.get("stopped", "")) for e in r.get("levels") or [])
+    return {sha for sha, k in n.items() if k >= 2}
 
 
 def tried_by(rows, backend):
@@ -190,19 +207,21 @@ def router_ask(backend, chat=None, max_tokens=16000):
     return ask, NoPacer()
 
 
-def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, on_row=None):
+def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, on_row=None, effort_of=None):
     """Each goal decomposed, then its proof spliced into its problem (goal_closer.close). Returns (rows, solves):
     rows are measurements; solves are [(goal, body)] the kernel accepted whole. `on_row` gets each row as its goal
     finishes, so a run stopped by its time limit keeps every goal it finished (2026-10-21)."""
     def one(g):
         t0, budget, log = time.monotonic(), {"asks": 0}, []
+        effort = effort_of(g) if effort_of else None
         target_text = read_target(g["target_set"], g["target"])
-        body = decompose(g["goal"], goal_closer.prefix_of(target_text), ask=ask, run_lean=run_lean,
+        body = decompose(g["goal"], goal_closer.prefix_of(target_text),
+                         ask=(lambda p: ask(p, effort=effort)) if effort else ask, run_lean=run_lean,
                          judge_text=judge_text, budget=budget, log=log, fix=fix)
         r = goal_closer.close(g, target_text, body, judge_text) if body else None
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "sha": g["sha"],
                "target_set": g["target_set"], "target": g["target"], "kind": goal_closer.kind(g["goal"]),
-               "restates": g.get("restates"), "asks": budget["asks"], "levels": log,
+               "restates": g.get("restates"), "asks": budget["asks"], "levels": log, "effort": effort,
                "outcome": "solved" if r and r["verdict"] == "accept" else ("goal proved, splice failed" if r else "failed"),
                "seconds": round(time.monotonic() - t0, 1)}
         if on_row:
@@ -240,8 +259,9 @@ def main():
     import lean_tools, prover, relay
     targets = relay.fetch_json("/targets.json")
     rung = {(t["target_set"], t["target"]): t.get("rung") for t in targets["open"]}
-    tried = tried_by([json.loads(l) for f in (ROOT / "ledger" / "decompose").glob("*.jsonl")
-                      for l in f.read_text().splitlines() if l.strip()], lane["backend"])
+    past = [json.loads(l) for f in (ROOT / "ledger" / "decompose").glob("*.jsonl") for l in f.read_text().splitlines()
+            if l.strip()]
+    tried = tried_by(past, lane["backend"])
     reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
              if prover.REACHABLE.exists() else set())
     goals = pick_goals(json.loads(goal_closer.QUEUE.read_text()), rung, tried, reach, prover.plan_owed() is None,
@@ -256,8 +276,12 @@ def main():
     def keep(r):                                        # one line per finished goal, flushed at once
         with lock, open(a.out, "a") as f:
             f.write(json.dumps({**r, "backend": lane["backend"]}, ensure_ascii=False) + "\n")
+    cut = set() if a.lane else cut_at_cap(past, lane["backend"])     # router lanes take no effort setting here
+    print(f"{len(cut & {g['sha'] for g in goals})} of {len(goals)} goals asked with reasoning_effort none "
+          f"(cut at the token cap twice before)", flush=True)
     rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
-                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix), on_row=keep)
+                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix), on_row=keep,
+                       effort_of=lambda g: "none" if g["sha"] in cut else None)
     published = {}
     if solves:
         from utilities.kumori_api_client import init, sparebrains_attempt
