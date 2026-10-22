@@ -197,6 +197,47 @@ class SwapValidation(unittest.TestCase):
         self.assertEqual(ci["rmse"], [round(x, 5) for x in op.paired_bootstrap(y, cand, ref_pred, "rmse", n=500)])
 
 
+class Fenced(unittest.TestCase):
+    def test_a_candidate_sees_only_its_own_directions_inputs_and_leaves_nothing_running(self):
+        # 2026-10-22: val/ and val-swap/ were both readable all run; swap's X_test is the normal direction's answer
+        import os, stat, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            show, hide = Path(d) / "val", Path(d) / "val-swap"
+            show.mkdir(); hide.mkdir()
+            seen = {}
+            def fake_run(cmd, **kw):
+                if cmd[:3] == ["sudo", "-n", "pkill"]:
+                    seen["reaped"] = cmd
+                elif cmd[0] == "pgrep":
+                    return mock.Mock(returncode=1)                       # nothing left
+                else:
+                    seen["show"] = stat.S_IMODE(os.stat(show).st_mode)
+                    seen["hide"] = stat.S_IMODE(os.stat(hide).st_mode)
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            with mock.patch.object(op.subprocess, "run", side_effect=fake_run):
+                op.run_fenced(["cand"], show, [hide], "sbjudge", timeout=5)
+            self.assertEqual(seen["hide"] & 0o007, 0, "the other direction is closed to the sandbox user")
+            self.assertEqual(seen["show"] & 0o005, 0o005, "its own inputs are readable")
+            self.assertEqual(seen["reaped"], ["sudo", "-n", "pkill", "-KILL", "-u", "sbjudge"])
+
+    def test_a_process_that_survives_the_kill_fails_the_run(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0)                    # pgrep finds one
+            with self.assertRaises(RuntimeError):
+                op.run_fenced(["cand"], Path(d), [], "sbjudge", timeout=5)
+
+    def test_without_a_sandbox_user_nothing_is_reaped(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(op.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0)
+            op.run_fenced(["cand"], Path(d), [], None, timeout=5)
+            self.assertEqual(run.call_count, 1)
+
+
 class BothWays(unittest.TestCase):
     def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
         normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
@@ -231,6 +272,34 @@ class Final(unittest.TestCase):
                 self.assertTrue(op.shot_left(Path(d)))
                 (Path(d) / f"final-{i}.json").write_text("{}")
             self.assertFalse(op.shot_left(Path(d)))
+
+    def test_a_reserved_shot_counts_even_if_its_run_died_before_a_result(self):
+        # final() wrote final-*.json only after scoring; a runner lost after reading the test set left no count
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            led = Path(d)
+            (led / "final-1.json").write_text("{}")
+            (led / "shot-1.json").write_text("{}")                          # reserved, then scored: one shot
+            (led / "shot-2.json").write_text("{}")                          # reserved, run died: still a shot
+            self.assertEqual(op.shots_used(led), 2)
+            op.reserve(led, "3", {"evolve_file": "e.jsonl", "round": 4}, "code")
+            self.assertEqual(op.shots_used(led), 3)
+            with self.assertRaises(SystemExit):
+                op.reserve(led, "4", {"evolve_file": "e.jsonl", "round": 5}, "code")
+
+    def test_the_test_set_is_read_only_under_this_runs_reservation_for_this_candidate(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            led = Path(d)
+            src = {"evolve_file": "e.jsonl", "round": 4}
+            with self.assertRaises(SystemExit):
+                op.check_reservation(led / "final-9.json", src, "code")          # none
+            op.reserve(led, "9", src, "code")
+            op.check_reservation(led / "final-9.json", src, "code")              # passes
+            with self.assertRaises(SystemExit):
+                op.check_reservation(led / "final-9.json", {**src, "round": 5}, "code")
+            with self.assertRaises(SystemExit):
+                op.check_reservation(led / "final-9.json", src, "other code")
 
     def test_a_candidate_comes_from_its_ledger_round(self):
         import tempfile, json

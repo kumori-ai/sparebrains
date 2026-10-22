@@ -12,7 +12,7 @@ as the sandbox user on the validation split only, and sees the best so far and t
 never touched here. Needs anndata, scikit-learn and pyyaml; `reproduce` also needs Docker, for the task's R
 correlation metric in its own image. Validation uses `metrics`, which matches the R script on the same prediction.
 """
-import argparse, base64, json, os, re, subprocess, sys, time, urllib.request
+import argparse, base64, hashlib, json, os, re, subprocess, sys, time, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,6 +181,22 @@ def candidate_cmd(code_file, val_dir, out, user, python):
             "prlimit", f"--as={CAND_MEM}", "timeout", str(CAND_S), *cmd] if user else cmd
 
 
+def run_fenced(cmd, show, hide, user, timeout):
+    """Run a candidate with only `show` open to the sandbox user and every directory in `hide` closed (the other
+    direction's X_test is this direction's answer: 2026-10-22, both were open all run), then kill anything it left
+    running, so nothing outlives it to read the next direction's inputs."""
+    for h in hide:
+        os.chmod(h, 0o700)
+    os.chmod(show, 0o755)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    finally:
+        if user:                             # fail closed: nothing of the candidate may outlive it
+            subprocess.run(["sudo", "-n", "pkill", "-KILL", "-u", user], capture_output=True)
+            if subprocess.run(["pgrep", "-u", user], capture_output=True).returncode == 0:
+                raise RuntimeError(f"processes of {user} survived the candidate")
+
+
 def _swap_ok(m, ref):
     """No worse than the reference on the swap direction too, when the reference has one (2026-10-21 on)."""
     if "swap" not in ref:
@@ -283,8 +299,35 @@ def verdict(normal, swap):
             "competitive": rmse["cand"] <= COMPETITIVE["rmse"] and pear["cand"] >= COMPETITIVE["mean_pearson_per_cell"]}
 
 
+def shots_used(ledger_dir):
+    """Runs that reserved or spent a test scoring: a reservation (shot-<run>.json) is published before the test set
+    is read, so a run lost mid-scoring still counts (2026-10-22: before, only a finished final-<run>.json did)."""
+    return len({p.stem.split("-", 1)[1] for pat in ("final-*.json", "shot-*.json") for p in Path(ledger_dir).glob(pat)})
+
+
 def shot_left(ledger_dir):
-    return len(list(Path(ledger_dir).glob("final-*.json"))) < MAX_TEST_SCORINGS
+    return shots_used(ledger_dir) < MAX_TEST_SCORINGS
+
+
+def reserve(ledger_dir, run_id, source, code):
+    """Take one of the test scorings for this run and this exact candidate, before any test data is read."""
+    if not shot_left(ledger_dir):
+        sys.exit(f"{MAX_TEST_SCORINGS} candidates have already seen the test set (the bar's limit)")
+    f = Path(ledger_dir) / f"shot-{run_id}.json"
+    f.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run": run_id,
+                             "source": source, "code_sha": hashlib.sha256(code.encode()).hexdigest()}, indent=1) + "\n")
+    return f
+
+
+def check_reservation(out, source, code):
+    """final() reads the test set only under its own run's reservation for this candidate's exact code."""
+    run = Path(out).stem.split("-", 1)[1]
+    f = Path(out).parent / f"shot-{run}.json"
+    if not f.exists():
+        sys.exit(f"no reservation {f.name}: reserve the shot (and publish it) before scoring")
+    r = json.loads(f.read_text())
+    if r.get("source") != source or r.get("code_sha") != hashlib.sha256(code.encode()).hexdigest():
+        sys.exit(f"{f.name} reserves a different candidate")
 
 
 def candidate_from(ledger_file, round_no):
@@ -382,7 +425,7 @@ def run_candidate(code_file, val, out):
     np.save(out, np.asarray(y, dtype=np.float32))
 
 
-def scorer(val, answers, work, user, python):
+def scorer(val, answers, work, user, python, hide=()):
     y_val = np.load(answers / "Y_val.npy")
     n = [0]
 
@@ -391,8 +434,8 @@ def scorer(val, answers, work, user, python):
         code_file, out = work / f"cand{n[0]}.py", work / f"cand{n[0]}.npy"
         code_file.write_text(code)
         try:
-            r = subprocess.run(candidate_cmd(str(code_file), str(val), str(out), user, python), capture_output=True,
-                               text=True, timeout=CAND_S + 60)
+            r = run_fenced(candidate_cmd(str(code_file), str(val), str(out), user, python), val, hide, user,
+                           timeout=CAND_S + 60)
         except subprocess.TimeoutExpired:
             return {"error": f"over {CAND_S} s"}
         if r.returncode != 0 or not out.exists():
@@ -494,8 +537,8 @@ def final(work, code, source, out, user, python):
     to the candidate; the reference is the task's own knnr_py, re-run here."""
     import anndata as ad
     from scipy.sparse import csc_matrix
-    if source != "smoke" and not shot_left(Path(out).parent):
-        sys.exit(f"{MAX_TEST_SCORINGS} candidates have already seen the test set (the bar's limit)")
+    if source != "smoke":
+        check_reservation(out, source, code)
     sha, res = pinned_sha(), {}
     cand_dir = work / "candidates"
     cand_dir.mkdir(parents=True, exist_ok=True)
@@ -519,8 +562,9 @@ def final(work, code, source, out, user, python):
         code_file, out_npy = cand_dir / f"final-{name}.py", cand_dir / f"final-{name}.npy"
         code_file.write_text(code)
         code_file.chmod(0o644)
-        r = subprocess.run(candidate_cmd(str(code_file), str(inp), str(out_npy), user, python), capture_output=True,
-                           text=True, timeout=CAND_S + 120)
+        others = [work / f"final-{o}" / "in" for o in ("normal", "swap") if o != name and (work / f"final-{o}" / "in").exists()]
+        r = run_fenced(candidate_cmd(str(code_file), str(inp), str(out_npy), user, python), inp, others, user,
+                       timeout=CAND_S + 120)        # the normal inputs hold the swap answer's RNA
         y = _dense(t2.layers["normalized"]).astype(np.float32)
         if r.returncode != 0 or not out_npy.exists():
             res[name] = {"error": f"exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"}
@@ -561,7 +605,7 @@ def final(work, code, source, out, user, python):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "final"])
+    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -574,6 +618,12 @@ def main():
     a = ap.parse_args()
     if a.cmd == "run-candidate":
         run_candidate(*a.args)
+        return 0
+    if a.cmd == "reserve":                  # --out names the final-<run>.json this reservation is for
+        run = Path(a.out).stem.split("-", 1)[1]
+        f = reserve(Path(a.out).parent, run, {"evolve_file": a.evolve_file, "round": a.round},
+                    candidate_from(a.evolve_file, a.round))
+        print(f"reserved {f.name}: {shots_used(f.parent)} of {MAX_TEST_SCORINGS} test scorings taken", flush=True)
         return 0
     work = Path(a.work)
     if a.cmd == "reproduce":
@@ -605,8 +655,8 @@ def main():
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
     user = os.environ.get("SB_JUDGE_USER")
-    score = both_ways(scorer(val, answers, cand / "normal", user, sys.executable),
-                      scorer(work / "val-swap", work / "answers-swap", cand / "swap", user, sys.executable))
+    score = both_ways(scorer(val, answers, cand / "normal", user, sys.executable, hide=[work / "val-swap"]),
+                      scorer(work / "val-swap", work / "answers-swap", cand / "swap", user, sys.executable, hide=[val]))
     rows = evolve(a.rounds, ask, score, ref, writer, seed)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")

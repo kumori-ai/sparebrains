@@ -41,6 +41,22 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install -q numpy scipy scikit-learn anndata pyyaml requests
           chmod -R o+rX "$RUNNER_TEMP/venv"
 
+      # The shot is taken and published before any test data is read, so a run lost mid-scoring still counts
+      # (2026-10-22). The push token is written for this step only and removed before untrusted code exists.
+      - name: reserve the shot
+        if: ${{ !inputs.smoke }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # removed on any exit; the step fails if the header is still there afterwards
+          trap 'git config --unset-all http.https://github.com/.extraheader; if git config --get-all http.https://github.com/.extraheader; then echo "push token still in .git/config" >&2; exit 1; fi' EXIT
+          "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py reserve --evolve-file "${{ inputs.evolve_file }}" \
+            --round "${{ inputs.round }}" --out "ledger/openproblems/final-${GITHUB_RUN_ID}.json" | tee "$RUNNER_TEMP/reserve.txt"
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "openproblems shot reserved ${GITHUB_RUN_ID}: ${{ inputs.evolve_file }} round ${{ inputs.round }}: $(tail -1 "$RUNNER_TEMP/reserve.txt")"
+
       - name: sandbox user
         run: |
           u=sbjudge

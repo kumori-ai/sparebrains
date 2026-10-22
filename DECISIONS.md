@@ -43,6 +43,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   ~15,000 validation cells the intervals are tiny (round 6: Pearson +0.0021 to +0.0037), so shot 1's lead would
   likely have passed it and still failed on test. The miss is the shift from site 1 to site 4, not noise; a
   shift-robust check comes before shot 2 (task #477).
+- **A test scoring is reserved, in public, before the test set is read; the candidate sandbox has holes, now
+  partly closed (task #477).** Two existing defects found by a Codex review of the leave-one-site-out design:
+  - *Shots:* `final-*.json` was written only after scoring, so a run lost mid-scoring would not count. Now a
+    `reserve` step publishes `shot-<run>.json` (candidate source and code hash) before the sandbox exists; `final()`
+    scores only under its own run's reservation for that exact code; shots are unique runs over both files (the
+    existing scoring still counts 1). The push token lives in `.git/config` for that step only, and the step fails
+    if it is still there.
+  - *Leaks:* the sandbox user could read both directions' inputs all run, and the other direction's `X_test` is
+    this one's answer. Now each candidate runs with only its own inputs open, and the job fails if any of its
+    processes survives. Still open, so validation and test scores are not yet enforceably leak-proof: a candidate
+    can leave files in its home or output directory for a later one, and it has network access (the answer files
+    are public). No candidate shows signs of either (validation rmse ~0.93, shot 1 lost). The fix is a container per
+    candidate with no network and throwaway storage; it comes before shot 2.
 
 ## 2026-10-20
 
