@@ -149,6 +149,13 @@ class DeadLaneTests(RetryPacingTests):
         self.assertEqual(env['skip'].call_count, 2)
         self.assertEqual((env['state']['calls'], env['bench']['streak']), (0, {}))
 
+    def test_never_fits_is_read_from_the_error_code_whatever_the_message_says(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 : test-lane cannot take a call this size; retrying will not help',
+            status_code=503, retry_after=60, payload={'error_code': 'never_fits'})
+        self.assertEqual(env['run_one']('demo', lane, 1), 'too_big')
+
     def test_a_floor_learned_while_waiting_for_the_provider_stops_the_call(self):
         env, lane = self.runner()
         env['provider_lock']['test'] = Mock(__enter__=Mock(side_effect=lambda *a: env['too_big'].update({'test-lane': 1})),

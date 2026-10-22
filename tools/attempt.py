@@ -519,7 +519,8 @@ def main():
                                     bench["told"][other["backend"]] = max(bench["told"].get(other["backend"], 0), until)
                         print(f"{lane['provider']}: share held for other tenants; parked for {wait:.0f}s", flush=True)
                         return "defer"
-                    if "never_fits" in msg:              # prompt + max_tokens over the lane's tokens a minute: no wait helps
+                    if "never_fits" in msg or (e.payload or {}).get("error_code") == "never_fits":   # over the lane's
+                                                         # tokens a minute: no wait helps (kumori names it in error_code)
                         with lock:
                             too_big[lane["backend"]] = min(too_big.get(lane["backend"], len(prompt)), len(prompt))
                         skip(name, lane, attempt_no, f"{NEVER_FITS_WHY} ({len(prompt):,}-char prompt)", tset, tdir_)
