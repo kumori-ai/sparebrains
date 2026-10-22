@@ -84,8 +84,9 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   libraries pinned to match. `tools/sandbox/check.sh` installs gVisor from its apt repository and runs canaries
   before any round, and in the final workflow before the shot is reserved: no network, read-only mounts (on
   world-writable probes), scratch, process and memory limits, and a known prediction streaming back; the network
-  canary was seen going red without a container. Practice per a deep-search (Docker + gVisor for LLM-written code
-  on your own inputs). Codex AGREE after four rounds. Runner proof is a smoke run; real candidates only after it.
+  canary was seen going red without a container. gVisor is one accepted option for LLM-written code, not a
+  settled consensus: guides split, some defaulting to Firecracker/Kata microVMs for all untrusted code (deep-search
+  2026-10-22; kumori's work ask --research run 20261022T032225101775Z_codex). Codex AGREE after four rounds. Runner proof is a smoke run; real candidates only after it.
 
 ## 2026-10-20
 

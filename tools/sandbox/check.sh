@@ -9,7 +9,10 @@ curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor --yes -o /usr/sha
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
   | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
 sudo apt-get update -qq && sudo apt-get install -y -qq runsc
-sudo systemctl reload docker || sudo systemctl restart docker
+# The docs say the package configures Docker; on GitHub's runner it did not (smoke 39716965706, 2026-10-22), so
+# register it as the docs' manual path does, then restart Docker to load it.
+sudo runsc install
+sudo systemctl restart docker
 docker info --format '{{json .Runtimes}}' | grep -q runsc || { echo "runsc is not a docker runtime" >&2; exit 1; }
 docker build -q -t sb-candidate "$here"
 export SB_RUNTIME=runsc
