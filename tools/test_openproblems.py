@@ -273,7 +273,7 @@ class Sandboxed(unittest.TestCase):
     def test_the_sandbox_check_goes_red_outside_a_sandbox(self):
         # the canary seen failing: run without a container (network open here), the network canary must trip
         from unittest import mock
-        def local(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None):
+        def local(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None, diag=None):
             cmd = [sys.executable, "-I", str(op.TOOL), "run-candidate", str(code_file), str(inputs), "-"]
             return op.run_sandboxed(cmd, shape, timeout, lambda: None)
         with mock.patch.object(op, "sandboxed_predict", side_effect=local):
@@ -340,7 +340,7 @@ class Qualify(unittest.TestCase):
         X = rng.normal(size=(40, 6)); Y = X[:, :3] * 2 + rng.normal(scale=0.1, size=(40, 3))
         batches = np.array([f"s{1 + i % 2}d1" for i in range(40)])
         seen = []
-        def fake(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None):
+        def fake(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None, diag=None):
             seen.append(shape)
             assert mem == op.QUALIFY_MEM
             return np.zeros(shape, dtype=np.float32), None, ""
@@ -350,6 +350,48 @@ class Qualify(unittest.TestCase):
         self.assertEqual([r["site"] for r in rows], [1, 2])
         self.assertEqual(seen, [(20, 3), (20, 3)])
         self.assertTrue(all(r["error"] is None and "rmse" in r["cand"] for r in rows))
+
+    def test_each_fold_records_how_its_container_ended(self):
+        """2026-10-22, qualify 39721557552: swap site 3 died with exit 137 and the receipt could not say whose kill."""
+        X = np.arange(40 * 4, dtype=float).reshape(40, 4); Y = X[:, :2]
+        batches = np.array([f"s{1 + i % 2}d1" for i in range(40)])
+        def fake(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None, diag=None):
+            diag.update(mem_peak_gb_seen=9.9, oom_killed=True, exit_code=137, mem_cap=mem)
+            return None, "exit 137: ", ""
+        import tempfile
+        rows = op.qualify_direction(X, Y, batches, Path(tempfile.mkdtemp()), Path("c.py"), predict=fake,
+                                    reference=lambda a, b, c: np.zeros((c.shape[0], b.shape[1])))
+        self.assertEqual(rows[0]["container"], {"mem_peak_gb_seen": 9.9, "oom_killed": True, "exit_code": 137,
+                                                "mem_cap": op.QUALIFY_MEM})
+
+    def test_container_exit_reads_dockers_oom_flag(self):
+        from unittest import mock
+        done = lambda out: mock.Mock(stdout=out, returncode=0)
+        with mock.patch.object(op.subprocess, "run", return_value=done("true 137\n")):
+            self.assertEqual(op.container_exit("x"), {"oom_killed": True, "exit_code": 137})
+        with mock.patch.object(op.subprocess, "run", return_value=done("false 137\n")):
+            self.assertEqual(op.container_exit("x"), {"oom_killed": False, "exit_code": 137})
+        with mock.patch.object(op.subprocess, "run", return_value=done("")):         # already gone: unknown, not a guess
+            self.assertEqual(op.container_exit("x"), {"oom_killed": None, "exit_code": None})
+
+    def test_a_failing_diagnostic_never_skips_the_containers_removal(self):
+        from unittest import mock
+        removed = []
+        def run(cmd, shape, timeout, cleanup):
+            cleanup()
+            return None, "exit 137: ", ""
+        import tempfile
+        d = Path(tempfile.mkdtemp()); (d / "x").write_text("x"); c = d / "c.py"; c.write_text("")
+        with mock.patch.object(op, "run_sandboxed", run), \
+                mock.patch.object(op, "container_exit", side_effect=OSError("docker gone")), \
+                mock.patch.object(op, "docker_cleanup", side_effect=removed.append), \
+                mock.patch.object(op, "container_memory", lambda *a: None):
+            with self.assertRaises(OSError):
+                op.sandboxed_predict(c, d, (1, 1), 5)
+        self.assertEqual(len(removed), 1)
+
+    def test_the_container_is_not_auto_removed_before_its_exit_is_read(self):
+        self.assertNotIn("--rm", op.docker_cmd("n", Path("/c.py"), Path("/in")))
 
     def test_a_shot_needs_a_passing_receipt_for_this_exact_code_and_policy(self):
         import tempfile

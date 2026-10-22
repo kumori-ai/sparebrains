@@ -202,13 +202,53 @@ def docker_cmd(name, code_file, val_dir, mem=SANDBOX_MEM):
     on stdout, so there is no output file to trust. SANDBOX_MEM is a budget, not a measured fit."""
     rt = os.environ.get("SB_RUNTIME")
     ro = lambda src, dst: ["--mount", f"type=bind,src={src},dst={dst},readonly"]
-    return ["docker", "run", "--rm", "--name", name, *(["--runtime", rt] if rt else []),
+    # no --rm: how it ended is read first (container_exit), then docker_cleanup removes it and confirms it gone
+    return ["docker", "run", "--name", name, *(["--runtime", rt] if rt else []),
             "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=2g,mode=1777",
             "--memory", mem, "--memory-swap", mem, "--cpus", "4", "--pids-limit", "512",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-driver", "none",
             "--user", "65534:65534", "-e", "HOME=/tmp",
             *ro(code_file, "/app/cand.py"), *ro(val_dir, "/in"), *ro(TOOL, "/app/openproblems.py"),
             SANDBOX_IMAGE, "python", "-I", "/app/openproblems.py", "run-candidate", "/app/cand.py", "/in", "-"]
+
+
+CGROUP_DIRS = ("/sys/fs/cgroup/system.slice/docker-{}.scope", "/sys/fs/cgroup/docker/{}")   # systemd, cgroupfs
+
+
+def container_memory(name, stop, seen):
+    """While the container runs, its scope's cgroup v2 memory.peak and memory.events every 2 s, into `seen`. The scope
+    goes when the container stops, so the peak is an observed lower bound (a last spike or a run under 2 s can be
+    missed), and oom / oom_kill are the kernel's counts up to the last read (docs.kernel.org cgroup-v2: oom is the
+    limit being hit, oom_kill a kill by any OOM killer). Diagnostic only: an unreadable cgroup leaves None."""
+    cid = None
+    while not stop.wait(2):
+        try:
+            if cid is None:
+                r = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", name], capture_output=True,
+                                   text=True, timeout=30)
+                cid = r.stdout.strip() or None
+            for d in CGROUP_DIRS:
+                f = Path(d.format(cid), "memory.peak") if cid else None
+                if f and f.exists():
+                    seen["mem_peak_gb_seen"] = round(int(f.read_text()) / 2 ** 30, 2)
+                    ev = dict(l.split() for l in f.with_name("memory.events").read_text().splitlines())
+                    seen.update(cgroup_oom=int(ev.get("oom", 0)), cgroup_oom_kill=int(ev.get("oom_kill", 0)))
+                    break
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+
+
+def container_exit(name):
+    """Docker's record of how the container ended, read before it is removed: an observation, not a cause. Exit 137
+    is any SIGKILL (the cap, the host, a timeout's kill, or the candidate's own); OOMKilled under runsc is unverified
+    until the sandbox check's cap-kill and self-kill canaries show what it reports."""
+    try:
+        r = subprocess.run(["docker", "inspect", "--format", "{{.State.OOMKilled}} {{.State.ExitCode}}", name],
+                           capture_output=True, text=True, timeout=30)
+        oom, code = r.stdout.split()
+        return {"oom_killed": oom == "true", "exit_code": int(code)}
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {"oom_killed": None, "exit_code": None}
 
 
 def docker_cleanup(name):
@@ -343,6 +383,11 @@ SANDBOX_CANARIES = {   # each must come back as its expected prediction: a breac
 }
 
 
+SELF_KILL = ("import os, signal\n"                         # exit 137 with no memory pressure at all
+             "def predict(a, b, c, d, e):\n"
+             "    os.kill(os.getpid(), signal.SIGKILL)\n")
+
+
 def sandbox_check(work):
     """Before any real candidate: the container has no network, cannot write where it should not, and streams a
     prediction back exactly. Raises on any failure, so the job stops before a shot or a round is spent."""
@@ -373,6 +418,12 @@ def sandbox_check(work):
             raise SystemExit(f"sandbox check {name} failed: {err or 'wrong prediction'}")
         lines = [l for l in seen.splitlines() if l.strip()]
         print(f"sandbox check {name}: ok  [{err[:60] if err else (lines[-1][:160] if lines else 'no output')}]", flush=True)
+    for name, code, mem in (("cap kill", SANDBOX_CANARIES["memory"], "512m"), ("self kill", SELF_KILL, SANDBOX_MEM)):
+        f = Path(work) / f"diag-{name.replace(' ', '-')}.py"         # reported, not gated: what a known kill looks like
+        f.write_text(code)
+        diag = {}
+        _, err, _ = sandboxed_predict(f, inp, (5, 3), 300, mem=mem, diag=diag)
+        print(f"sandbox diagnostics, {name}: {(err or 'no error')[:40]!r} {json.dumps(diag)}", flush=True)
     return 0
 
 
@@ -537,14 +588,16 @@ def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=No
         write_inputs(inp, X[~v], Y[~v], X[v], batches[~v], batches[v])
         y = _dense(Y[v]).astype(np.float32)
         ref = metrics(y, np.asarray(reference(X[~v], _dense(Y[~v]).astype(np.float32), X[v])))
-        p, err, _ = predict(code_file, inp, y.shape, CAND_S + 60, mem=QUALIFY_MEM)
+        diag = {}
+        p, err, _ = predict(code_file, inp, y.shape, CAND_S + 60, mem=QUALIFY_MEM, diag=diag)
         if err is None and not np.isfinite(p).all():
             err = "non-finite values in the prediction"
         rows.append({"site": s, "n_train": int((~v).sum()), "n_held": int(v.sum()), "error": err,
                      "cand": None if err else {k: round(x, 4) for k, x in metrics(y, p).items()},
                      "ref": {k: round(x, 4) for k, x in ref.items()},
                      "seconds": round(time.monotonic() - t0, 1),           # measured, for the runner's budget
-                     "host_peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20, 2)})
+                     "host_peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20, 2),
+                     "container": diag})                  # its own peak and how it ended (2026-10-22: swap site 3, exit 137)
         del p, y                                     # nothing of this fold is held while the next one runs
         shutil.rmtree(inp.parent, ignore_errors=True)
         print(f"qualify site {s}: {rows[-1]['cand'] or err} vs {rows[-1]['ref']}", flush=True)
@@ -766,16 +819,32 @@ def scorer(val, answers, work):
     return score
 
 
-def sandboxed_predict(code_file, inputs, shape, timeout, dir_mode=0o755, mem=SANDBOX_MEM):
+def sandboxed_predict(code_file, inputs, shape, timeout, dir_mode=0o755, mem=SANDBOX_MEM, diag=None):
     """A candidate's prediction from its own container; the inputs and its code made readable to the container's
-    user (only the inputs directory is mounted, so nothing else needs to be)."""
-    import uuid
+    user (only the inputs directory is mounted, so nothing else needs to be). `diag`, if given, gets the
+    container's observed memory peak, cgroup OOM counts, OOMKilled and exit code: evidence for a kill, not its cause."""
+    import threading, uuid
     for f in [inputs, *Path(inputs).iterdir()]:
         os.chmod(f, dir_mode if Path(f).is_dir() else 0o644)
     os.chmod(code_file, 0o644)
     name = f"sb-cand-{uuid.uuid4().hex[:12]}"
-    return run_sandboxed(docker_cmd(name, Path(code_file).resolve(), Path(inputs).resolve(), mem), shape, timeout,
-                         lambda: docker_cleanup(name))
+    seen, stop = {"mem_peak_gb_seen": None, "cgroup_oom": None, "cgroup_oom_kill": None}, threading.Event()
+    sampler = threading.Thread(target=container_memory, args=(name, stop, seen), daemon=True)
+    sampler.start()
+
+    def cleanup():
+        try:
+            stop.set()
+            sampler.join(35)
+            seen.update(container_exit(name))
+        finally:                                             # no diagnostic may stand between it and its removal
+            docker_cleanup(name)
+    try:
+        return run_sandboxed(docker_cmd(name, Path(code_file).resolve(), Path(inputs).resolve(), mem), shape,
+                             timeout, cleanup)
+    finally:
+        if diag is not None:
+            diag.update(seen, mem_cap=mem)
 
 
 def writer_ask(lane):
