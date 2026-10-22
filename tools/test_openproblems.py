@@ -214,6 +214,14 @@ class Screen(unittest.TestCase):
         self.assertTrue(rows[0]["error"].startswith("screen: normal direction"))
         self.assertEqual(rows[0]["repair_asks"], 2)
 
+    def test_an_ask_budget_counts_repairs_and_stops_the_run(self):
+        asks = []
+        rows = op.evolve(20, lambda p: asks.append(p) or GOOD, lambda code: {"rmse": 0.95, "mean_pearson_per_cell": 0.79},
+                         self.REF, writer="fake", screen=lambda code: "normal direction: exit 1: boom", repairs=2,
+                         max_asks=7)
+        self.assertEqual(len(asks), 7, "rounds and repairs together never pass the budget")
+        self.assertEqual(sum(1 + r.get("repair_asks", 0) for r in rows), 7)
+
     def test_without_a_screen_rows_are_as_before(self):
         rows = op.evolve(1, lambda p: GOOD, lambda code: {"rmse": 0.95, "mean_pearson_per_cell": 0.79}, self.REF, writer="fake")
         self.assertNotIn("repair_asks", rows[0])

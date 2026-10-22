@@ -532,13 +532,16 @@ def screened(code, ask, screen, repairs):
         code = fixed
 
 
-def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS):
+def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
     beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
     `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
-    more asks; a row records every ask it took. Every attempt is a row; the seed is context, not a row."""
-    rows = []
+    more asks; a row records every ask it took. With `max_asks`, the run stops when its asks (rounds and repairs) reach
+    it, so writers compare on equal budgets (task #477 step 5). Every attempt is a row; the seed is context, not a row."""
+    rows, asks = [], 0
     for i in range(rounds):
+        if max_asks is not None and asks >= max_asks:
+            break
         prompt = BRIEF.format(ref=_fmt(ref))
         top = best_or_closest(rows + ([seed] if seed else []), ref)
         if top:          # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
@@ -556,6 +559,7 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
                 prompt += f"\n\nThe last attempt scored {_fmt(last['metrics'])}."
         t = time.time()
         reply = ask(prompt)
+        asks += 1                                          # ask_s: the round's first ask only, not its repairs
         row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1), "brief_assist": BRIEF_ASSIST}
         code = extract_code(reply) if isinstance(reply, str) else None
         if code is None:
@@ -563,7 +567,9 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
         else:
             failed = None
             if screen:
-                code, failed, extra, seen = screened(code, ask, screen, repairs)
+                left = repairs if max_asks is None else max(0, min(repairs, max_asks - asks))
+                code, failed, extra, seen = screened(code, ask, screen, left)
+                asks += extra
                 row.update(repair_asks=extra, screen_errors=seen)
             r = {"error": "screen: " + failed} if failed else score(code)
             row.update(code=code, **({"error": r["error"]} if "error" in r else {"metrics": r}))
@@ -1114,6 +1120,8 @@ def main():
     ap.add_argument("--work", help="scratch: data/, val/ (sandbox-readable), answers/ (not), candidates/")
     ap.add_argument("--out", help="the ledger file to write")
     ap.add_argument("--rounds", type=int, default=12)
+    ap.add_argument("--max-asks", type=int, default=0, help="evolve: stop at this many writer asks, repairs included")
+    ap.add_argument("--seed-upto", default="", help="evolve: seed only from earlier rows stamped before this time")
     ap.add_argument("--repairs", type=int, default=REPAIRS,
                     help="evolve: repair asks a round after a small-slice screen crash; -1 turns the screen off")
     ap.add_argument("--lane", default="leanstral")
@@ -1156,6 +1164,8 @@ def main():
         (cand / sub).mkdir(exist_ok=True)
     ask, writer = writer_ask(a.lane)
     prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
+    if a.seed_upto:                        # an A/B's arms start from the same seed, whichever run publishes first
+        prior = [r for r in prior if r.get("at", "") < a.seed_upto]
     seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
@@ -1165,7 +1175,8 @@ def main():
         dirs = [(name, cand / f"screen-{name}", screen_inputs(src, cand / f"screen-{name}"))
                 for name, src in (("normal", val), ("swap", work / "val-swap"))]
         screen = screener(dirs, cand)
-    rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs))
+    rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs),
+                  max_asks=a.max_asks or None)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
