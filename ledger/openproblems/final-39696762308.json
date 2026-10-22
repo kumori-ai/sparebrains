@@ -1,0 +1,83 @@
+{
+ "at": "2026-10-22T00:03:06+00:00",
+ "task": "openproblems-bio/task_predict_modality",
+ "commit": "4d73d31645c57097a6765ff3d3585503aaa99d33",
+ "source": {
+  "evolve_file": "ledger/openproblems/evolve-39538429513.jsonl",
+  "round": 12
+ },
+ "code": "import numpy as np\nfrom scipy.sparse import vstack\nfrom sklearn.decomposition import TruncatedSVD\nfrom sklearn.linear_model import Ridge\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.neighbors import KNeighborsRegressor, NearestNeighbors\n\ndef predict(X_train, Y_train, X_test, batch_train, batch_test):\n    \"\"\"\n    Predicts surface protein levels from RNA expression (or vice versa)\n    using batch-aware dimensionality reduction and regression.\n    Handles both directions (RNA->protein and protein->RNA) with appropriate\n    models to manage memory constraints.\n    \"\"\"\n    # Ensure batch labels are numpy arrays\n    batch_train = np.asarray(batch_train)\n    batch_test = np.asarray(batch_test)\n\n    n_train = X_train.shape[0]\n    n_features = X_train.shape[1]\n    n_targets = Y_train.shape[1]\n\n    # Cap components at min(50, n_features - 1) as required\n    n_components = min(50, n_features - 1)\n\n    # Combine train and test for consistent SVD alignment\n    X_combined = vstack([X_train, X_test])\n    svd = TruncatedSVD(n_components=n_components, n_iter=5, random_state=42)\n    X_svd = svd.fit_transform(X_combined)\n\n    X_train_svd = X_svd[:n_train]\n    X_test_svd = X_svd[n_train:]\n\n    # Batch correction: align test cells to training batch centroids in SVD space\n    unique_batches = np.unique(batch_train)\n    batch_means = np.array([X_train_svd[batch_train == b].mean(axis=0)\n                            for b in unique_batches])\n\n    # Center training data by subtracting batch means\n    batch_indices_train = np.searchsorted(unique_batches, batch_train)\n    X_train_centered = X_train_svd - batch_means[batch_indices_train]\n\n    # For test: find k nearest training batch centroids and interpolate\n    k = 3\n    nbrs = NearestNeighbors(n_neighbors=k, metric='euclidean', n_jobs=-1)\n    nbrs.fit(batch_means)\n    distances, indices = nbrs.kneighbors(X_test_svd)\n\n    # Inverse distance weighting\n    weights = 1.0 / (distances + 1e-10)\n    weights = weights / np.sum(weights, axis=1, keepdims=True)\n    test_batch_means = np.sum(weights[:, :, np.newaxis] * batch_means[indices], axis=1)\n\n    X_test_centered = X_test_svd - test_batch_means\n\n    # Standardize features (with_mean=False since we already centered)\n    # StandardScaler on dense data is fine; with_mean=False avoids double-centering\n    scaler = StandardScaler(with_mean=False)\n    X_train_scaled = scaler.fit_transform(X_train_centered)\n    X_test_scaled = scaler.transform(X_test_centered)\n\n    # Choose model based on input dimensionality\n    if n_features > n_targets:\n        # RNA -> protein (13953 features -> 134 targets): Ridge with residual KNN\n        model = Ridge(alpha=10.0, fit_intercept=True)\n        model.fit(X_train_scaled, Y_train)\n        pred = model.predict(X_test_scaled)\n\n        # Residual correction using KNN\n        train_pred = model.predict(X_train_scaled)\n        residuals = Y_train - train_pred\n\n        residual_knn = KNeighborsRegressor(\n            n_neighbors=15,\n            weights='distance',\n            metric='euclidean',\n            n_jobs=-1\n        )\n        residual_knn.fit(X_train_scaled, residuals)\n        residual_pred = residual_knn.predict(X_test_scaled)\n\n        pred = pred + residual_pred\n    else:\n        # Protein -> RNA (134 features -> 13953 targets): KNN regression\n        # Use float32 for training targets to reduce memory footprint (5.7 GiB -> 2.85 GiB)\n        knn = KNeighborsRegressor(\n            n_neighbors=50,\n            weights='distance',\n            metric='euclidean',\n            n_jobs=-1\n        )\n        knn.fit(X_train_scaled, Y_train.astype(np.float32))\n        pred = knn.predict(X_test_scaled).astype(np.float64)\n\n    return pred\n",
+ "normalization": "log_cp10k",
+ "normal": {
+  "scores": {
+   "cand": {
+    "rmse": 0.6927,
+    "mae": 0.5123,
+    "mean_pearson_per_cell": 0.7508,
+    "mean_spearman_per_cell": 0.6372,
+    "mean_pearson_per_gene": 0.5678,
+    "mean_spearman_per_gene": 0.4377,
+    "overall_pearson": 0.6971,
+    "overall_spearman": 0.5776
+   },
+   "ref": {
+    "rmse": 0.7239,
+    "mae": 0.5261,
+    "mean_pearson_per_cell": 0.7706,
+    "mean_spearman_per_cell": 0.6876,
+    "mean_pearson_per_gene": 0.5944,
+    "mean_spearman_per_gene": 0.4917,
+    "overall_pearson": 0.7113,
+    "overall_spearman": 0.6238
+   }
+  },
+  "bootstrap": {
+   "rmse": {
+    "cand": 0.6927,
+    "ref": 0.7239,
+    "ci": [
+     -0.03985,
+     -0.02253
+    ]
+   },
+   "mean_pearson_per_cell": {
+    "cand": 0.7508,
+    "ref": 0.7706,
+    "ci": [
+     -0.02382,
+     -0.01587
+    ]
+   }
+  }
+ },
+ "swap": {
+  "scores": {
+   "cand": {
+    "rmse": 0.3508,
+    "mae": 0.1648,
+    "mean_pearson_per_cell": 0.733,
+    "mean_spearman_per_cell": 0.3976,
+    "mean_pearson_per_gene": 0.1596,
+    "mean_spearman_per_gene": 0.1578,
+    "overall_pearson": 0.73,
+    "overall_spearman": 0.4072
+   },
+   "ref": {
+    "rmse": 0.3502,
+    "mae": 0.1681,
+    "mean_pearson_per_cell": 0.7351,
+    "mean_spearman_per_cell": 0.4032,
+    "mean_pearson_per_gene": 0.169,
+    "mean_spearman_per_gene": 0.1547,
+    "overall_pearson": 0.7306,
+    "overall_spearman": 0.4074
+   }
+  },
+  "ref_source": "published run_2026-10-10_07-15-14"
+ },
+ "verdict": {
+  "useful": false,
+  "swap_no_worse": false,
+  "competitive": false
+ }
+}
