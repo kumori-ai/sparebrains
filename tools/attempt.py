@@ -116,8 +116,10 @@ def bench_delay(retry_after, consecutive):
 PAUSED_LANES = {
     # 2026-10-23, kumori-45 (kumori shared/kumori_free_llm/docs/20261023_groq_minute_admission.md): a hidden 1,000
     # output-tokens-a-minute cap, named only in Groq's 429 body, on a key other apps share; one 1,264-token answer
-    # spent it. Its 116 accepts here (10-14..21) were all re-solves (0 first-time, primer/mil/MATH L1-3). Reopen
-    # when kumori meters output tokens a minute (kumori #316).
+    # spent it. Its 116 accepts here (10-14..21) were all re-solves (0 first-time, primer/mil/MATH L1-3). kumori
+    # shipped output-token metering (f16a2bb, 2026-10-23) but asked to keep this paused: a 1,500-token call on the
+    # lane's own key drew Groq's OTPM 429, which kumori's parser misses (a 120 s backoff for every caller). Reopen
+    # only when kumori says that 429 is understood or handled (kumori #316), not on the metering alone.
     "groq-qwen3-8-27b": "1,000 output tokens a minute on a shared key; 0 first-time solves (2026-10-23)",
 }
 
