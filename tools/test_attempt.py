@@ -63,10 +63,12 @@ class RetryPacingTests(unittest.TestCase):
                    planned_per_target=1, previous_id=Mock(return_value=None),
                    benched=Mock(return_value=False), llm_chat=Mock(),
                    args=SimpleNamespace(max_tokens=256, call_timeout=60, max_calls=99, stop_on_accept=False),
-                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={}, too_big={}, skip=Mock(),
+                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={}, too_big={}, fit_cap={}, skip=Mock(),
                    order=[{'backend': 'test-lane', 'provider': 'test'}, {'backend': 'test-sibling', 'provider': 'test'},
                           {'backend': 'other-lane', 'provider': 'other'}],
                    extract_proof=Mock(side_effect=RuntimeError('verifier boundary')))
+        env['sent_tokens'] = lambda lane: min(attempt.lane_max_tokens(lane, env['args'].max_tokens),
+                                              env['fit_cap'].get(lane['backend'], 10 ** 9))
         exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
         return env, {'backend': 'test-lane', 'provider': 'test', 'tier': 'high'}
 
@@ -135,6 +137,59 @@ class DeadLaneTests(RetryPacingTests):
         env['llm_chat'].side_effect = self.share_refusal('borrow_cap', 40000)
         self.assertEqual(env['run_one']('demo', lane, 1), 'exhausted')
         self.assertIn('test', env['exhausted'])
+
+    def test_never_fits_halves_max_tokens_for_the_job_and_asks_the_same_cell_again(self):
+        """2026-10-22..23: groq-qwen3-8-27b refused every call at 16,000 max_tokens (3,930 skip rows, 0 accepts)
+        though it proved problems at that size through 10-21. kumori's refusal says to lower max_tokens."""
+        env, lane = self.runner()
+        lane['capability'] = {'is_reasoning_model': True}                     # asked relay.MAX_TOKENS
+        nf = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 503 : too big', status_code=503, retry_after=60,
+                                    payload={'error_code': 'never_fits'})
+        env['llm_chat'].side_effect = [nf, nf, ('answer', 'test-lane', {})]
+        with self.assertRaisesRegex(RuntimeError, 'verifier boundary'):      # it got an answer, at 4,000
+            env['run_one']('demo', lane, 1)
+        sent = [c.kwargs['max_tokens'] for c in env['llm_chat'].call_args_list]
+        self.assertEqual(sent, [16000, 8000, 4000])
+        self.assertEqual(env['fit_cap'], {'test-lane': 4000}, 'the rest of the job starts at the size that fit')
+        env['skip'].assert_not_called()
+        self.assertEqual((env['too_big'], env['bench']['streak']), ({}, {}), 'a refusal is no lane error')
+
+    def test_a_row_records_the_max_tokens_the_call_was_sent(self):
+        env, lane = self.runner()
+        lane['capability'] = {'is_reasoning_model': True}
+        env['base_row'] = Mock(return_value={'request_config': {'max_tokens': 16000}})
+        env['fit_cap']['test-lane'] = 8000
+        env['llm_chat'].side_effect = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)
+        env['run_one']('demo', lane, 1)
+        self.assertEqual(env['llm_chat'].call_args.kwargs['max_tokens'], 8000)
+        self.assertEqual(env['record'].call_args[0][0]['request_config']['max_tokens'], 8000)
+
+    def test_never_fits_at_the_floor_is_still_a_skip(self):
+        env, lane = self.runner()
+        lane['capability'] = {'is_reasoning_model': True}
+        env['fit_cap']['test-lane'] = attempt.MIN_FIT_TOKENS
+        env['llm_chat'].side_effect = attempt.KumoriAPIError('x', status_code=503, payload={'error_code': 'never_fits'})
+        self.assertEqual(env['run_one']('demo', lane, 1), 'too_big')
+        self.assertEqual(env['llm_chat'].call_count, 1)
+        env['skip'].assert_called_once()
+
+    def test_a_lemma_ask_halves_on_never_fits_and_a_refusal_is_not_a_call(self):
+        import ast
+        from unittest.mock import Mock
+        env, lane = self.runner()
+        lane['capability'] = {'is_reasoning_model': True}
+        tree = ast.parse(Path(attempt.__file__).read_text())
+        node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'make_ask')
+        env['relay'] = Mock(LEMMA_CALL_S=120, PARK_WAIT_S=90)
+        exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
+        nf = attempt.KumoriAPIError('x', status_code=503, payload={'error_code': 'never_fits'})
+        env['llm_chat'].side_effect = [nf, nf, ('lemma proof', 'test-lane', {})]
+        self.assertEqual(env['make_ask'](lane)('prove it'), 'lemma proof')
+        self.assertEqual([c.kwargs['max_tokens'] for c in env['llm_chat'].call_args_list], [16000, 8000, 4000])
+        self.assertEqual(env['state']['calls'], 1, 'two refusals and one answer: one call')
+        env['llm_chat'].side_effect = [nf]                                  # at the floor: no answer, and no call
+        self.assertIsNone(env['make_ask'](lane)('prove it'))
+        self.assertEqual(env['state']['calls'], 1)
 
     def test_never_fits_is_a_skip_and_no_bigger_prompt_is_asked_again(self):
         """2026-10-15..22: 1,281 never_fits refusals, groq-qwen3-8-27b asked primer_tutorial_07 105 times."""

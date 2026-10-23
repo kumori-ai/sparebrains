@@ -77,6 +77,16 @@ ERROR_STREAK_TO_PARK = 3      # failures in a row before a lane is parked (60 s,
 # kumori quotas.py: prompt + max_tokens over a lane's tokens-a-minute limit is refused before any provider call, and
 # no wait changes that; asking again cost 1,281 refusals in 2026-10-15..22, each logged as a lane error
 NEVER_FITS_WHY = "router: prompt + max_tokens exceed this lane's tokens a minute (never_fits); not retried this job"
+# A never_fits refusal halves the lane's max_tokens for the rest of the job and asks again, as the refusal itself
+# says to; only below this floor is it a skip. 2026-10-22..23: groq-qwen3-8-27b (8,000 tokens a minute) was refused
+# every call at 16,000 (3,930 skip rows, 0 accepts) though it proved problems at that size through 10-21. The floor
+# is the ladder's own max_tokens; whether a thinking model proves anything at 4,000 is unmeasured (DECISIONS.md
+# 2026-10-07 found it too few for one), so this is a fallback to measure: each row records the max_tokens it sent.
+MIN_FIT_TOKENS = 4000
+
+
+def is_never_fits(e):
+    return "never_fits" in str(e) or (e.payload or {}).get("error_code") == "never_fits"
 
 
 RUNNING_DRY = set()   # lanes whose recent calls mostly came back empty, from the ledger at job start
@@ -404,6 +414,10 @@ def main():
                                                          # gone: lanes the router 404s, not asked again this job
     exhausted = {}                                       # provider → why it is parked for the rest of the run
     too_big = {}                                         # backend → shortest prompt (chars) the router said never fits
+    fit_cap = {}                                         # backend → max_tokens it was halved to on never_fits, this job
+
+    def sent_tokens(lane):
+        return min(lane_max_tokens(lane, args.max_tokens), fit_cap.get(lane["backend"], 10 ** 9))
 
     def benched(backend):
         """Router bench state, refreshed at most every 30 s. True = the router would 503 this lane now.
@@ -437,7 +451,7 @@ def main():
                 "backend": lane["backend"], "provider": lane["provider"], "model": lane["model"],
                 "quality_tier": lane["tier"], "tier_rank": lane["rank"], "attempt_no": attempt_no, "mode": mode,
                 "capability": lane.get("capability", {}),
-                "request_config": {"max_tokens": lane_max_tokens(lane, args.max_tokens), "temperature": 0.2,
+                "request_config": {"max_tokens": sent_tokens(lane), "temperature": 0.2,
                                    "reasoning_effort": lane_effort(lane), "router_timeout_s": 60,
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
@@ -494,10 +508,13 @@ def main():
                 skip(name, lane, attempt_no, f"{NEVER_FITS_WHY}: a {floor:,}-char prompt already did this job",
                      tset, tdir_)
                 return "too_big"
-            for tries in (1, 2):
+            tries = 0
+            while tries < 2:
+                tries += 1
+                sent = sent_tokens(lane)
                 try:
                     reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
-                                        max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2, system=SYSTEM,
+                                        max_tokens=sent, temperature=0.2, system=SYSTEM,
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
                                         include_metadata=True, **long_or_not,
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
@@ -519,8 +536,15 @@ def main():
                                     bench["told"][other["backend"]] = max(bench["told"].get(other["backend"], 0), until)
                         print(f"{lane['provider']}: share held for other tenants; parked for {wait:.0f}s", flush=True)
                         return "defer"
-                    if "never_fits" in msg or (e.payload or {}).get("error_code") == "never_fits":   # over the lane's
+                    if is_never_fits(e):                 # over the lane's
                                                          # tokens a minute: no wait helps (kumori names it in error_code)
+                        if sent // 2 >= MIN_FIT_TOKENS:  # a smaller answer may fit: ask again, not counted as a try
+                            with lock:
+                                fit_cap[lane["backend"]] = min(fit_cap.get(lane["backend"], sent), sent // 2)
+                            print(f"{lane['backend']}: {sent:,} max_tokens never fits its minute; "
+                                  f"{sent // 2:,} for the rest of this job", flush=True)
+                            tries -= 1
+                            continue
                         with lock:
                             too_big[lane["backend"]] = min(too_big.get(lane["backend"], len(prompt)), len(prompt))
                         skip(name, lane, attempt_no, f"{NEVER_FITS_WHY} ({len(prompt):,}-char prompt)", tset, tdir_)
@@ -605,7 +629,8 @@ def main():
                "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
-        row["request_config"] = {**row.get("request_config", {}), "router_timeout_s": long_or_not["timeout_s"],   # what was asked:
+        row["request_config"] = {**row.get("request_config", {}), "max_tokens": sent,
+                                 "router_timeout_s": long_or_not["timeout_s"],   # what was asked:
                                  "long_call": bool(long_or_not.get("long_call"))}   # a relay try asks 240 s, not 60
         if relay_ctx:                                    # which tools this try had, for the digest and the before/after
             row["tools"] = {"names_shown": sorted((relay_ctx.get("real_names") or {}))[:12],
@@ -673,17 +698,28 @@ def main():
             if lane["provider"] in exhausted or benched(lane["backend"]):
                 return None
             extra = {"reasoning_effort": lane_effort(lane)} if lane_effort(lane) else {}
-            reply = None
-            for tries in (1, 2, 3):                       # the router paces each lane: wait as long as it says, as run_one does
-                try:                                      # (2026-10-08: 40 of a queue's asks hit "per-lane RPM spacing" unwaited)
+            reply, refused, tries = None, False, 0
+            while tries < 3:                              # the router paces each lane: wait as long as it says, as run_one does
+                tries += 1                                # (2026-10-08: 40 of a queue's asks hit "per-lane RPM spacing" unwaited)
+                try:
                     with provider_lock[lane["provider"]]:
+                        sent = sent_tokens(lane)
                         reply, _, _ = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
-                                               max_tokens=lane_max_tokens(lane, args.max_tokens), temperature=0.2,
+                                               max_tokens=sent, temperature=0.2,
                                                system=SYSTEM, app_name="sparebrains", timeout=(10, relay.LEMMA_CALL_S + 15),
                                                include_metadata=True, timeout_s=relay.LEMMA_CALL_S, long_call=True,
                                                request_id=uuid.uuid4().hex, **extra)
                     break
                 except KumoriAPIError as e:
+                    if is_never_fits(e):                  # refused before any provider call: halve as run_one does
+                        if sent // 2 >= MIN_FIT_TOKENS:
+                            with lock:
+                                fit_cap[lane["backend"]] = min(fit_cap.get(lane["backend"], sent), sent // 2)
+                            tries -= 1
+                            continue
+                        refused = True
+                        print(f"    subgoal ask to {lane['backend']}: never fits at {sent:,} max_tokens", flush=True)
+                        break
                     wait = e.retry_after or 0
                     if tries < 3 and ("RPM spacing" in str(e) or e.status_code == 429) and 0 < wait <= relay.PARK_WAIT_S:
                         time.sleep(wait + 0.5)
@@ -693,8 +729,9 @@ def main():
                 except Exception as e:
                     print(f"    subgoal ask to {lane['backend']} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
                     break
-            with lock:
-                state["calls"] += 1
+            if not refused:                               # a refusal reached no model: not a call
+                with lock:
+                    state["calls"] += 1
             return reply
         return ask
 
