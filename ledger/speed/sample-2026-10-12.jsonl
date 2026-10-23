@@ -1,0 +1,6 @@
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "mathd_algebra_275", "kind": "solved_then", "statement_sha": "6140a36cbec54a16c628e8bf18ecd137d7a03e4bc3c5f82a7d0f724ba3c667b9"}
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "induction_nfactltnexpnm1ngt3", "kind": "solved_then", "statement_sha": "26e0921201f8d3b99df25761b92db3006df70931b8aceb2dc5d7ba503e47f773"}
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "mathd_numbertheory_353", "kind": "solved_then", "statement_sha": "649087f660e1bd904fe68339f545526c411996dc75fd349852db411d9c1c49ba"}
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "aime_1995_p7", "kind": "open_then", "statement_sha": "68fb2b9f4940a494a467f233a0b6c35412b53337e237bb4d114326fa90d57c93"}
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "amc12a_2020_p10", "kind": "open_then", "statement_sha": "6978bcb92242845719f9f28f473b6b643ba86e41aef45894e789b87b376ebabb"}
+{"week": "2026-10-12", "target_set": "minif2f/test", "target": "mathd_numbertheory_495", "kind": "open_then", "statement_sha": "f1e0c796b5b123c8e87bbba181455067146cef679649db5077d94f5145e504c8"}
