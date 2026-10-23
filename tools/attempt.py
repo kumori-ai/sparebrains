@@ -112,6 +112,16 @@ def bench_delay(retry_after, consecutive):
     return max(minimum, min(1800, minimum * 2 ** min(max(0, consecutive - 1), 9)))
 
 
+# Lanes this loop does not ask, with the dated reason and what reopens them. The router keeps them for other apps.
+PAUSED_LANES = {
+    # 2026-10-23, kumori-45 (kumori shared/kumori_free_llm/docs/20261023_groq_minute_admission.md): a hidden 1,000
+    # output-tokens-a-minute cap, named only in Groq's 429 body, on a key other apps share; one 1,264-token answer
+    # spent it. Its 116 accepts here (10-14..21) were all re-solves (0 first-time, primer/mil/MATH L1-3). Reopen
+    # when kumori meters output tokens a minute (kumori #316).
+    "groq-qwen3-8-27b": "1,000 output tokens a minute on a shared key; 0 first-time solves (2026-10-23)",
+}
+
+
 def public_record_ok(lane):
     """DECISIONS.md 2026-09-02: two provider groups may not appear in a public, Apache-2.0 record.
     Cohere's Terms of Use bar benchmarking and distributing anything the API returns; NVIDIA's API
@@ -156,6 +166,10 @@ def lanes(explicit, min_tier=None, skip_benched=False):
     barred = [l["backend"] for l in out if not public_record_ok(l)]
     out = [l for l in out if public_record_ok(l)]
     print(f"skipping {len(barred)} lane(s) whose provider terms forbid a public record: {', '.join(barred) or 'none'}")
+    paused = [l["backend"] for l in out if l["backend"] in PAUSED_LANES]
+    out = [l for l in out if l["backend"] not in PAUSED_LANES]
+    for b in paused:
+        print(f"skipping {b}: paused for sparebrains, {PAUSED_LANES[b]}")
     if skip_benched:
         state = llm_backoff_state()
         benched = {n for n, d in state.items() if d.get("backed_off")}

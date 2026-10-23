@@ -40,6 +40,18 @@ class LaneMetadataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'absent'):
                 attempt.lanes('unknown-nvidia')
 
+    def test_a_lane_sparebrains_paused_is_never_asked_even_by_name(self):
+        """groq-qwen3-8-27b, 2026-10-23: a 1,000 output-tokens-a-minute cap on a key other apps share (kumori-45),
+        and 0 first-time solves in 116 accepts."""
+        rows = [dict(name='groq-qwen3-8-27b', provider='groq', model='qwen/qwen3.8-27b', quality_tier='high'),
+                dict(name='groq-gptoss', provider='groq', model='openai/gpt-oss-120b', quality_tier='high')]
+        with patch.object(attempt, 'llm_backends', return_value=rows):
+            known, unknown = attempt.lanes('')
+            self.assertEqual([l['backend'] for l in known + unknown], ['groq-gptoss'])
+            known, unknown = attempt.lanes('groq-qwen3-8-27b')
+            self.assertEqual(known + unknown, [])
+        self.assertIn('groq-qwen3-8-27b', attempt.PAUSED_LANES)
+
     def test_paused_lane_is_not_tested(self):
         with patch.object(attempt, 'llm_backends', return_value=[
                 dict(name='test', model='test', lifecycle_status='paused')]):
