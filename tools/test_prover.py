@@ -124,6 +124,23 @@ class ProverTests(unittest.TestCase):
             self.assertIn(f"BUDGET_S = {int((8.5 - prover.TPU_RESERVE_H) * 3600)}", src)
             self.assertEqual(json.loads((Path(d) / "kernel-metadata.json").read_text())["id"], prover.KERNEL_ID_TPU)
 
+    def test_a_tpu_kernel_gets_its_own_random_heartbeat_topic_and_the_beats_reader_finds_it(self):
+        t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
+        srcs = []
+        for _ in range(2):
+            with tempfile.TemporaryDirectory() as d:
+                prover.build(d, [(t, 32)], "tpu32-20261023T0000", tpu=True, budget_h=8.5)
+                srcs.append((Path(d) / "prover_kernel.py").read_text())
+        (b1, t1), (b2, t2) = map(prover.kernel_fills, srcs)
+        self.assertEqual((b1, b2), ("tpu32-20261023T0000",) * 2)
+        self.assertTrue(t1.startswith("sparebrains-tpu32-20261023T0000-") and len(t1) > 40, t1)
+        self.assertNotEqual(t1, t2, "a fresh topic per push: a leaked one never names the next batch")
+        with tempfile.TemporaryDirectory() as d:
+            prover.build(d, [(t, 32)], "b9")
+            self.assertNotIn("NTFY_TOPIC", (Path(d) / "prover_kernel.py").read_text(), "the GPU kernel is unchanged")
+        raw = (Path(prover.ROOT) / "tools" / "prover_kernel_tpu.py").read_text()
+        self.assertEqual(prover.kernel_fills(raw), (None, None), "an unfilled kernel has no batch and sends nothing")
+
     def test_build_fills_the_kernel(self):
         with tempfile.TemporaryDirectory() as d:
             t = {"target_set": "minif2f/test", "target": NAME, "rung": "math-L1", "order": 1}
@@ -287,3 +304,53 @@ class GpuHoursTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HeartbeatTests(unittest.TestCase):
+    """A TPU batch's heartbeats (2026-10-23): kept from ntfy into ledger/prover-beats/, each once, ours only."""
+
+    @staticmethod
+    def ev(i, t, body):
+        return json.dumps({"id": i, "time": t, "event": "message", "topic": "x",
+                           "message": body if isinstance(body, str) else json.dumps(body)})
+
+    def test_beats_are_kept_once_in_order_and_strangers_are_dropped(self):
+        b = "tpu32-20261023T0000"
+        polled = "\n".join([
+            self.ev("c", 30, {"batch": b, "event": "alive", "phase": "loading"}),
+            self.ev("a", 10, {"batch": b, "event": "started", "phase": "started"}),
+            self.ev("x", 15, {"batch": "tpu-other", "event": "finished"}),        # someone else's batch name
+            self.ev("y", 16, "hello from a stranger"),                              # not our JSON
+            json.dumps({"id": "o", "time": 5, "event": "open", "topic": "x"}),      # ntfy's own events
+            "not json at all"])
+        kept = prover.merge_beats([], polled, b)
+        self.assertEqual([x["id"] for x in kept], ["a", "c"])
+        again = prover.merge_beats(kept, polled + "\n" + self.ev("d", 40, {"batch": b, "event": "failed", "exit": -9}), b)
+        self.assertEqual([x["id"] for x in again], ["a", "c", "d"], "a repeated poll adds only what is new")
+        self.assertEqual(again[-1]["exit"], -9)
+
+    def test_save_beats_writes_the_batch_file_and_skips_a_kernel_without_a_topic(self):
+        old = prover.BEATS
+        with tempfile.TemporaryDirectory() as d:
+            prover.BEATS = Path(d) / "prover-beats"
+            try:
+                k = Path(d) / "k"
+                k.mkdir()
+                (k / "prover_kernel.py").write_text('BATCH = "tpu-20261023T0100"   # c\nNTFY_TOPIC = "sb-t-1"   # c\n')
+                asked = []
+                fetch = lambda topic: asked.append(topic) or self.ev("a", 1, {"batch": "tpu-20261023T0100", "event": "started"})
+                batch, beats = prover.save_beats(k, fetch)
+                self.assertEqual((batch, asked, len(beats)), ("tpu-20261023T0100", ["sb-t-1"], 1))
+                f = prover.BEATS / "tpu-20261023T0100.jsonl"
+                first = f.read_bytes()
+                self.assertEqual(json.loads(first)["event"], "started")
+                fetch = lambda topic: "\n".join([self.ev("a", 1, {"batch": "tpu-20261023T0100", "event": "started"}),
+                                                 self.ev("b", 2, {"batch": "tpu-20261023T0100", "event": "alive"})])
+                batch, beats = prover.save_beats(k, fetch)
+                self.assertEqual([b["id"] for b in beats], ["a", "b"])
+                self.assertTrue(f.read_bytes().startswith(first), "only appended to, so publish.py merges a later poll")
+                self.assertEqual(len(f.read_text().splitlines()), 2)
+                (k / "prover_kernel.py").write_text('BATCH = "tpu-20261020T2225"\nMODEL = "x"\n')   # pushed before heartbeats
+                self.assertIsNone(prover.save_beats(k, fetch))
+            finally:
+                prover.BEATS = old

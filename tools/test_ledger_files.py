@@ -13,7 +13,8 @@ class LedgerFiles(unittest.TestCase):
     def test_try_rows_skip_the_speed_benchmark_and_keep_everything_else(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for p in ("minif2f/test/1.jsonl", "mil/2.jsonl", "speed/run-3.jsonl", "speed/x/4.jsonl", "speedy/5.jsonl"):
+            for p in ("minif2f/test/1.jsonl", "mil/2.jsonl", "speed/run-3.jsonl", "speed/x/4.jsonl", "speedy/5.jsonl",
+                      "prover-beats/tpu-20261023T0100.jsonl"):
                 (root / p).parent.mkdir(parents=True, exist_ok=True)
                 (root / p).write_text("{}\n")
             got = sorted(str(f.relative_to(root)) for f in ledger_files.try_files(root))
@@ -43,7 +44,7 @@ class LedgerFiles(unittest.TestCase):
 
     def test_speed_is_reserved_as_a_target_set_name(self):
         targets = Path(__file__).resolve().parent.parent / "targets"
-        self.assertFalse(any(p.name in ledger_files.BENCHMARKS for p in targets.iterdir()),
+        self.assertFalse(any(p.name in ledger_files.NOT_TRIES for p in targets.iterdir()),
                          "a target set named like a benchmark directory would have its tries hidden")
 
     def test_every_recursive_ledger_reader_goes_through_it(self):

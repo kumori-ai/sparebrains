@@ -57,6 +57,12 @@ jobs:
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
+          # A TPU batch's heartbeats (2026-10-23), read before its status so a batch that ended in ERROR still leaves
+          # them: its pulled source names its ntfy topic, which keeps messages 12 h, and this job runs every 2 h.
+          if [ "${{ matrix.accel }}" = "tpu" ]; then
+            kaggle kernels pull ${{ matrix.kernel }} -p "$RUNNER_TEMP/kpull" >/dev/null 2>&1 || true
+            python3 tools/prover.py beats --dir "$RUNNER_TEMP/kpull" || true
+          fi
           # A TPU batch waits in one queue slot per user: a forced push there would only be refused.
           if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
           status=$(kaggle kernels status ${{ matrix.kernel }} 2>&1 | tail -1 || true)
@@ -81,6 +87,22 @@ jobs:
           pending=$(python3 tools/prover.py pending --answers "$RUNNER_TEMP/kout/answers.jsonl")
           echo "answers still to judge: $pending"
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
+
+      # Published here, before any Lean runs, and the push header is removed in the same step.
+      - name: publish the heartbeats
+        if: always() && matrix.accel == 'tpu'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "prover TPU heartbeats: $(ls -t ledger/prover-beats 2>/dev/null | head -1)
+
+          Generated-by: no model; the TPU kernel's own heartbeats via ntfy.sh, kept by tools/prover.py beats, cost \$0" || true
+          # Fails the step if the header outlives it, so no later step, Lean included, runs with it.
+          git config --unset-all http.https://github.com/.extraheader
+          ! git config --get-regexp '^http\..*extraheader'
 
       - name: lean + mathlib cache + build
         if: steps.kaggle.outputs.state == 'judge'

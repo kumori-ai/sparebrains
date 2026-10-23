@@ -5,12 +5,13 @@ try faces. Recorded as its own try mode (`prover`), so no other number moves.
     python3 tools/prover.py next  --out DIR              # build the next Kaggle batch; prints its id, or nothing
     python3 tools/prover.py pending --answers FILE       # how many downloaded answers are not judged yet
     python3 tools/prover.py judge --answers FILE --max-minutes M
+    python3 tools/prover.py beats --dir KERNEL_DIR          # a TPU batch's heartbeats into ledger/prover-beats/
 
 The prover was trained on Lean 4.9's mathlib and the judge pins v4.33.1, so names renamed since then fail;
 a rejected answer gets the fixer's name repair and Lean's automation (the loop's free half) before it counts
 as a miss, recorded as `fixer+loop` beside the raw `prover` row, as the retro does for cold tries.
 """
-import argparse, hashlib, json, re, sys, time
+import argparse, hashlib, json, re, secrets, sys, time, urllib.request
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -160,6 +161,8 @@ def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=
              ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
     if model and model != MODEL:
         fills.append((f'MODEL = "{MODEL}"', f"MODEL = {json.dumps(model)}"))
+    if tpu:                                       # public with the kernel's source, so random: no collisions, no secret
+        fills.append(('NTFY_TOPIC = ""', f"NTFY_TOPIC = {json.dumps(f'sparebrains-{batch}-{secrets.token_hex(8)}')}"))
     if budget_h is not None and tpu:              # the TPU kernel's: no new chunk once the load and one chunk would not fit
         fills += [("BUDGET_S = 7 * 3600", f"BUDGET_S = {int((budget_h - TPU_RESERVE_H) * 3600)}")]
     elif budget_h is not None:                    # the GPU kernel's session, sized to the week's hours left
@@ -452,6 +455,49 @@ class Recorder:
 
 
 BATCHES = ROOT / "ledger" / "prover-batches.jsonl"
+BEATS = ROOT / "ledger" / "prover-beats"         # never read as try rows (ledger_files.NOT_TRIES)
+
+
+def kernel_fills(src):
+    """(BATCH, NTFY_TOPIC) as prover.py filled them into a pulled TPU kernel's source; None where absent or empty."""
+    get = lambda name: (m.group(1) or None) if (m := re.search(rf'^{name} = "([^"]*)"', src, re.M)) else None
+    return get("BATCH"), get("NTFY_TOPIC")
+
+
+def merge_beats(kept, polled, batch):
+    """The heartbeats kept so far plus ntfy's poll (one JSON event per line), each once by ntfy id, oldest first.
+    Only this batch's messages count: the topic is public, so a post that is not our JSON, or names another batch,
+    is dropped. Heartbeats are diagnostics; nothing here decides anything."""
+    out = {b["id"]: b for b in kept}
+    for line in polled.splitlines():
+        try:
+            ev = json.loads(line)
+            body = json.loads(ev.get("message") or "")
+        except (ValueError, TypeError):
+            continue
+        if ev.get("event") == "message" and isinstance(body, dict) and body.get("batch") == batch:
+            out[ev["id"]] = {"id": ev["id"], "time": ev.get("time"), **body}
+    return sorted(out.values(), key=lambda b: (b.get("time") or 0, b["id"]))
+
+
+def save_beats(kernel_dir, fetch=None):
+    """Poll the batch's ntfy topic (ntfy keeps 12 h; prover.yml polls every 2 h) and keep what it says in
+    ledger/prover-beats/<batch>.jsonl, one heartbeat a line, only ever appended to: publish.py merges a .jsonl that a
+    later job extends, where a rewritten .json collides. Returns (batch, beats) or None when the kernel has no topic."""
+    srcs = list(Path(kernel_dir).glob("*.py"))
+    batch, topic = kernel_fills(srcs[0].read_text()) if srcs else (None, None)
+    if not (batch and topic):
+        return None
+    fetch = fetch or (lambda t: urllib.request.urlopen(f"https://ntfy.sh/{t}/json?poll=1&since=all", timeout=30).read().decode())
+    path = BEATS / f"{batch}.jsonl"
+    kept = [json.loads(l) for l in path.read_text().splitlines() if l.strip()] if path.exists() else []
+    seen = {b["id"] for b in kept}
+    new = [b for b in merge_beats(kept, fetch(topic), batch) if b["id"] not in seen]
+    if new:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            fh.writelines(json.dumps(b) + "\n" for b in new)
+    return batch, kept + new
 
 
 def _iso(dt):
@@ -504,7 +550,7 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours"])
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours", "beats"])
     ap.add_argument("--tpu", action="store_true", help="next/hours: the TPU kernel, on the open problems outside the bar")
     ap.add_argument("--dir")
     ap.add_argument("--out")
@@ -512,7 +558,18 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=300)
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     ap.add_argument("--hours", type=float, help="next: the session's hours (from `hours`); the kernel stops before them")
+    ap.add_argument("--max-problems", type=int, help="next --tpu: at most this many problems (a smoke batch)")
     args = ap.parse_args()
+    if args.cmd == "beats":                       # a TPU batch's heartbeats, from its pulled kernel source
+        got = save_beats(args.dir)
+        if not got:
+            print("no heartbeat topic in this kernel (pushed before 2026-10-23)")
+            return 0
+        batch, beats = got
+        last = beats[-1] if beats else {}
+        print(f"{batch}: {len(beats)} heartbeats; last: {last.get('event')} in {last.get('phase')} at {last.get('elapsed_s')} s, "
+              f"memory {json.dumps(last.get('memory'))}" + (f"\n{last['error']}" if last.get("error") else ""))
+        return 0
     if args.cmd == "hours":                       # the next batch's hours, from Kaggle's own quota; 0 = wait
         total, used, reserved = quota(args.tpu)
         h = batch_hours(total, used, reserved, tpu=args.tpu)
@@ -530,6 +587,7 @@ def main():
             work, model, prefix = todo(open_list, prover_rows(), bar=False), None, "tpu-"
         if not work:
             return 0
+        work = work[:args.max_problems] if args.max_problems else work
         batch = prefix + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
         n = build(args.out, work, batch, tpu=True, budget_h=args.hours, model=model)
         print(batch)
