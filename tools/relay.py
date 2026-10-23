@@ -64,6 +64,9 @@ NEWS_MODES = ("cold", "repair", "volunteer")  # tries from outside the relay; re
                                               # fed on each other, ~1,000 calls a day for 3 accepts in 2,682 answers)
 PROBLEM_CEILING = 1000                        # relay tries on one problem since a person last spoke on it (Andy:
                                               # assume nobody shows up; the swarm keeps trying)
+PROBLEM_FIRST, PROBLEM_CAP = 10, 30           # answered relay tries (lane errors left out) before a problem rests: 10, or 30
+                                              # once a try made progress; until a person speaks or a model that never
+                                              # relayed it is live (DECISIONS 2026-10-23)
 LADDER_DUD_LAST, LADDER_DUD_SHARE = 20, 0.6   # a lane's last 20 ladder calls on a rung, 60%+ empty: off that rung
 
 
@@ -188,7 +191,8 @@ def spent(h):
 # others, a person's comment, or a different model behind the lane (2026-10-17: relay tries stopped
 # counting, because rounds fed on each other's tries and never ran out). The relay works breadth-first (a fresh comment first, then the problem with the
 # fewest relay tries), so every open problem gets a round before any gets another, and a problem
-# rests once it has had PROBLEM_CEILING relay tries since a person last said anything about it.
+# rests once it has had PROBLEM_CEILING relay tries since a person last said anything about it, or PROBLEM_FIRST
+# answered ones since then (PROBLEM_CAP if one made progress) and every live lane's model has relayed it already.
 
 def _ts(r):
     return r.get("ts") or ""
@@ -231,10 +235,33 @@ def tries_left(prow, backend, model, people=()):
     return max(0, RELAY_TRIES - in_round)
 
 
-def resting(prow, people=()):
-    """PROBLEM_CEILING relay tries since a person last commented: the problem waits for new input."""
+def made_progress(r):
+    """The subgoal loop closed a step with Lean's automation or proved a lemma on this try (tools.subgoals)."""
+    sg = (r.get("tools") or {}).get("subgoals") or {}
+    return bool(sg.get("closed_by_lean") or sg.get("lemmas_proved"))
+
+
+def resting(prow, people=(), lanes=()):
+    """The problem waits for new input: PROBLEM_CEILING relay tries since a person last commented, or PROBLEM_FIRST
+    answered ones with no progress (PROBLEM_CAP with some; a lane error is the router's or provider's failure, not
+    the problem's), unless a live lane's model has never relayed it. Successive-halving practice: a small budget
+    for every problem, more only for those showing signs of being solvable."""
     since = max(people, default="")
-    return sum(1 for r in prow if is_relay(r) and _ts(r) > since) >= PROBLEM_CEILING
+    mine = [r for r in prow if is_relay(r) and _ts(r) > since]
+    if len(mine) >= PROBLEM_CEILING:
+        return True
+    answered = [r for r in mine if r.get("verdict") in ("accept", "reject") and r.get("failure_kind") != "lane_error"]
+    if len(answered) < (PROBLEM_CAP if any(made_progress(r) for r in mine) else PROBLEM_FIRST):
+        return False
+    seen = {r.get("model") for r in prow if is_relay(r)}
+    return not any(l.get("model") and l["model"] not in seen for l in lanes)
+
+
+def rests_now(by_problem, job_rows, key, people=(), lanes=()):
+    """resting() on the history the job started with plus the rows this job wrote since, so a job stops a
+    problem the moment it crosses its budget, an explicit --only target included."""
+    mine = [r for r in job_rows if (r.get("target_set"), r.get("target")) == key]
+    return resting(problem_rows(by_problem.get(key, []) + mine).get(key, []), people, lanes)
 
 
 def next_problem(open_list, lanes, by_problem, people_by_problem=None):
@@ -245,7 +272,7 @@ def next_problem(open_list, lanes, by_problem, people_by_problem=None):
     for t in open_list:
         key = (t["target_set"], t["target"])
         prow, people = by_problem.get(key, []), (people_by_problem or {}).get(key, [])
-        if resting(prow, people) or not any(tries_left(prow, l["backend"], l.get("model"), people) > 0 for l in lanes):
+        if resting(prow, people, lanes) or not any(tries_left(prow, l["backend"], l.get("model"), people) > 0 for l in lanes):
             continue
         relay_rows = [r for r in prow if is_relay(r)]
         fresh = bool(people) and (not relay_rows or max(people) > _ts(relay_rows[-1]))

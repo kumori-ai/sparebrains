@@ -238,6 +238,57 @@ class NextProblemTests(unittest.TestCase):
         self.assertFalse(relay.resting(prow, ["2026-10-08T23:00:00+00:00"]))
 
 
+    def _answered(self, n, verdict="reject", start=0, model="m1"):
+        return [dict(row(f"l{i % 9}", 0, verdict=verdict, model=model),
+                     ts=f"2026-10-08T{((start + i) // 60):02d}:{(start + i) % 60:02d}:00+00:00") for i in range(n)]
+
+    def test_a_problem_rests_after_its_first_budget_unless_a_try_made_progress(self):
+        """2026-10-23: 9 relay solves since 10-06 came at answered tries 1,1,2,3,5,5,6,20,27, and both late ones
+        had a subgoal closed by Lean by their 2nd answered try. 10, then 30 with progress, keeps all 9 on 1,974 of
+        3,075 answered tries; a flat 30 spends 2,556."""
+        prow = relay.problem_rows(self._answered(relay.PROBLEM_FIRST - 1))[("mil", "a")]
+        self.assertFalse(relay.resting(prow))
+        rows = self._answered(relay.PROBLEM_FIRST)
+        prow = relay.problem_rows(rows)[("mil", "a")]
+        self.assertTrue(relay.resting(prow), "no progress in its first budget: rests")
+        rows[3]["tools"] = {"subgoals": {"closed_by_lean": 2, "lemmas_proved": 0}}
+        prow = relay.problem_rows(rows)[("mil", "a")]
+        self.assertFalse(relay.resting(prow), "a step closed by Lean earns the rest of the cap")
+        rows = self._answered(relay.PROBLEM_CAP)
+        rows[0]["tools"] = {"subgoals": {"lemmas_proved": 1}}
+        prow = relay.problem_rows(rows)[("mil", "a")]
+        self.assertTrue(relay.resting(prow), "progress or not, the cap holds")
+        self.assertFalse(relay.resting(prow, ["2026-10-08T23:00:00+00:00"]), "a person speaking wakes it")
+        lanes = [{"backend": "l0", "model": "m1"}, {"backend": "l1", "model": "m2"}]
+        self.assertFalse(relay.resting(prow, (), lanes), "a model that never relayed it wakes it")
+        self.assertTrue(relay.resting(prow, (), lanes[:1]))
+        self.assertTrue(relay.resting(prow, (), [{"backend": "l9", "model": None}]), "an unknown model is no news")
+
+    def test_a_job_crossing_the_budget_stops_on_its_own_rows(self):
+        """Codex 20261023T172344238733Z: the cap was checked only when a problem was picked; a job's own tries
+        must count, and an explicit --only target faces the same check."""
+        by = relay.problem_rows(self._answered(relay.PROBLEM_FIRST - 1))
+        job = []
+        self.assertFalse(relay.rests_now(by, job, ("mil", "a")))
+        job.append(dict(self._answered(1, start=50)[0], try_mode="relay"))
+        self.assertTrue(relay.rests_now(by, job, ("mil", "a")))
+        job.append(dict(job[0], try_mode="fixer+loop", target="a"))          # the fixer's re-judging never counts
+        self.assertTrue(relay.rests_now(by, job[:1], ("mil", "a")) == relay.rests_now(by, job, ("mil", "a")))
+        self.assertFalse(relay.rests_now(by, job, ("mil", "b")), "another problem's rows are not this one's")
+
+    def test_lane_errors_do_not_spend_the_problems_cap(self):
+        """The solves at relay tries 19 and 41 each came after 14 lane errors (2026-10-23)."""
+        errs = [dict(r, verdict="error", failure_kind="lane_error") for r in self._answered(relay.PROBLEM_CAP)]
+        prow = relay.problem_rows(errs + self._answered(relay.PROBLEM_FIRST - 1, start=relay.PROBLEM_CAP))[("mil", "a")]
+        self.assertFalse(relay.resting(prow))
+
+    def test_a_resting_problem_is_not_picked(self):
+        rows = [dict(r, target="b") for r in self._answered(relay.PROBLEM_FIRST)]
+        rows += [dict(r, verdict="error", failure_kind="lane_error") for r in self._answered(relay.PROBLEM_FIRST + 10)]
+        by = relay.problem_rows(rows)                    # "a" has more relay rows: breadth-first alone would pick "b"
+        self.assertEqual(relay.next_problem(self.opens("a", "b"), self.LANES, by), ("mil", "a"))
+
+
 class TokenBudgetTests(unittest.TestCase):
     def test_thinking_models_get_room_in_every_mode(self):
         from attempt import lane_max_tokens

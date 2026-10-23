@@ -436,10 +436,13 @@ def main():
             d = bench["state"].get(backend, {})
         return bool(d.get("backed_off")) and (d.get("remaining_sec") or 0) > 0
 
+    job_rows = []                                        # this job's rows, for the relay's per-problem budget
+
     def record(row, prompt=None, reply=None, proof=None, candidate=None, lean_out=None):
         with lock:
             with ledger_for(row["target_set"]).open("a") as fh:
                 fh.write(json.dumps(row) + "\n")
+            job_rows.append(row)
         return submit_telemetry(sparebrains_attempt, {**row, "prompt": prompt, "response": reply, "proof": proof,
                                                        "candidate": candidate, "lean_output": lean_out})
 
@@ -1181,14 +1184,19 @@ def main():
                     if near.get("proof") and near["id"] not in fixed_ids and name not in solved:
                         fixed_ids.add(near["id"])
                         fix_one(name, near, target_set)
+            key = (target_set, name)
             for lane in order:
                 if name in solved or state["calls"] >= args.max_calls:
+                    break
+                if relay.rests_now(by_problem, list(job_rows), key, people.get(key, []), order):
+                    print(f"relay: {name} has had its relay budget (DECISIONS 2026-10-23); it rests until news", flush=True)
                     break
                 h = tried[(target_set, name, lane["backend"])]
                 left = relay.tries_left(by_problem.get((target_set, name), []), lane["backend"], lane.get("model"),
                                         people.get((target_set, name), []))
                 for attempt_no in range(relay.spent(h) + 1, relay.spent(h) + left + 1):
-                    if state["calls"] >= args.max_calls:
+                    if state["calls"] >= args.max_calls or relay.rests_now(by_problem, list(job_rows), key,
+                                                                             people.get(key, []), order):
                         break
                     v = relay_ask(name, lane, attempt_no, ctx)
                     if v in ("accept", "exhausted", "gave_up", "too_big"):

@@ -3,6 +3,24 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-23
+
+- **The relay gives each problem 10 answered tries, and 30 once a try made progress (`relay.PROBLEM_FIRST`,
+  `PROBLEM_CAP`); then it rests until a person speaks or a model that never relayed it is live. The 1,000-try
+  ceiling stays as the outer bound.** Andy: "if this is best practice, do it". Measured from the ledger,
+  10-06..10-23: 4,418 relay rows on 102 problems produced 9 solves, whose first accepts came at answered tries 1, 1,
+  2, 3, 5, 5, 6, 20, 27; the 93 never-solved problems took 4,311 of the rows (median 48). Progress is the subgoal
+  loop closing a step with Lean or proving a lemma (`tools.subgoals`, 749 relay rows): both late solves showed it by
+  their 2nd answered try, and so did 54 of the 93 unsolved within 10. Replayed on that history: 10-then-30 keeps all
+  9 on 1,974 of 3,075 answered tries; a flat 30 keeps 9 on 2,556, a flat 20 keeps 8, and 5-then-30 keeps 9 on 1,546
+  but sits within one try of two solves (at 5 and 6), too tight for 9 data points. Lane errors (1,343 rows, 30%) do
+  not count: they are the router's or provider's failure, and the solves at tries 19 and 41 each followed 14. The
+  job re-checks before every lane and try, on its own rows too, so an explicit --only target faces it as well.
+  Practice: a small budget for every problem, more only where there is a sign of solvability (successive halving,
+  Li et al., JMLR 2018; bandit allocation that stops feeding unsolvable queries, Zuo and Zhu, arXiv 2506.12721,
+  2025). Codex DISAGREE on the first cut (wrong progress field, cap checked only at selection), then fixed.
+  On 2026-10-23 it rests 36 of 49 open problems. Re-open with more solves.
+
 ## 2026-10-22
 
 - **Sparebrains' needle metrics, for the tracker's impact field (trial agreed 2026-10-22 by the sparebrains,
