@@ -5,6 +5,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-24
 
+- **Sparebrains' operating rule: build tools that let any model, of any size, compete.** Andy made it Kumori's
+  sixth non-negotiable today: "it's NOT my call". Every build is judged by its measured tool lift, the same model
+  with the tool and without it (lanes page, task #462, 2026-10-17; per tool, the scoreboard, #463, 2026-10-17).
+  Solved work is never done: it is re-run on a cadence with smaller models and this week's tools, and the
+  calls to a first accept are charted over time (the speed receipt, #191, 2026-10-18). A tool that lets a lesser
+  model match a stronger one is the win. Design calls, thresholds, accepted residuals and what to build next are
+  the lab's: Claude and Codex decide them from evidence and record them here with both verdict IDs. Only money,
+  security and access, deploys, anything public, and people go to Andy.
+
 - **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
   wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id
   (2026-10-24): 478 relay jobs; the dry streaks before the 9 relay solves were 4, 23, 4, 1, 1, 20, 19, 109 and 154
