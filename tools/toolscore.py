@@ -58,7 +58,10 @@ FILES = ("fixer.py", "subgoals.py", "proof_text.py")
 
 
 SPEED_DIR = ROOT / "ledger" / "speed"
-RESOLVE_LANE = "openrouter-minimax-m3-1-flash"   # pinned (task #191, 2026-10-22): another lane starts a new series
+# Pinned (task #191): a new lane starts a new series. openrouter-minimax-m3-1-flash (2026-10-22) answers "HTTP 404:
+# unknown backend" since; re-pinned 2026-10-24 to the live, active lane with the most answers and fewest errors among
+# the strong ones: 353/584 cold accepts (60.4%) and 37 errors in the 14 days to 2026-10-24 (DECISIONS.md).
+RESOLVE_LANE = "agnes-agnes-2-5-flash"
 RESOLVE_PER_WEEK = (3, 3)        # problems a week: first solved that week, still open at its end
 # The size series (2026-10-24, non-negotiable 6; DECISIONS.md): solved targets re-run by one model family at three
 # sizes, dated snapshots, with this week's chain. A pilot: 45 problems frozen once, per rung, weights kept.
@@ -236,8 +239,11 @@ def resolve_one(s, t, text, prefix, ask, judge, chain_fn, retries=RESOLVE_RETRIE
             row["last_error"] = str(e)[:200]
     else:
         return {**row, "verdict": "error", "call_seconds": round(time.monotonic() - t0, 1)}
+    inference = (meta or {}).get("inference") or {}
+    usage = inference.get("usage") or {}                 # the provider's counts (kumori #562); None = not reported
     row.update(call_seconds=round(time.monotonic() - t0, 1), response_chars=len(reply or ""), **meta,
-               returned_model=((meta or {}).get("inference") or {}).get("returned_model"))
+               returned_model=inference.get("returned_model"), prompt_tokens=usage.get("prompt_tokens"),
+               completion_tokens=usage.get("completion_tokens"), thinking_tokens=usage.get("thinking_tokens"))
     proof = extract_proof(reply or "", s["target"])
     row["answer"] = proof or ""                          # kept for the paired replay through a later chain
     if not proof:
@@ -334,6 +340,21 @@ def run_rounds(rounds):
     return GONE_EXIT if gone else 0
 
 
+GOOGLE_NATIVE = re.compile(r"^(gemini|gemma|google)", re.I)
+
+
+def output_tokens(row):
+    """A try's output tokens, thinking included, per the adapter that answered (kumori shared/kumori_free_llm/
+    _backends.py): OpenAI-shaped lanes already count thinking inside completion_tokens; Google's own API (gemini-*,
+    gemma-*) reports it apart. None when the provider gave no counts."""
+    out, think = row.get("completion_tokens"), row.get("thinking_tokens")
+    if out is None and think is None:
+        return None
+    if GOOGLE_NATIVE.match(str(row.get("returned_backend") or row.get("lane") or "")):
+        return (out or 0) + (think or 0)
+    return out if out is not None else think
+
+
 def wilson95(k, n):
     """Wilson score interval for k of n (95%), per problem: tries are never counted as independent problems."""
     if not n:
@@ -349,9 +370,10 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
     """The size series per (run week, chain, lane), on the solved cohort: each arm (raw = the model's own answer;
     with tools = after this chain) solved within `tries`, its attempts to first accept (answered tries in answer
     order, through that arm's own first accept), and the requests (retries included) and output chars it spent up to
-    there, error rows included; problems not solved within `tries` (never counted as `tries`) and owed ones; yield =
+    there, and the provider's output tokens (output_tokens: thinking included, per adapter) over the answered tries, error rows included in requests and
+    chars; problems not solved within `tries` (never counted as `tries`) and owed ones; yield =
     solved / the arm's attempts spent (None when nothing solved); a per-problem Wilson interval. Every series with any
-    row shows, an error-only or gone one too. Calls and chars are proxies; the router reports no tokens."""
+    row shows, an error-only or gone one too. Tries a provider gave no counts for are counted apart (tries_without_tokens)."""
     from collections import defaultdict
     solved = [p for p in sample if cohort_of(p) == "solved"]
     by = defaultdict(lambda: defaultdict(list))
@@ -371,7 +393,7 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
                "gone": key in gone, "by_rung": defaultdict(lambda: {"problems": 0, "raw": 0, "assisted": 0})}
         for arm, field in (("raw", "cold"), ("assisted", "verdict")):
             a = {"solved": 0, "attempts_to_first": [], "not_solved_within": 0, "owed": 0, "spent": 0, "requests": 0,
-                 "chars": 0}
+                 "chars": 0, "output_tokens": 0, "tries": 0, "tries_without_tokens": 0}
             for p in solved:
                 allr = sorted(by[key].get((p["week"], p["target_set"], p["target"]), []), key=lambda r: r["ts"])
                 answered = [r for r in allr if r.get("verdict") in ("accept", "reject")]
@@ -379,6 +401,10 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
                 upto = allr if hit is None else allr[:allr.index(answered[hit]) + 1]
                 a["requests"] += sum(r.get("requests") or 0 for r in upto)
                 a["chars"] += sum(r.get("response_chars") or 0 for r in upto)
+                tried = [r for r in upto if r.get("verdict") in ("accept", "reject")]
+                a["output_tokens"] += sum(output_tokens(r) or 0 for r in tried)
+                a["tries_without_tokens"] += sum(1 for r in tried if output_tokens(r) is None)
+                a["tries"] += len(tried)
                 if arm == "raw":
                     rep["by_rung"][p.get("rung")]["problems"] += 1
                 if hit is None:
@@ -399,16 +425,23 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
 
 
 def render_size(report):
+    def tok(a):
+        """Output tokens, never a 0 that means "not reported"."""
+        tries, missing = a["tries"], a["tries_without_tokens"]
+        if not tries or missing == tries:
+            return "unknown"
+        return f"{a['output_tokens']}" + (f" ({missing} of {tries} tries without counts)" if missing else "")
     lines = ["| run week | chain | lane | raw solved (95% CI) | with the chain (95% CI) | raw attempts to first | "
-             "chain attempts to first | not solved within 3, raw / chain | requests, raw / chain | chars, raw / chain |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             "chain attempts to first | not solved within 3, raw / chain | requests, raw / chain | chars, raw / chain | "
+             "output tokens, raw / chain |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in report:
         f = lambda a: f"{a['solved']}/{r['problems']} ({a['wilson95'][0]:.2f}-{a['wilson95'][1]:.2f})" if a["wilson95"] else "-"
         lines.append(f"| {r['run_week']} | {r['chain']} | {r['lane']} | {f(r['raw'])} | {f(r['assisted'])} | "
                      f"{', '.join(map(str, r['raw']['attempts_to_first'])) or '-'} | "
                      f"{', '.join(map(str, r['assisted']['attempts_to_first'])) or '-'} | "
                      f"{r['raw']['not_solved_within']} / {r['assisted']['not_solved_within']} | "
-                     f"{r['raw']['requests']} / {r['assisted']['requests']} | {r['raw']['chars']} / {r['assisted']['chars']} |"
+                     f"{r['raw']['requests']} / {r['assisted']['requests']} | {r['raw']['chars']} / {r['assisted']['chars']} | "
+                     f"{tok(r['raw'])} / {tok(r['assisted'])} |"
                      + (" **lane gone from kumori**" if r["gone"] else ""))
     return "\n".join(lines)
 

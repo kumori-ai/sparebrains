@@ -421,3 +421,42 @@ class SizeSeriesFixes(unittest.TestCase):
         self.assertEqual((rep["l"]["raw"]["requests"], rep["l"]["raw"]["chars"]), (5, 30))
         self.assertTrue(rep["dead"]["gone"])
         self.assertEqual((rep["err"]["raw"]["solved"], rep["err"]["requests"]), (0, 3))
+
+
+class RepinAndTokens(unittest.TestCase):
+    """2026-10-24: the weekly series re-pinned to a live lane (its old one answers 404), and the provider's token counts
+    (kumori ef6b11b, #562) recorded beside chars."""
+
+    def test_the_weekly_lane_is_the_repinned_one(self):
+        self.assertEqual(toolscore.RESOLVE_LANE, "agnes-agnes-2-5-flash")
+
+    def test_tokens_are_kept_per_try_and_summed_per_arm(self):
+        def ask(prompt):
+            return "no lean here", {"inference": {"usage": {"prompt_tokens": 300, "completion_tokens": 40,
+                                                             "thinking_tokens": 25}}}
+        r = toolscore.resolve_one(Resolve.S, 1, PREFIX + " sorry", PREFIX, ask, FakeLean().judge_text, None)
+        self.assertEqual((r["prompt_tokens"], r["completion_tokens"], r["thinking_tokens"]), (300, 40, 25))
+        sample = [{"week": "solved-x", "target_set": "primer", "target": "a", "cohort": "solved", "rung": "primer"}]
+        def row(try_no, cold, verdict, ts, out, think):
+            return {"run_week": "w", "chain": "c", "lane": "l", "cohort": "solved", "week": "solved-x",
+                    "target_set": "primer", "target": "a", "try": try_no, "cold": cold, "verdict": verdict, "ts": ts,
+                    "requests": 1, "completion_tokens": out, "thinking_tokens": think}
+        rep = toolscore.size_report([row(1, "reject", "accept", "1", 40, 10), row(2, "accept", "accept", "2", 30, None)],
+                                    sample)[0]
+        self.assertEqual(rep["assisted"]["output_tokens"], 40, "OpenAI-shaped: thinking is inside completion_tokens")
+        self.assertEqual(rep["raw"]["output_tokens"], 70)
+        self.assertEqual(rep["raw"]["tries_without_tokens"], 0)
+
+    def test_output_tokens_follow_each_adapters_meaning_and_missing_counts_show(self):
+        # Codex 20261024T155243924125Z: OpenAI-shaped completion_tokens already hold the thinking (kumori
+        # _backends._usage_from_openai: Groq gpt-oss-20b 52 of 62); Google's own API reports them apart
+        self.assertEqual(toolscore.output_tokens({"completion_tokens": 62, "thinking_tokens": 52,
+                                                  "returned_backend": "groq-gptoss-20b"}), 62)
+        self.assertEqual(toolscore.output_tokens({"completion_tokens": 10, "thinking_tokens": 20,
+                                                  "returned_backend": "gemini-2.5-flash"}), 30)
+        self.assertIsNone(toolscore.output_tokens({"completion_tokens": None, "thinking_tokens": None}))
+        sample = [{"week": "solved-x", "target_set": "primer", "target": "a", "cohort": "solved", "rung": "primer"}]
+        row = {"run_week": "w", "chain": "c", "lane": "l", "cohort": "solved", "week": "solved-x", "target_set": "primer",
+               "target": "a", "try": 1, "cold": "reject", "verdict": "reject", "ts": "1", "requests": 1}
+        table = toolscore.render_size(toolscore.size_report([row], sample))
+        self.assertIn("unknown / unknown", table, "no counts at all must not read as 0 tokens")

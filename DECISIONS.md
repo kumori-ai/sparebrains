@@ -36,7 +36,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   built code Codex DISAGREE 20261024T151621770745Z (cap per request, refusals, gone then crash, weekly tries, arm
   costs) and 20261024T152323969171Z (gone lost in a same-round crash, spent requests off the record); all fixed, the
   last two with tests that failed on the build itself. **Residual:** the first build's five fixes were shown failing
-  against main, not against that build, which was not kept.
+  against main, not against that build, which was not kept. **The weekly series is re-pinned** to
+  agnes-agnes-2-5-flash, so a gone lane does not turn every night red: among live lanes with 40+ cold answers in the
+  14 days to 2026-10-24 it is active (not probationary), 353/584 cold accepts (60.4%), 37 errors; the higher-rate
+  qwen3.8-27b lanes are probationary (146 errors on 77 answers) or error-bound (1,113 errors on 156). A new lane starts
+  a new series. Every try now also records the provider's prompt, completion and thinking tokens (kumori ef6b11b,
+  #562); the size report sums output tokens per arm, thinking included per adapter (OpenAI-shaped lanes count it
+  inside completion_tokens, Google's own API apart; kumori `_backends.py`), shows "unknown" where no counts came
+  back and how many tries lacked them. Codex DISAGREE 20261024T155243924125Z (thinking counted twice, missing counts
+  shown as 0), fixed.
 
 - **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
   wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id
