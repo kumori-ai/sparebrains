@@ -14,6 +14,30 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   the lab's: Claude and Codex decide them from evidence and record them here with both verdict IDs. Only money,
   security and access, deploys, anything public, and people go to Andy.
 
+- **The size series: 45 solved targets re-run every week by Ministral 3B, 8B and 14B (the -2512 snapshots) with
+  that week's chain (`tools/toolscore.py`, extending the speed receipt #191).** Audit, 2026-10-24: nothing re-ran
+  solved work with fresh calls. #191's re-solve wrote 0 answered tries in 4 nightly runs; its one pinned lane,
+  openrouter-minimax-m3-1-flash, now answers "HTTP 404: unknown backend", which the code took for a spent share and
+  stopped quietly. The rest (#462, #463, `--speed`, the retro) replays stored answers; the ladder tries a cell once.
+  Now a gone lane is `lane_gone` in ledger/speed/ and turns the nightly run red; a refused one skips only itself.
+  The sample is frozen once (ledger/speed/sample-solved-2026-10-24.jsonl, cohort `solved`): first accepted before
+  2026-10-24, report half, proportional to rung by largest remainder, at least 3 per rung, weights kept; 45 of the
+  329 solved, 11 rungs. Each week every lane gets up to 3 tries a problem and stops at its first raw accept; each
+  arm's cost runs to its own first accept (raw = the model's answer, with tools = after the chain); a problem with
+  none is "not solved within 3", never 3. Reported: per arm solved with a per-problem Wilson interval, attempts to
+  first accept, requests (retries included) and output chars, as proxies (kumori reports no tokens yet). One family at
+  three sizes, not a controlled size experiment; a pilot, and no parity claim unless intervals separate. Practice:
+  cost-of-pass (Erol et al., arXiv 2504.13359, 2025). Codex: DISAGREE 20261024T150248489394Z and
+  20261024T150510924100Z (schema, cohort boundaries, paired replay, arm costs, request caps, pilot statistics), all
+  taken. **Call and residuals:** the paired replay (stored answers through an older and a newer chain, the only
+  week-over-week tool-lift claim) ships next week, when a second run week exists; every row keeps its answer,
+  answer_id, tools_hash and lean_env for it. The cap is 80 requests per process (6 nightly slices, so 480 at most),
+  every request counted before it is made and every one spent on the record (cut-short and refused tries too). On the
+  built code Codex DISAGREE 20261024T151621770745Z (cap per request, refusals, gone then crash, weekly tries, arm
+  costs) and 20261024T152323969171Z (gone lost in a same-round crash, spent requests off the record); all fixed, the
+  last two with tests that failed on the build itself. **Residual:** the first build's five fixes were shown failing
+  against main, not against that build, which was not kept.
+
 - **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
   wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id
   (2026-10-24): 478 relay jobs; the dry streaks before the 9 relay solves were 4, 23, 4, 1, 1, 20, 19, 109 and 154
