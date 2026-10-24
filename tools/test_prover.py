@@ -354,3 +354,83 @@ class HeartbeatTests(unittest.TestCase):
                 self.assertIsNone(prover.save_beats(k, fetch))
             finally:
                 prover.BEATS = old
+
+
+class FailedBatchTests(unittest.TestCase):
+    """A batch that ended without completing alerts once (2026-10-24): the first job to see it records it in
+    ledger/prover-beats/failed.jsonl with whatever log Kaggle kept, and fails; every later job sees it recorded."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.root = Path(self.d.name)
+        self.ledger = self.root / "failed.jsonl"
+        (self.root / "kpull").mkdir()
+        (self.root / "kpull" / "k.py").write_text('BATCH = "tpu32-20261023T1659"   # filled by tools/prover.py\n')
+        (self.root / "kout").mkdir()
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def fail(self, status="KernelWorkerStatus.ERROR"):
+        return prover.record_failure(self.root / "kpull", self.root / "kout", status, FRI_NIGHT, "https://run/1",
+                                     path=self.ledger)
+
+    def test_a_new_failure_is_recorded_once_and_a_known_one_is_not_again(self):
+        new, rec = self.fail()
+        self.assertTrue(new)
+        self.assertEqual((rec["batch"], rec["status"]), ("tpu32-20261023T1659", "KernelWorkerStatus.ERROR"))
+        self.assertIsNone(rec["log_tail"], "Kaggle kept no log for this session: recorded as none, not as empty text")
+        new, rec = self.fail()
+        self.assertFalse(new)
+        self.assertEqual(len(self.ledger.read_text().splitlines()), 1)
+
+    def test_the_log_tail_is_kept_when_kaggle_has_one(self):
+        (self.root / "kout" / "sparebrains-prover-tpu.log").write_text("".join(f"line {i}\n" for i in range(100)))
+        _, rec = self.fail()
+        self.assertEqual(rec["log_tail"].splitlines()[-1], "line 99")
+        self.assertEqual(len(rec["log_tail"].splitlines()), prover.LOG_TAIL)
+
+    def test_nothing_is_recorded_without_a_batch_id_or_a_fetched_log(self):
+        # Codex 20261024T134819429956Z: an "unknown" record or a failed download would spend the batch's one alert
+        (self.root / "kpull" / "k.py").write_text("print('no batch line')\n")
+        self.assertIsNone(self.fail())
+        self.assertFalse(self.ledger.exists())
+        for args, why in ((["--dir", str(self.root / "kpull")], "no batch id"),
+                          (["--dir", str(self.root / "nopull")], "no source at all")):
+            self.assertEqual(self.cli(*args), 2, why)
+        (self.root / "kpull" / "k.py").write_text('BATCH = "tpu32-20261023T1659"\n')
+        self.assertEqual(self.cli("--dir", str(self.root / "kpull"), "--log-fetch-failed"), 2)
+        self.assertFalse(self.ledger.exists(), "a failed download is retried by the next job, not recorded as no log")
+        self.assertEqual(self.cli("--dir", str(self.root / "kpull")), prover.FAILED_NEW)
+
+    def cli(self, *extra):
+        old = sys.argv
+        try:
+            sys.argv = ["prover.py", "failed", "--out", str(self.root / "kout"), "--status", "KernelWorkerStatus.ERROR",
+                        "--ledger", str(self.ledger), *extra]
+            return prover.main()
+        finally:
+            sys.argv = old
+
+    def test_the_cli_exits_1_on_a_new_failure_and_0_on_a_known_one(self):
+        argv = ["prover.py", "failed", "--dir", str(self.root / "kpull"), "--out", str(self.root / "kout"),
+                "--status", "KernelWorkerStatus.ERROR", "--ledger", str(self.ledger)]
+        old = sys.argv
+        try:
+            sys.argv = argv
+            self.assertEqual(prover.main(), prover.FAILED_NEW, "not 1: an uncaught exception exits 1 too")
+            self.assertEqual(prover.main(), 0)
+        finally:
+            sys.argv = old
+
+
+class HoldReasonTests(unittest.TestCase):
+    """A held batch says what holds it (2026-10-24: 5.72 of 30 h used and held by the pace line, while the log
+    said 'too little gpu quota left this week')."""
+
+    def test_the_pace_line_and_the_quota_are_told_apart(self):
+        sat_noon = datetime(2026, 10, 24, 12, 56, tzinfo=timezone.utc)
+        self.assertEqual(prover.batch_hours(30, 5.72, now=sat_noon), 0.0)
+        self.assertIn("pace line", prover.hold_reason(30, 5.72, now=sat_noon))
+        self.assertIn("quota", prover.hold_reason(30, 29.5, now=FRI_NIGHT))
+        self.assertIsNone(prover.hold_reason(30, 0.0, now=FRI_NIGHT))

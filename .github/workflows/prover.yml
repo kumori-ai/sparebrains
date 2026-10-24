@@ -51,11 +51,27 @@ jobs:
       - name: python deps
         run: python3 -m pip install -q requests "kaggle>=2.2.4"   # 2.2.4 adds `kaggle quota`, which sizes each batch
 
+      # The one-time alert, proved on every run (2026-10-24): a synthetic failed batch through the same command the
+      # step below runs must say new (exit 3) the first time and known (0) the second. Its own ledger file; nothing is published.
+      - name: canary, a synthetic failed batch alerts once
+        if: matrix.accel == 'gpu'
+        run: |
+          c="$RUNNER_TEMP/canary"; mkdir -p "$c/kpull" "$c/kout"
+          echo 'BATCH = "canary-20261024T0000"' > "$c/kpull/k.py"
+          for n in 1 2; do
+            GITHUB_OUTPUT=/dev/null python3 tools/prover.py failed --dir "$c/kpull" --out "$c/kout" \
+              --status "KernelWorkerStatus.ERROR" --ledger "$c/failed.jsonl" >/dev/null && rc=0 || rc=$?   # steps run bash -e
+            eval "rc$n=$rc"
+          done
+          echo "canary: first sight exit $rc1, second $rc2 (3 then 0 is right)"
+          [ "$rc1" = 3 ] && [ "$rc2" = 0 ]
+
       # The Kaggle token lives only in this step and the push step; neither runs Lean.
       - name: the Kaggle batch
         id: kaggle
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # A TPU batch's heartbeats (2026-10-23), read before its status so a batch that ended in ERROR still leaves
           # them: its pulled source names its ntfy topic, which keeps messages 12 h, and this job runs every 2 h.
@@ -65,7 +81,10 @@ jobs:
           fi
           # A TPU batch waits in one queue slot per user: a forced push there would only be refused.
           if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
-          status=$(kaggle kernels status ${{ matrix.kernel }} 2>&1 | tail -1 || true)
+          # The command's own exit code too: an error message from a failed call is not a batch's status (Codex
+          # 20261024T135544122224Z: "ERROR: transient service unavailable" read as a failed batch).
+          out=$(kaggle kernels status ${{ matrix.kernel }} 2>&1) && status_rc=0 || status_rc=$?
+          status=$(printf '%s\n' "$out" | tail -1)
           echo "kaggle: $status"
           echo "status=$(printf '%s' "$status" | tr -d '\r' | cut -c1-200)" >> "$GITHUB_OUTPUT"
           case "$status" in
@@ -76,7 +95,23 @@ jobs:
             *COMPLETE*) ;;
             # A failed or cancelled batch is never pushed again on its own: that would spend the week's GPU
             # hours on the same failure every two hours. A person reads its log and dispatches by hand.
-            *) echo "::error::Kaggle batch ended without completing: $status"; exit 1 ;;
+            # It alerts once (2026-10-24; 5 failed runs in 2 days on one batch): the first job to see it records it in
+            # ledger/prover-beats/failed.jsonl with the tail of whatever log Kaggle kept and fails; later jobs pass
+            # with a notice. Its source names the batch, so the GPU leg pulls it here too. Only Kaggle's terminal
+            # statuses: anything else (a reset connection, a changed message) fails this run alone and is never recorded.
+            *'status "KernelWorkerStatus.ERROR"'*|*'status "KernelWorkerStatus.CANCEL'*)
+              [ "$status_rc" = 0 ] || { echo "::error::kaggle kernels status exited $status_rc: $status; nothing recorded, the next run reads it again"; exit 1; }
+              [ -d "$RUNNER_TEMP/kpull" ] || kaggle kernels pull ${{ matrix.kernel }} -p "$RUNNER_TEMP/kpull" >/dev/null 2>&1 || true
+              mkdir -p "$RUNNER_TEMP/kout"
+              kaggle kernels output ${{ matrix.kernel }} -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 && fetched="" || fetched="--log-fetch-failed"
+              echo "state=failed" >> "$GITHUB_OUTPUT"
+              # 3 = first sight: the last step fails the run then, after the record is published; 0 = known;
+              # 2 = no batch id or no download: nothing recorded, this run fails and the next one retries;
+              # anything else (1 = an exception) fails the step at once
+              python3 tools/prover.py failed --dir "$RUNNER_TEMP/kpull" --out "$RUNNER_TEMP/kout" --status "$status" $fetched && rc=0 || rc=$?
+              [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
+              exit 0 ;;
+            *) echo "::error::Kaggle status not understood: $status; nothing recorded, the next run reads it again"; exit 1 ;;
           esac
           mkdir -p "$RUNNER_TEMP/kout"
           kaggle kernels output ${{ matrix.kernel }} -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
@@ -89,17 +124,18 @@ jobs:
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
 
       # Published here, before any Lean runs, and the push header is removed in the same step.
+      # A failed batch's record (ledger/prover-beats/failed.jsonl) goes out here too, from either leg.
       - name: publish the heartbeats
-        if: always() && matrix.accel == 'tpu'
+        if: always() && (matrix.accel == 'tpu' || steps.kaggle.outputs.state == 'failed')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
-          python3 tools/publish.py --message "prover TPU heartbeats: $(ls -t ledger/prover-beats 2>/dev/null | head -1)
+          python3 tools/publish.py --message "prover ${{ matrix.accel }} heartbeats${{ steps.kaggle.outputs.failure == 'new' && format(' and failed batch {0}', steps.kaggle.outputs.failed_batch) || '' }}: $(ls -t ledger/prover-beats 2>/dev/null | head -1)
 
-          Generated-by: no model; the TPU kernel's own heartbeats via ntfy.sh, kept by tools/prover.py beats, cost \$0" || true
+          Generated-by: no model; the TPU kernel's own heartbeats via ntfy.sh (tools/prover.py beats) and Kaggle's status and log for a failed batch (tools/prover.py failed), cost \$0" || true
           # Fails the step if the header outlives it, so no later step, Lean included, runs with it.
           git config --unset-all http.https://github.com/.extraheader
           ! git config --get-regexp '^http\..*extraheader'
@@ -158,7 +194,7 @@ jobs:
           # The week's GPU hours used exactly (2026-10-19): the session is sized to what Kaggle says is left this
           # week, and the kernel starts a chunk only if it still fits. Under an hour left: wait for Saturday's reset.
           hours=$(python3 tools/prover.py hours ${{ matrix.flag }})
-          if [ "$hours" = "0.0" ]; then echo "too little ${{ matrix.accel }} quota left this week; next push after the reset"; exit 0; fi
+          if [ "$hours" = "0.0" ]; then echo "no ${{ matrix.accel }} batch this run: the 'holding:' line above says what holds it"; exit 0; fi
           batch=$(python3 tools/prover.py next ${{ matrix.flag }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
@@ -182,6 +218,8 @@ jobs:
           KSTATUS: ${{ steps.kaggle.outputs.status }}
           SUMMARY: ${{ steps.judge.outputs.summary }}
           PUSHED: ${{ steps.push.outputs.batch }}
+          FAILURE: ${{ steps.kaggle.outputs.failure }}
+          FAILED_BATCH: ${{ steps.kaggle.outputs.failed_batch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$STATE" = "running" ]; then
@@ -192,6 +230,12 @@ jobs:
             what="pushed batch $PUSHED to the free T4 x2"
           elif [ "$STATE" = "push" ]; then
             what="every bar problem has its samples; nothing new to push"
+          elif [ "$STATE" = "failed" ] && [ "$FAILURE" = "new" ]; then
+            what="batch $FAILED_BATCH ended without completing ($KSTATUS); recorded in ledger/prover-beats/failed.jsonl with whatever log Kaggle kept; a person reads it before anything is pushed again"
+          elif [ "$STATE" = "failed" ] && [ "$FAILURE" = "known" ]; then
+            what="batch $FAILED_BATCH is still the failed one already recorded ($KSTATUS); waiting for a person to dispatch"
+          elif [ "$STATE" = "failed" ]; then
+            what="the batch ended without completing ($KSTATUS) but could not be recorded this run (see the run log); the next run tries again"
           else
             what="the check did not finish cleanly (${KSTATUS:-no status}); a person reads the log before anything is pushed again"
           fi
@@ -199,3 +243,11 @@ jobs:
 
           [This run]($RUN_URL) · [the notebook, its code and log](https://www.kaggle.com/code/kumoriai/sparebrains-prover) · [every judged answer](https://sparebrains.kumori.ai/lanes)"
           python3 tools/problem_issues.py --gate-note stage3
+
+      # One alert per failed batch (2026-10-24): the run goes red only in the job that first recorded it, after the
+      # record is published; every later job passes with a notice.
+      - name: alert once on a newly failed batch
+        if: always() && steps.kaggle.outputs.failure == 'new'
+        run: |
+          echo "::error::batch ${{ steps.kaggle.outputs.failed_batch }} ended without completing; see ledger/prover-beats/failed.jsonl"
+          exit 1

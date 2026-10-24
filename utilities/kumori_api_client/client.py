@@ -513,6 +513,12 @@ def notify_owner(subject, text=''):
                     retry_on_5xx=False).get('sent', False)
 
 
+def heartbeat(name):
+    """Say this device is alive (scope heartbeat). If it stops for its threshold (26 h by default), kumori mails Andy
+    once, and once more on the next ping. Hourly is plenty; the name is claimed by the first key that pings it."""
+    return _request('POST', f'/api/v1/heartbeat/{name}', {}, retry_on_5xx=False)
+
+
 def llm_backends(modality=None):
     """List available backends. Returns the list of backend dicts.
 

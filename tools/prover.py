@@ -11,7 +11,7 @@ The prover was trained on Lean 4.9's mathlib and the judge pins v4.33.1, so name
 a rejected answer gets the fixer's name repair and Lean's automation (the loop's free half) before it counts
 as a miss, recorded as `fixer+loop` beside the raw `prover` row, as the retro does for cold tries.
 """
-import argparse, hashlib, json, re, secrets, sys, time, urllib.request
+import argparse, hashlib, json, os, re, secrets, sys, time, urllib.request
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -121,6 +121,23 @@ def batch_hours(total_h, used_h, reserved_h=0.0, tpu=False, now=None):
     paced = total_h * (week_hours(now or datetime.now(timezone.utc)) + AHEAD_H) / WEEK_H - used_h - reserved_h
     h = min(TPU_SESSION_H if tpu else SESSION_H, total_h - used_h - reserved_h - MARGIN_H, paced)
     return round(h, 2) if h >= (TPU_MIN_BATCH_H if tpu else MIN_BATCH_H) else 0.0
+
+
+def hold_reason(total_h, used_h, reserved_h=0.0, tpu=False, now=None):
+    """Why batch_hours() holds the next batch, or None when it does not: the week's quota running out reads
+    differently from the pace line, which only waits for the week to catch up."""
+    if batch_hours(total_h, used_h, reserved_h, tpu, now):
+        return None
+    left = total_h - used_h - reserved_h - MARGIN_H
+    floor = TPU_MIN_BATCH_H if tpu else MIN_BATCH_H
+    if left < floor:
+        return f"the week's quota: {left:.2f} h left, under the {floor} h floor; next push after Saturday's reset"
+    if reserved_h and min(TPU_SESSION_H if tpu else SESSION_H, left) < floor:
+        return f"a live session holds {reserved_h:.2f} h"
+    line = total_h * (week_hours(now or datetime.now(timezone.utc)) + AHEAD_H) / WEEK_H
+    return (f"the pace line, not the quota: {used_h + reserved_h:.2f} of {total_h:.2f} h spent, and an even spend "
+            f"through the week (a day ahead) allows {line:.2f} h by now; the next push waits until that passes "
+            f"{used_h + reserved_h + floor:.2f} h. {left:.2f} h are left this week")
 
 
 def sec_per_sample():
@@ -500,6 +517,36 @@ def save_beats(kernel_dir, fetch=None):
     return batch, kept + new
 
 
+FAILED = BEATS / "failed.jsonl"                  # one line per batch that ended without completing (2026-10-24)
+LOG_TAIL = 60                                     # lines of the session's log kept with it
+FAILED_NEW = 3       # `failed` exit code on first sight: never 1, which an uncaught exception exits with too
+
+
+def record_failure(kernel_dir, kout, status, now, run_url="", path=FAILED):
+    """(new, record) for the batch a pulled kernel names, which Kaggle reports in `status` (ERROR, CANCEL...). The
+    first job to see it appends the record, with the tail of whatever log `kaggle kernels output` left in kout (None
+    when Kaggle kept none: tpu32-20261023T1659 left no files and an empty log), and alerts; later jobs find it here,
+    so one failed batch is one alert, not one every two hours (5 in 2 days to 2026-10-24). None, recording nothing,
+    when the source names no batch: an "unknown" record would spend the alert of whichever batch it really was."""
+    srcs = list(Path(kernel_dir).glob("*.py")) if Path(kernel_dir).is_dir() else []
+    batch = kernel_fills(srcs[0].read_text())[0] if srcs else None
+    if not batch:
+        return None
+    path = Path(path)
+    for line in (path.read_text().splitlines() if path.exists() else []):
+        if line.strip() and (rec := json.loads(line))["batch"] == batch:
+            return False, rec
+    logs = sorted(Path(kout).glob("*.log"))
+    lines = [l for f in logs for l in f.read_text(errors="replace").splitlines()]
+    rec = {"batch": batch, "status": status, "first_seen_at": _iso(now), "run": run_url,
+           "files": sorted(f.name for f in Path(kout).iterdir()) if Path(kout).is_dir() else [],
+           "log_tail": "\n".join(lines[-LOG_TAIL:]) if lines else None}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+    return True, rec
+
+
 def _iso(dt):
     return dt.isoformat(timespec="seconds") if dt else None
 
@@ -550,7 +597,10 @@ def read_answers(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours", "beats"])
+    ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours", "beats", "failed"])
+    ap.add_argument("--status", help="failed: Kaggle's status line for the batch")
+    ap.add_argument("--ledger", default=str(FAILED), help="failed: where failures are recorded")
+    ap.add_argument("--log-fetch-failed", action="store_true", help="failed: `kaggle kernels output` did not succeed")
     ap.add_argument("--tpu", action="store_true", help="next/hours: the TPU kernel, on the open problems outside the bar")
     ap.add_argument("--dir")
     ap.add_argument("--out")
@@ -570,12 +620,38 @@ def main():
         print(f"{batch}: {len(beats)} heartbeats; last: {last.get('event')} in {last.get('phase')} at {last.get('elapsed_s')} s, "
               f"memory {json.dumps(last.get('memory'))}" + (f"\n{last['error']}" if last.get("error") else ""))
         return 0
+    if args.cmd == "failed":                      # FAILED_NEW only the first time a failed batch is seen
+        # 2 = nothing recorded, so the next job tries again: no batch id, or Kaggle's output did not download (a
+        # failed download is not "Kaggle kept no log", Codex 20261024T134819429956Z)
+        if args.log_fetch_failed:
+            print("::error::Kaggle's output for the failed batch did not download; nothing recorded, the next job retries")
+            return 2
+        got = record_failure(args.dir, args.out, args.status, datetime.now(timezone.utc), os.environ.get("RUN_URL", ""),
+                             args.ledger)
+        if not got:
+            print(f"::error::Kaggle reports {args.status} but the pulled source names no batch; nothing recorded, "
+                  f"the next job retries")
+            return 2
+        new, rec = got
+        log = "no log: Kaggle kept none for this session" if rec["log_tail"] is None else f"log tail:\n{rec['log_tail']}"
+        if new:
+            print(f"::error::Kaggle batch {rec['batch']} ended without completing: {rec['status']}; recorded in "
+                  f"ledger/prover-beats/failed.jsonl, alerted once. Read its log and heartbeats before pushing again.\n{log}")
+        else:
+            print(f"::notice::batch {rec['batch']} failed ({rec['status']}), first seen {rec['first_seen_at']} and "
+                  f"alerted then; waiting for a person to read it and dispatch.")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                fh.write(f"failed_batch={rec['batch']}\nfailure={'new' if new else 'known'}\n")
+        return FAILED_NEW if new else 0
     if args.cmd == "hours":                       # the next batch's hours, from Kaggle's own quota; 0 = wait
         total, used, reserved = quota(args.tpu)
         h = batch_hours(total, used, reserved, tpu=args.tpu)
         print(h)
         print(f"{'TPU' if args.tpu else 'GPU'} quota: {used:.2f} of {total:.2f} h used, {reserved:.2f} h reserved; "
               f"next batch {h} h" + ("" if args.tpu else f" at {sec_per_sample()} s an answer"), file=sys.stderr)
+        if not h:
+            print(f"holding: {hold_reason(total, used, reserved, tpu=args.tpu)}", file=sys.stderr)
         return 0
     import relay
     if args.cmd == "next" and args.tpu:           # the TPU: the 32B on reachable problems (#534), else the 8B outside the bar
