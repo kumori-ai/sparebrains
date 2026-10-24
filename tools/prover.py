@@ -109,6 +109,11 @@ def reachable_work(open_list, rows_32b, reachable, bar):
     return out
 
 
+def tpu_batch_name(prefix, smoke, stamp):
+    """A smoke batch is marked first, so a failed one never matches the 8B replacement's `tpu32-` (prover.yml)."""
+    return ("smoke-" if smoke else "") + prefix + stamp
+
+
 def tpu_work(open_list, rows_8b, rows_32b, reachable, bar, tpu32=False):
     """(work, model, prefix) for a TPU batch. The 8B on the open problems outside the bar unless the 32B is asked
     for by hand (2026-10-24: tpu32-20261021T2327 and tpu32-20261023T1659 both died in loading at ~80 min, Kaggle kept
@@ -194,6 +199,9 @@ def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=
     elif budget_h is not None:                    # the GPU kernel's session, sized to the week's hours left
         fills += [("BUDGET_S = 9 * 3600", f"BUDGET_S = {int(budget_h * 3600)}"),
                   ("SEC_PER_SAMPLE = 0.0", f"SEC_PER_SAMPLE = {sec_per_sample()}")]
+    if tpu:                                          # Kaggle runs one file: the prefetch goes in with it
+        pre = (ROOT / "tools" / "hf_prefetch.py").read_text()
+        fills.append(("HF_PREFETCH_PLACEHOLDER = None", pre))
     for old, new in fills:
         assert src.count(old) == 1, old
         src = src.replace(old, new, 1)
@@ -642,6 +650,7 @@ def main():
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     ap.add_argument("--hours", type=float, help="next: the session's hours (from `hours`); the kernel stops before them")
     ap.add_argument("--max-problems", type=int, help="next --tpu: at most this many problems (a smoke batch)")
+    ap.add_argument("--smoke", action="store_true", help="next --tpu: name the batch smoke-..., a startup check only")
     args = ap.parse_args()
     if args.tpu32 and not args.tpu:
         ap.error("--tpu32 needs --tpu")
@@ -705,7 +714,7 @@ def main():
         if not work:
             return 0
         work = work[:args.max_problems] if args.max_problems else work
-        batch = prefix + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+        batch = tpu_batch_name(prefix, args.smoke, datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"))
         n = build(args.out, work, batch, tpu=True, budget_h=args.hours, model=model)
         print(batch)
         print(f"tpu batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)

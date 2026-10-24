@@ -33,6 +33,10 @@ read back decides a retry or completion, and answers never travel this way. prov
 import collections, glob, json, os, shutil, subprocess, sys, threading, time, urllib.request
 from datetime import datetime, timezone
 
+# --- hf_prefetch: tools/hf_prefetch.py, inlined by tools/prover.py ---
+HF_PREFETCH_PLACEHOLDER = None
+# --- end hf_prefetch ---
+
 PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}], plus "goal" for a goal batch
 BATCH = ""             # filled by tools/prover.py
 NTFY_TOPIC = ""        # filled by tools/prover.py: random per batch; empty sends no heartbeats
@@ -170,12 +174,37 @@ if not ok:
 stamp(venv_s=round(time.time() - t0, 1))
 beat("venv", venv_s=timing["venv_s"])
 
+# The weights, fetched before vLLM so a stalled download and a hung initialization are told apart (2026-10-24: both
+# 32B batches died at ~80 min inside one "loading" phase). Pinned revision, HTTP, its own restartable process; every
+# file checked against the hub's manifest; vLLM then loads this copy offline.
+phase = "downloading"
+local = f"{best}/models/{MODEL.replace('/', '--')}"
+t_dl = time.time()
+try:
+    man = manifest(MODEL, PINS[MODEL])
+    ok, restarts, reason = prefetch(child_cmd(PY, MODEL, PINS[MODEL], local), local,
+                                    beat=lambda event, **kw: beat(event, **kw))
+    bad = verify(local, man) if ok else []
+except Exception as e:
+    ok, restarts, reason, bad, man = False, 0, f"{type(e).__name__}: {e}"[:300], [], {}
+if not ok or bad:
+    stamp(failed=f"download: {reason or '; '.join(bad[:5])}")
+    beat("failed", reason="download", detail=reason, bad=bad[:20], restarts=restarts)
+    sys.exit(f"download failed: {reason or bad[:5]}")
+versions = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; print(json.dumps({'huggingface_hub': "
+                           "huggingface_hub.__version__, 'vllm': vllm.__version__}))"], capture_output=True, text=True)
+stamp(download_s=round(time.time() - t_dl, 1), model_revision=PINS[MODEL])
+beat("downloaded", download_s=timing["download_s"], files=len(man), bytes=sum(man.values()), restarts=restarts,
+     revision=PINS[MODEL], versions=(versions.stdout.strip() or versions.stderr.strip())[:300])
+for p in parts(man):
+    beat("manifest", **p)
+
 GEN = r'''
 import json, sys, time
 from vllm import LLM, SamplingParams
 cfg = json.load(open(sys.argv[1]))
 t0 = time.time()
-llm = LLM(model=cfg["model"], dtype="bfloat16", tensor_parallel_size=8, max_model_len=cfg["max_tokens"] + 2048,
+llm = LLM(model=cfg["model_path"], dtype="bfloat16", tensor_parallel_size=8, max_model_len=cfg["max_tokens"] + 2048,
           max_num_seqs=64)
 tok = llm.get_tokenizer()
 print(json.dumps({"loaded_s": round(time.time() - t0, 1)}), flush=True)
@@ -208,14 +237,15 @@ with open(cfg["out"], "a") as out:
                           "tok_per_s": round(n_tokens / secs, 1)}), flush=True)
 '''
 open("/tmp/gen.py", "w").write(GEN)
-json.dump({"model": MODEL, "problems": PROBLEMS, "batch": BATCH, "out": OUT, "chunk": CHUNK, "prompt": PROMPT,
+json.dump({"model": MODEL, "model_path": local, "problems": PROBLEMS, "batch": BATCH, "out": OUT, "chunk": CHUNK, "prompt": PROMPT,
            "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, "top_p": TOP_P, "t0": t0, "budget_s": BUDGET_S},
           open("/tmp/gen.json", "w"))
-# The child downloads the weights to HF_HOME and loads them: "loading" until it says loaded; disk_free_gb tracks the download.
+# The child loads the verified local copy, offline: "loading" is vLLM's initialization and compile only.
 phase = "loading"
 beat("loading", model=MODEL)
 tail, error = collections.deque(maxlen=40), []
-proc = subprocess.Popen([PY, "/tmp/gen.py", "/tmp/gen.json"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+proc = subprocess.Popen([PY, "/tmp/gen.py", "/tmp/gen.json"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                        env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
 for line in proc.stdout:
     print(line, end="", flush=True)
     tail.append(line.rstrip()[:300])
@@ -230,9 +260,11 @@ for line in proc.stdout:
         except ValueError:
             continue
         if "loaded_s" in ev:
-            stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
+            # load_s is vLLM's own initialization (the child's clock); startup_s is everything since the venv began
+            stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=ev["loaded_s"],
+                  startup_s=round(time.time() - t0, 1))
             phase = "generating"
-            beat("loaded", load_s=timing["load_s"])
+            beat("loaded", load_s=timing["load_s"], startup_s=timing["startup_s"], download_s=timing.get("download_s"))
         elif "chunk" in ev:
             timing["chunks"].append(ev)
             stamp()
@@ -244,3 +276,4 @@ if code == 0:
     beat("finished", chunks=len(timing["chunks"]))
 else:          # a negative code is the signal that killed the child (-9: SIGKILL, the OOM killer's)
     beat("failed", exit=code, error="\n".join(error), tail="\n".join(list(tail)[-15:]))
+    sys.exit(f"generation child exit {code}")          # Kaggle reports ERROR, so prover.py `failed` records it once

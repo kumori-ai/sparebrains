@@ -5,6 +5,27 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-24
 
+- **The TPU kernel fetches its weights itself, before vLLM, so a stalled download and a hung initialization are told
+  apart (`tools/hf_prefetch.py`, inlined into the kernel by `prover.build`).** Both 32B batches died at ~80 min in one
+  "loading" phase that hid vLLM's download: in tpu32-20261023T1659's beats free disk fell 40 GB in 4 min, stayed flat
+  35 min, fell 26 GB, stayed flat to the end; by 2,701 s it had fallen 65.5 GB, the model's size, so the second
+  plateau may be initialization, and host memory says nothing about TPU HBM. Now: the pinned revision over HTTP
+  (Xet off: range resume) in its own process, killed and restarted when no byte lands for 300 s (at most 3 times),
+  every file checked against the hub's manifest for that revision, and vLLM loads that local copy offline, answers
+  keeping the canonical model id. Phases: downloading, downloaded (seconds, sizes, restarts, package versions, the
+  manifest in bounded beats), loading (vLLM only), loaded. A failed download or generation child now fails the
+  kernel, so Kaggle reports ERROR and `prover.py failed` records it once. A hand-dispatched smoke (`push` + `tpu32` +
+  `smoke=N`) pushes only on the TPU leg, names its batch smoke-tpu32-..., so a failed smoke never triggers the 8B
+  replacement, and is a startup check, not a full-batch one. If loading still dies after a verified download, the
+  next suspect is initialization (tp=8, max_model_len x max_num_seqs). Codex: DISAGREE 20261024T194304201890Z
+  (diagnosis beyond the evidence, no safe cancel or resume, no failure propagation, no smoke path) and
+  20261024T194446491583Z (the pinned snapshot not handed to vLLM, manifest beats too big, the simulator's cleanup):
+  all taken; decided and recorded after the second round under the 2026-10-24 rule. On the build, DISAGREE
+  20261024T195435827483Z (a smoke still let the GPU leg push on a missing or finished kernel; load_s counted the
+  venv and download; a partial file renamed mid-scan could crash the watchdog and leave its child): fixed, the
+  loaded beat now gives vLLM's own load_s beside startup_s and download_s. Not used: hf_transfer (deprecated
+  by Hugging Face), a Kaggle Dataset copy (65.5 GB rehosted; kept as the fallback).
+
 - **Sparebrains' operating rule: build tools that let any model, of any size, compete.** Andy made it Kumori's
   sixth non-negotiable today: "it's NOT my call". Every build is judged by its measured tool lift, the same model
   with the tool and without it (lanes page, task #462, 2026-10-17; per tool, the scoreboard, #463, 2026-10-17).

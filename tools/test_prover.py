@@ -1,4 +1,4 @@
-import json, sys, tempfile, unittest
+import json, re, sys, tempfile, unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -485,3 +485,63 @@ class ReplacementReservationTests(unittest.TestCase):
             self.assertEqual(prover.main(), prover.RESERVED_ALREADY)
         finally:
             sys.argv = old
+
+
+class PrefetchedKernel(unittest.TestCase):
+    """2026-10-24: the TPU kernel fetches the pinned weights itself, then vLLM loads that copy offline; a failed child
+    fails the kernel (Codex 20261024T194304201890Z, 20261024T194446491583Z)."""
+
+    def built(self, model=prover.PROVER_32B["model"]):
+        t = {"target_set": "minif2f/test", "target": "mathd_algebra_478", "order": 1}
+        with tempfile.TemporaryDirectory() as d:
+            prover.build(d, [(t, 32)], "tpu32-20261024T2000", tpu=True, budget_h=3.0, model=model)
+            return (Path(d) / "prover_kernel.py").read_text()
+
+    def test_the_built_kernel_inlines_the_prefetch_and_compiles(self):
+        src = self.built()
+        compile(src, "prover_kernel_tpu.py", "exec")
+        self.assertIn("def prefetch(", src)
+        self.assertIn("851bf85d329b0f819e1a44db30e05d16e07d15c0", src)
+        self.assertNotIn("HF_PREFETCH_PLACEHOLDER", src)
+
+    def test_vllm_loads_the_verified_local_copy_offline_and_answers_keep_the_model_id(self):
+        src = self.built()
+        self.assertIn('LLM(model=cfg["model_path"]', src)
+        self.assertIn('"HF_HUB_OFFLINE": "1"', src)
+        self.assertIn('"config": {"model": cfg["model"]', src)
+
+    def test_a_failed_child_or_download_fails_the_kernel(self):
+        src = self.built()
+        tail = src[src.rindex('beat("failed", exit=code'):]
+        self.assertIn("sys.exit(", tail)
+        self.assertIn('beat("failed", reason="download"', src)
+
+    def test_a_smoke_batch_is_named_so_it_never_triggers_the_replacement(self):
+        self.assertEqual(prover.tpu_batch_name("tpu32-", True, "20261024T2000"), "smoke-tpu32-20261024T2000")
+        self.assertEqual(prover.tpu_batch_name("tpu32-", False, "20261024T2000"), "tpu32-20261024T2000")
+
+    def test_the_real_builder_makes_a_one_problem_smoke_batch(self):
+        import relay
+        from unittest import mock
+        open_list = [{"target_set": "minif2f/test", "target": t, "rung": "imo", "order": i}
+                     for i, t in enumerate(["mathd_algebra_478", "mathd_algebra_141"])]
+        with tempfile.TemporaryDirectory() as d:
+            reach = Path(d) / "reachable.json"
+            reach.write_text(json.dumps({"reachable": [{"target_set": "minif2f/test", "target": t["target"]}
+                                                       for t in open_list]}))
+            out = Path(d) / "k"
+            argv = ["prover.py", "next", "--tpu", "--tpu32", "--smoke", "--max-problems", "1", "--out", str(out),
+                    "--hours", "3"]
+            with mock.patch.object(relay, "fetch_json", return_value={"open": open_list}), \
+                    mock.patch.object(prover, "REACHABLE", reach), mock.patch.object(prover, "prover_rows", return_value=[]), \
+                    mock.patch.object(prover, "plan_owed", return_value=None), mock.patch.object(sys, "argv", argv):
+                self.assertEqual(prover.main(), 0)
+            src = (out / "prover_kernel.py").read_text()
+            batch = re.search(r'^BATCH = "([^"]+)"', src, re.M).group(1)
+            self.assertTrue(batch.startswith("smoke-tpu32-"), batch)
+            self.assertEqual(src.count('"target": "mathd_algebra'), 1, "one problem")
+
+    def test_loaded_reports_initialization_only(self):
+        src = self.built()
+        self.assertIn('load_s=ev["loaded_s"]', src)
+        self.assertIn("startup_s=", src)
