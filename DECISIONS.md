@@ -116,6 +116,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   20261024T191733767933Z: the deadline sits in the per-request wrapper, so router-error retries stop at it too;
   fixed and recorded after the second round under the 2026-10-24 rule); each arm's interval is over its finished problems (solved, or not within 3),
   owed ones shown apart.
+  **kumori's lane contract, 2026-10-24:** a pin to a paused, flaky or newly found lane answers 503 {paused: true,
+  retry_after_s: 3600}, a catalog lookup failure 503 {retry_after_s: 60}, and only a retired or never-catalogued lane
+  answers 404 "unknown backend". So only a 404 is `lane_gone` (red run); a paused lane, a catalog miss or a known
+  refusal code is a refusal, recorded, waited for when its clock is at most 600 s and ends before the deadline, else
+  the lane is left for this run and comes back next run. An upstream 5xx, which kumori also answers as 503
+  {retry_after_s: 30}, stays a router error (Codex DISAGREE 20261024T203935061717Z, fixed).
 
 - **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
   wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id

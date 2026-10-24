@@ -557,3 +557,64 @@ class FirstRunFixes(unittest.TestCase):
                                 written.append, toolscore.Budget(9), deadline=60, now=lambda: clock[0])
         self.assertEqual(asked, [0.0])
         self.assertEqual([(w["verdict"], w["requests"]) for w in written], [("error", 1)], "the spent request is kept")
+
+
+class PausedLanes(unittest.TestCase):
+    """kumori, 2026-10-24: a pin to a paused, flaky or newly found lane answers 503 {paused: true, retry_after_s: 3600};
+    a catalog lookup failure 503 {retry_after_s: 60}. Only a retired or never-catalogued lane answers 404."""
+    ITEM = {"week": "solved-x", "target_set": "primer", "target": "t", "cohort": "solved", "statement_sha": "s"}
+    TEXT = staticmethod(lambda s: (PREFIX + " sorry", PREFIX))
+
+    class Err(RuntimeError):
+        def __init__(self, msg, status, payload=None, retry_after=None, code=None):
+            super().__init__(msg)
+            self.status_code, self.payload, self.retry_after, self.error_code = status, payload or {}, retry_after, code
+
+    def round(self, ask, budget=9):
+        written, slept, gone = [], [], []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(budget), sleep=slept.append, gone=gone)
+        return written, slept, gone
+
+    def test_a_paused_lane_is_refused_not_gone_and_an_hour_is_not_waited_out(self):
+        def ask(prompt):
+            raise self.Err("kumori /api/v1/llm/chat HTTP 503 : l is paused", 503, {"paused": True}, retry_after=3600)
+        written, slept, gone = self.round(ask)
+        self.assertEqual(([w["verdict"] for w in written], slept, gone), (["refused"], [], []))
+
+    def test_a_catalog_hiccup_is_waited_for_its_minute_and_asked_again(self):
+        calls = []
+        def ask(prompt):
+            calls.append(1)
+            if len(calls) == 1:
+                raise self.Err("kumori /api/v1/llm/chat HTTP 503 : catalog lookup failed; retry shortly", 503, retry_after=60)
+            return "```lean\n" + PREFIX + "\n  rfl\n```", {}
+        written, slept, gone = self.round(ask)
+        self.assertEqual(([w["verdict"] for w in written], slept), (["refused", "accept"], [60]))
+
+    def test_only_a_404_is_gone(self):
+        def ask_503(prompt):
+            raise self.Err("kumori /api/v1/llm/chat HTTP 503 : unknown backend lookup paused", 503, {"paused": True},
+                           retry_after=3600)
+        self.assertEqual(self.round(ask_503)[2], [])
+        def ask_404(prompt):
+            raise self.Err("kumori /api/v1/llm/chat HTTP 404 : unknown backend: l", 404)
+        self.assertEqual(self.round(ask_404)[2], ["l"])
+
+    def test_an_upstream_failure_stays_a_router_error(self):
+        # Codex 20261024T203935061717Z f1: kumori answers an upstream 5xx as 503 {retry_after_s: 30} too
+        # (api_v1_llm_bp: "backend l: upstream_http_500"); that is the lane's bad moment, not a refusal
+        def ask(prompt):
+            raise self.Err("kumori /api/v1/llm/chat HTTP 503 : backend l: upstream_http_500", 503, retry_after=30)
+        written, slept, gone = self.round(ask)
+        self.assertEqual(([w["verdict"] for w in written], slept), (["error"], []))
+
+    def test_a_wait_that_would_cross_the_deadline_is_not_taken(self):
+        # f2: a 60 s catalog clock with 1 s left: leave the lane, do not sleep past the deadline
+        clock, written, slept = [0.0], [], []
+        def ask(prompt):
+            raise self.Err("kumori /api/v1/llm/chat HTTP 503 : catalog lookup failed; retry shortly", 503, retry_after=60)
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(9), deadline=1, sleep=slept.append,
+                                now=lambda: clock[0])
+        self.assertEqual(([w["verdict"] for w in written], slept), (["refused"], []))

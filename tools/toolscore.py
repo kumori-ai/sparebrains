@@ -74,7 +74,8 @@ RESOLVE_TRIES, RESOLVE_RETRIES = 3, 2   # cold tries per problem per run week; r
 STOP_RUN = re.compile(r"spent its share|is gated|is benched|never_fits", re.I)
 # A pinned lane kumori no longer has is a broken series, not a spent share: openrouter-minimax-m3-1-flash answered
 # "HTTP 404 : unknown backend" and the re-solve stopped quietly for 4 nights, 0 tries (2026-10-24).
-GONE = re.compile(r"HTTP 404|unknown backend", re.I)
+CATALOG_MISS = re.compile(r"catalog lookup failed", re.I)
+GONE = re.compile(r"HTTP 404\b")   # kumori 2026-10-24: only a retired or never-catalogued lane answers 404
 
 
 class LaneGone(RuntimeError):
@@ -250,11 +251,17 @@ def resolve_one(s, t, text, prefix, ask, judge, chain_fn, retries=RESOLVE_RETRIE
         except CapReached:
             raise
         except Exception as e:
-            if GONE.search(str(e)):
+            if getattr(e, "status_code", None) == 404 or (getattr(e, "status_code", None) is None and GONE.search(str(e))):
                 raise LaneGone(str(e)[:200]) from e
             code = getattr(e, "error_code", None)
-            if STOP_RUN.search(str(e)) or code in REFUSAL_CODES:
-                raise Refused(str(e)[:300], code, getattr(e, "retry_after", None)) from e
+            payload = getattr(e, "payload", None) if isinstance(getattr(e, "payload", None), dict) else {}
+            retry_after = getattr(e, "retry_after", None) or payload.get("retry_after_s")
+            # a paused, flaky or newly found lane says paused; a catalog miss says so (kumori api_v1_llm_bp, 2026-10-24).
+            # Not every clock-bearing 503: an upstream 5xx comes back as 503 {retry_after_s: 30} too, and that is a
+            # router error, retried as one (Codex 20261024T203935061717Z)
+            if STOP_RUN.search(str(e)) or code in REFUSAL_CODES or payload.get("paused") \
+                    or CATALOG_MISS.search(str(e)):
+                raise Refused(str(e)[:300], code or ("paused" if payload.get("paused") else None), retry_after) from e
             row["router_errors"] += 1
             row["last_error"] = str(e)[:200]
     else:
@@ -342,12 +349,14 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
                     write({**where, "verdict": "refused", "reason": str(e), "error_code": e.error_code,
                            "requests": ask.n})
                     refusals[lane] += 1
+                    wait = e.retry_after if e.retry_after else REFUSAL_WAIT_S
                     if refusals[lane] > REFUSAL_RETRIES or e.error_code in NO_RETRY_CODES \
-                            or (deadline is not None and now() > deadline):
+                            or wait > REFUSAL_WAIT_MAX_S \
+                            or (deadline is not None and now() + wait > deadline):
                         refused.add(lane)
                         r = None
-                    else:                                # the server's own clock when it gives one, capped
-                        sleep(min(e.retry_after, REFUSAL_WAIT_MAX_S) if e.retry_after else REFUSAL_WAIT_S)
+                    else:                                # the server's own clock when it gives one; longer: next run
+                        sleep(wait)
                         continue
                 break
             if r is None:
