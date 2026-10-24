@@ -14,6 +14,24 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   the lab's: Claude and Codex decide them from evidence and record them here with both verdict IDs. Only money,
   security and access, deploys, anything public, and people go to Andy.
 
+- **A weekly failure triage ranks which answered failures, across every lane, are worth a tool
+  (`tools/triage.py`, `ledger/retro/<year>-W<week>-triage.md`).** Andy, through kumori-89: make the allam process
+  automatic. A class is a lane's failure_kind on answered rejects (non-answers, lane errors and fixer re-judges out;
+  no label = unclassified, kept). A candidate is >=40% of some lane's rejects with that lane's n>=100, or in the top 5
+  by cross-lane total; ranked by that total (demand), the last closed week beside it, because one tool fixes every
+  model with the same habit. Frozen replies refine a class by reply signature (lean3_body > fenced_lean4 >
+  unfenced_lean4 > prose, truncation a flag) in their own column with coverage, joined by attempt, database-only rows
+  apart; they never move a rank. Recoverability stays "unknown" until a replay measures it; nothing is built
+  automatically. Each page records the ledger rev, cutoff and classifier hash. First run, the week to 2026-10-26:
+  38,021 answered rejects over 96 lanes (804 unclassified); candidates tactic_failed 9,364, unknown_name 8,310,
+  unsolved_goals 4,573, no_fence 4,370, lean3_syntax 3,987, other
+  3,050; allam's frozen replies match all 780 of its ledger no_fence rejects (lean3_body 476, prose 252, 260
+  truncated) with 45 database-only rows apart. Codex: DISAGREE 20261024T192423729277Z (a fictitious lane from ledger/fc's `lane` field, ranks that depend on
+  which replies are frozen, overlapping signatures, unlabeled rates, no input boundary), AGREE 20261024T192633227087Z
+  with the unclassified bucket and attempt-level joins built in; on the build DISAGREE 20261024T193402083246Z (the
+  join was by run, not attempt, and ignored the cutoff; the Lean 3 fallback read past its declaration; the page hid
+  database-only and truncated counts), fixed.
+
 - **The worst free lane, lifted by tools: groq-allam's frozen answers replayed with zero model calls
   (`tools/replay.py`, `ledger/replay/`).** groq-allam (allam-2-7b) is the weakest live lane: 8 of 1,129 answered
   ladder tries in the ledger. Read 2026-10-24: 829 of its replies were rejected as "no proof extracted", and 510 of

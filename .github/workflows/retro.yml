@@ -28,6 +28,10 @@ jobs:
       - name: last week's page
         run: python3 tools/retro.py | tee "$RUNNER_TEMP/out.txt"
 
+      # The failure triage (DECISIONS.md 2026-10-24): which answered failures, across every lane, are worth a tool
+      - name: last week's failure triage
+        run: python3 tools/triage.py | tee -a "$RUNNER_TEMP/out.txt"
+
       - name: publish the page
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,4 +41,4 @@ jobs:
           git config user.email "sparebrains-bot@users.noreply.github.com"
           python3 tools/publish.py --message "retro: $(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-200)
 
-          Generated-by: no model; tools/retro.py over the ledger, cost \$0"
+          Generated-by: no model; tools/retro.py and tools/triage.py over the ledger, cost \$0"
