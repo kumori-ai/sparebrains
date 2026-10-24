@@ -104,6 +104,18 @@ class ProverTests(unittest.TestCase):
         self.assertEqual([(t["target"], n) for t, n in prover.reachable_work(open_list, rows, reach, bar=True)],
                          [("a", 32), ("d", 32)])
 
+    def test_the_scheduled_tpu_runs_the_8b_and_the_32b_only_when_asked(self):
+        # 2026-10-24: two 32B batches died in loading at ~80 min; the 8B ran 640 answers in 93 min (tpu-20261020T2225)
+        open_list = [{"target_set": "minif2f/test", "target": t, "rung": r, "order": i}
+                     for i, (t, r) in enumerate([("a", "imo"), ("b", "custom")])]
+        reach = {("minif2f/test", "a")}
+        work, model, prefix = prover.tpu_work(open_list, [], [], reach, bar=False)
+        self.assertEqual((prefix, model, [t["target"] for t, _ in work]), ("tpu-", None, ["a", "b"]))
+        work, model, prefix = prover.tpu_work(open_list, [], [], reach, bar=False, tpu32=True)
+        self.assertEqual((prefix, model, [t["target"] for t, _ in work]), ("tpu32-", prover.PROVER_32B["model"], ["a"]))
+        work, _, prefix = prover.tpu_work(open_list, [], [], set(), bar=False, tpu32=True)
+        self.assertEqual((prefix, work), ("tpu32-", []), "asked for the 32B, never handed the 8B instead")
+
     def test_a_32b_answer_is_judged_and_credited_as_the_32b(self):
         a = {**answer(0), "config": {"model": prover.PROVER_32B["model"]}}
         self.assertIs(prover.lane_for([a]), prover.PROVER_32B)
@@ -434,3 +446,42 @@ class HoldReasonTests(unittest.TestCase):
         self.assertIn("pace line", prover.hold_reason(30, 5.72, now=sat_noon))
         self.assertIn("quota", prover.hold_reason(30, 29.5, now=FRI_NIGHT))
         self.assertIsNone(prover.hold_reason(30, 0.0, now=FRI_NIGHT))
+
+
+class ReplacementReservationTests(unittest.TestCase):
+    """One 8B replacement per failed 32B batch, by our own ledger (2026-10-24, Codex 20261024T142004542959Z): a
+    reservation line goes into failed.jsonl, published and confirmed on main, before the push; never twice."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.ledger = Path(self.d.name) / "failed.jsonl"
+        k = Path(self.d.name) / "kpull"
+        k.mkdir()
+        (k / "k.py").write_text('BATCH = "tpu32-20261023T1659"\n')
+        self.new, _ = prover.record_failure(k, Path(self.d.name), "KernelWorkerStatus.ERROR", FRI_NIGHT, path=self.ledger)
+        self.k = k
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_a_batch_is_reserved_once(self):
+        self.assertFalse(prover.replacement_reserved("tpu32-20261023T1659", self.ledger))
+        self.assertTrue(prover.reserve_replacement("tpu32-20261023T1659", FRI_NIGHT, "https://run/2", self.ledger))
+        self.assertTrue(prover.replacement_reserved("tpu32-20261023T1659", self.ledger))
+        self.assertFalse(prover.reserve_replacement("tpu32-20261023T1659", FRI_NIGHT, "https://run/3", self.ledger))
+        self.assertFalse(prover.replacement_reserved("tpu32-other", self.ledger))
+
+    def test_a_reservation_line_never_reads_as_the_failure_record(self):
+        prover.reserve_replacement("tpu32-20261023T1659", FRI_NIGHT, "https://run/2", self.ledger)
+        new, rec = prover.record_failure(self.k, Path(self.d.name), "KernelWorkerStatus.ERROR", FRI_NIGHT, path=self.ledger)
+        self.assertFalse(new)
+        self.assertEqual(rec["status"], "KernelWorkerStatus.ERROR")
+
+    def test_the_cli_reserves_once(self):
+        old = sys.argv
+        try:
+            sys.argv = ["prover.py", "reserve", "--batch", "tpu32-20261023T1659", "--ledger", str(self.ledger)]
+            self.assertEqual(prover.main(), 0)
+            self.assertEqual(prover.main(), prover.RESERVED_ALREADY)
+        finally:
+            sys.argv = old

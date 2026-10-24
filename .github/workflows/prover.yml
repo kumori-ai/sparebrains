@@ -4,7 +4,8 @@
 # its answers are judged (resumable: a job that runs out of time leaves the rest for the next); when every answer is
 # judged, the next batch is pushed, until the bar's problems each have their 32 samples.
 # Two legs, one after the other: the T4 x2 on the bar's problems (and plan and goal batches), and the TPU v5e-8 on
-# its own weekly hours on every other open problem (task #479; prover.py next --tpu).
+# its own weekly hours on every other open problem (task #479; prover.py next --tpu): the 8B on schedule, the 32B
+# (task #534) only by hand, dispatched with tpu32 (2026-10-24: both 32B batches died in loading at ~80 min).
 name: prover
 
 on:
@@ -14,6 +15,10 @@ on:
     inputs:
       push:
         description: "push the next batch now, whatever the last one did (after reading its log)"
+        type: boolean
+        default: false
+      tpu32:
+        description: "with push: the TPU leg pushes the 32B on the reachable problems instead of the 8B"
         type: boolean
         default: false
 
@@ -79,7 +84,6 @@ jobs:
             kaggle kernels pull ${{ matrix.kernel }} -p "$RUNNER_TEMP/kpull" >/dev/null 2>&1 || true
             python3 tools/prover.py beats --dir "$RUNNER_TEMP/kpull" || true
           fi
-          # A TPU batch waits in one queue slot per user: a forced push there would only be refused.
           if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
           # The command's own exit code too: an error message from a failed call is not a batch's status (Codex
           # 20261024T135544122224Z: "ERROR: transient service unavailable" read as a failed batch).
@@ -87,6 +91,15 @@ jobs:
           status=$(printf '%s\n' "$out" | tail -1)
           echo "kaggle: $status"
           echo "status=$(printf '%s' "$status" | tr -d '\r' | cut -c1-200)" >> "$GITHUB_OUTPUT"
+          # A TPU batch waits in one queue slot per user: a hand push goes only when no batch holds it.
+          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "tpu" ]; then
+            case "$status_rc:$status" in
+              0:*RUNNING*|0:*QUEUED*) echo "a TPU batch holds the queue slot ($status); nothing pushed"; echo "state=running" >> "$GITHUB_OUTPUT" ;;
+              0:*) echo "state=push" >> "$GITHUB_OUTPUT" ;;
+              *) echo "::error::kaggle kernels status exited $status_rc: $status; nothing pushed"; exit 1 ;;
+            esac
+            exit 0
+          fi
           case "$status" in
             *RUNNING*|*QUEUED*) echo "state=running" >> "$GITHUB_OUTPUT"; exit 0 ;;
             # A kernel that was never pushed reads as "Cannot access kernel ... (Permission 'kernels.get' was denied)",
@@ -110,6 +123,16 @@ jobs:
               # anything else (1 = an exception) fails the step at once
               python3 tools/prover.py failed --dir "$RUNNER_TEMP/kpull" --out "$RUNNER_TEMP/kout" --status "$status" $fetched && rc=0 || rc=$?
               [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
+              # A failed 32B is followed by ONE scheduled 8B (2026-10-24), new or known: the record must be on main
+              # (publish step) and the push step reserves the replacement in the same ledger, published and confirmed,
+              # before it pushes. A batch that already has its reservation is never replaced again, whatever Kaggle
+              # reads back (Codex 20261024T142004542959Z: read-after-push is undocumented).
+              fb=$(sed -n 's/^failed_batch=//p' "$GITHUB_OUTPUT" | tail -1)
+              case "${{ matrix.accel }}:$status:$fb" in
+                tpu:*'status "KernelWorkerStatus.ERROR"'*:tpu32-*)
+                  [ "$(python3 tools/prover.py reserved --batch "$fb")" = 0 ] && echo "replace=1" >> "$GITHUB_OUTPUT" \
+                    || echo "::notice::$fb already had its one 8B replacement; a person dispatches the next" ;;
+              esac
               exit 0 ;;
             *) echo "::error::Kaggle status not understood: $status; nothing recorded, the next run reads it again"; exit 1 ;;
           esac
@@ -126,6 +149,7 @@ jobs:
       # Published here, before any Lean runs, and the push header is removed in the same step.
       # A failed batch's record (ledger/prover-beats/failed.jsonl) goes out here too, from either leg.
       - name: publish the heartbeats
+        id: beats
         if: always() && (matrix.accel == 'tpu' || steps.kaggle.outputs.state == 'failed')
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,6 +160,12 @@ jobs:
           python3 tools/publish.py --message "prover ${{ matrix.accel }} heartbeats${{ steps.kaggle.outputs.failure == 'new' && format(' and failed batch {0}', steps.kaggle.outputs.failed_batch) || '' }}: $(ls -t ledger/prover-beats 2>/dev/null | head -1)
 
           Generated-by: no model; the TPU kernel's own heartbeats via ntfy.sh (tools/prover.py beats) and Kaggle's status and log for a failed batch (tools/prover.py failed), cost \$0" || true
+          # The 8B replacement waits for the failure's record to be on main, so no later job can see it as new.
+          if [ "${{ steps.kaggle.outputs.replace }}" = "1" ]; then
+            b="${{ steps.kaggle.outputs.failed_batch }}"
+            n=$(git fetch -q origin main && git show origin/main:ledger/prover-beats/failed.jsonl | grep -cF "\"batch\": \"$b\"" || true)
+            [ "${n:-0}" -gt 0 ] && echo "published=1" >> "$GITHUB_OUTPUT" || echo "::warning::the record of $b is not on main yet; no 8B replacement this run"
+          fi
           # Fails the step if the header outlives it, so no later step, Lean included, runs with it.
           git config --unset-all http.https://github.com/.extraheader
           ! git config --get-regexp '^http\..*extraheader'
@@ -185,18 +215,42 @@ jobs:
 
       - name: push the next batch
         id: push
-        if: steps.kaggle.outputs.state == 'push'
+        if: steps.kaggle.outputs.state == 'push' || (steps.kaggle.outputs.replace == '1' && steps.beats.outputs.published == '1')
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # Goal batches (task #461) only when the repository variable PROVER_MODE is "goals": set after the
           # stage-3 bar is graded, so nothing changes the prover's inputs while it is measured.
           # The week's GPU hours used exactly (2026-10-19): the session is sized to what Kaggle says is left this
           # week, and the kernel starts a chunk only if it still fits. Under an hour left: wait for Saturday's reset.
+          # The 32B only on a hand push (push and tpu32 both set), never as the replacement (Codex 20261024T141626925446Z).
+          [ "${{ steps.kaggle.outputs.replace }}" = "1" ] && echo "after the failed 32B batch ${{ steps.kaggle.outputs.failed_batch }}: the 8B"
           hours=$(python3 tools/prover.py hours ${{ matrix.flag }})
           if [ "$hours" = "0.0" ]; then echo "no ${{ matrix.accel }} batch this run: the 'holding:' line above says what holds it"; exit 0; fi
-          batch=$(python3 tools/prover.py next ${{ matrix.flag }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
+          batch=$(python3 tools/prover.py next ${{ matrix.flag }} ${{ matrix.accel == 'tpu' && inputs.push && inputs.tpu32 && steps.kaggle.outputs.replace != '1' && '--tpu32' || '' }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
+          # The replacement's reservation, on main before the push (2026-10-24). No Lean runs in this step.
+          if [ "${{ steps.kaggle.outputs.replace }}" = "1" ]; then
+            b="${{ steps.kaggle.outputs.failed_batch }}"
+            python3 tools/prover.py reserve --batch "$b" && rc=0 || rc=$?
+            [ "$rc" = 4 ] && exit 0
+            [ "$rc" = 0 ] || exit "$rc"
+            git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            git config user.name "sparebrains-bot"
+            git config user.email "sparebrains-bot@users.noreply.github.com"
+            n=0
+            python3 tools/publish.py --message "prover: the one 8B replacement for failed batch $b, reserved before its push
+
+          Generated-by: no model; tools/prover.py reserve, cost \$0" \
+              && n=$(git fetch -q origin main && git show origin/main:ledger/prover-beats/failed.jsonl | grep -F "\"batch\": \"$b\"" | grep -cF '"replacement"' || true)
+            git config --unset-all http.https://github.com/.extraheader
+            ! git config --get-regexp '^http\..*extraheader'
+            # Fails closed (Codex 20261024T144736458820Z, accepted 2026-10-24): if the reservation did reach main, the
+            # replacement is spent with no push, and a person dispatches the 8B with push; if not, the next run reserves again.
+            [ "${n:-0}" -gt 0 ] || { echo "::error::could not confirm the reservation for $b on main; nothing pushed. If it reached main the replacement is spent: a person dispatches the 8B with push. If not, the next run reserves again."; exit 1; }
+          fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
           echo "pushed batch $batch"
           echo "batch=$batch" >> "$GITHUB_OUTPUT"

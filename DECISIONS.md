@@ -22,6 +22,23 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Codex: DISAGREE 20261024T133712452968Z, 20261024T134108240062Z, 20261024T140235994841Z, 20261024T140526958577Z
   (the last on this residual alone).
 
+- **The scheduled TPU leg runs the 8B again; the 32B (#534) goes only by hand (prover.yml dispatch `push` +
+  `tpu32`).** Both 32B batches died in loading at ~80 min and Kaggle kept nothing: tpu32-20261021T2327, and
+  tpu32-20261023T1659 (18 heartbeats, all `loading` after the venv, last at 4,501 s, memory peak 153 of 354 GB, no OOM
+  event; Kaggle's ListKernelSessionOutput returned no files and an empty log on 2026-10-24). The 8B on the same TPU:
+  tpu-20261020T2225, 640 answers in 92.7 min, 1,274 tok/s. After a failed tpu32- batch the scheduled leg pushes the
+  8B once the failure's record (ledger/prover-beats/failed.jsonl) is confirmed on main, and only after it reserves
+  that replacement in the same ledger, published and confirmed on main before `kaggle kernels push`: one replacement
+  per failed 32B batch by our own ledger, never Kaggle's read-back after a push (undocumented). A push that fails
+  after its reservation is not retried; a person reads it. **Accepted residual (fails closed):** any interruption
+  after the reservation reaches main, the confirming fetch included, spends the one replacement with no push; the run
+  goes red and a person dispatches the 8B with `push` (Codex 20261024T144736458820Z offered "accept and document").
+  A failed 8B batch is never replaced. Worst case: one 8B session, up to 8.5 h of the week's TPU quota, the same as any scheduled 8B
+  batch. The 32B's lane and rows stay its own (`prover-32b`); its #534 bar now waits on a hand dispatch once a
+  captured log or heartbeats show the cause. Andy approved the plan; Codex on the built code: DISAGREE
+  20261024T141626925446Z (a tpu32 input could make the replacement a 32B; fixed) and 20261024T142004542959Z (the
+  guard leaned on Kaggle's read-back; replaced by the reservation).
+
 ## 2026-10-23
 
 - **The relay gives each problem 10 answered tries, and 30 once a try made progress (`relay.PROBLEM_FIRST`,
