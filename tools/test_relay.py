@@ -419,3 +419,100 @@ class FailureKind(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackoffTests(unittest.TestCase):
+    """Relay backoff (DECISIONS 2026-10-24): after RELAY_DRY_JOBS relay jobs without an accept, a job relays only on a
+    wake (a new person comment, a model that never relayed, or the daily probe), each wake spent once by its job
+    record, and a backed-off job never chains the next."""
+    NOW = "2026-10-24T15:00:00+00:00"
+    OPEN = [{"target_set": "minif2f/test", "target": "p", "order": 1}, {"target_set": "minif2f/test", "target": "q", "order": 2}]
+    LANES = [{"backend": "lane-a", "model": "m-a"}, {"backend": "lane-b", "model": "m-b"}]
+
+    def row(self, run, ts, verdict="reject", target="p", model="m-a"):
+        return {"run_id": run, "ts": ts, "verdict": verdict, "try_mode": "relay", "target_set": "minif2f/test",
+                "target": target, "backend": "lane-" + model[-1], "model": model}
+
+    def dry(self, n, last="2026-10-24T14:00:00+00:00"):
+        """n dry relay jobs after one that solved something; the last at `last`."""
+        rows = [self.row("r0", "2026-10-01T00:00:00+00:00", "accept")]
+        rows += [self.row(f"r{i}", f"2026-10-02T{i // 60:02d}:{i % 60:02d}:00+00:00") for i in range(1, n)]
+        rows.append(self.row(f"r{n}", last))
+        return rows
+
+    def choose(self, rows, records=(), people=None, lanes=None):
+        return relay.choose_problem(self.OPEN, lanes or self.LANES, relay.problem_rows(rows), people or {}, rows,
+                                    list(records), self.NOW)
+
+    def test_the_streak_counts_jobs_not_rows_and_a_fixer_only_job_counts_and_moves_the_clock(self):
+        rows = [self.row("a", "2026-10-24T01:00:00+00:00", "accept"), self.row("b", "2026-10-24T02:00:00+00:00"),
+                self.row("b", "2026-10-24T02:05:00+00:00"), self.row("c", "2026-10-24T03:00:00+00:00")]
+        recs = [{"run_id": "d", "run_attempt": "1", "ts": "2026-10-24T09:00:00+00:00", "accepts": 0, "relay_rows": 0},
+                {"run_id": "c", "run_attempt": "2", "ts": "2026-10-24T03:00:00+00:00", "accepts": 0, "relay_rows": 1}]
+        self.assertEqual(relay.dry_streak(rows, recs), (3, "2026-10-24T09:00:00+00:00"))   # b, c (one job, 2 attempts), d
+
+    def test_below_the_threshold_nothing_changes(self):
+        rows = self.dry(relay.RELAY_DRY_JOBS - 1)
+        self.assertEqual(self.choose(rows), (("minif2f/test", "q"), None, False))   # next_problem: fewest relay tries
+
+    def test_at_the_threshold_without_a_wake_the_job_relays_nothing(self):
+        rows = self.dry(relay.RELAY_DRY_JOBS)
+        lanes = [{"backend": "lane-a", "model": "m-a"}]                          # every lane has relayed before
+        self.assertEqual(self.choose(rows, lanes=lanes), (None, None, True))
+
+    def test_the_daily_probe_after_24_hours_once(self):
+        rows = self.dry(relay.RELAY_DRY_JOBS, last="2026-10-23T14:00:00+00:00")
+        lanes = [{"backend": "lane-a", "model": "m-a"}]
+        key, woken, off = self.choose(rows, lanes=lanes)
+        self.assertEqual((key, woken, off), (("minif2f/test", "q"), {"kind": "daily"}, True))
+        rec = {"run_id": "x", "run_attempt": "1", "ts": "2026-10-24T14:59:00+00:00", "accepts": 0, "relay_rows": 0,
+               "woken_by": woken}
+        self.assertEqual(self.choose(rows, [rec], lanes=lanes), (None, None, True), "its own record moves the clock")
+
+    def test_a_new_model_wakes_once_even_when_it_never_writes_a_relay_row(self):
+        # Codex 20261024T140235994841Z: a new model parked when reached leaves no relay row; its wake must still be spent
+        rows = self.dry(relay.RELAY_DRY_JOBS)
+        key, woken, off = self.choose(rows)
+        self.assertEqual((woken, off), ({"kind": "model", "model": "m-b"}, True))
+        rec = {"run_id": "x", "run_attempt": "1", "ts": "2026-10-24T14:59:00+00:00", "accepts": 0, "relay_rows": 0,
+               "woken_by": woken}
+        self.assertEqual(self.choose(rows, [rec]), (None, None, True))
+
+    def test_a_person_comment_wakes_its_problem_once(self):
+        rows = self.dry(relay.RELAY_DRY_JOBS)
+        lanes = [{"backend": "lane-a", "model": "m-a"}]
+        people = {("minif2f/test", "p"): ["2026-10-24T14:30:00+00:00"]}
+        key, woken, off = self.choose(rows, people=people, lanes=lanes)
+        self.assertEqual((key, woken), (("minif2f/test", "p"),
+                                        {"kind": "comment", "problem": "minif2f/test/p", "comment_ts": "2026-10-24T14:30:00+00:00"}))
+        rec = {"run_id": "x", "run_attempt": "1", "ts": "2026-10-24T14:59:00+00:00", "accepts": 0, "relay_rows": 0,
+               "woken_by": woken}
+        self.assertEqual(self.choose(rows, [rec], people=people, lanes=lanes), (None, None, True))
+
+    def test_an_accept_ends_the_streak(self):
+        rows = self.dry(relay.RELAY_DRY_JOBS) + [self.row("win", "2026-10-24T14:30:00+00:00", "accept", target="q")]
+        self.assertFalse(self.choose(rows)[2])
+
+    def test_a_backed_off_job_never_chains_and_a_rerun_writes_its_own_record(self):
+        self.assertFalse(relay.chains(backed_off=True, picked=True, calls=40))
+        self.assertTrue(relay.chains(backed_off=False, picked=True, calls=40))
+        self.assertFalse(relay.chains(backed_off=False, picked=True, calls=0))
+        with tempfile.TemporaryDirectory() as d:
+            a = relay.write_job_record(Path(d), "123", "1", self.NOW, ("minif2f/test", "p"), 5, 0, 3, None, False)
+            b = relay.write_job_record(Path(d), "123", "2", self.NOW, ("minif2f/test", "p"), 7, 0, 4, None, False)
+            self.assertNotEqual(a, b)
+            self.assertEqual(len(relay.load_job_records(Path(d))), 2)
+            self.assertEqual(a.suffix, ".json", "never *.jsonl: try_files must not read it as tries")
+
+    def test_codex_case_two_jobs_parked_new_model_while_other_lanes_call(self):
+        # 20261024T140235994841Z: job 1 is woken by m-b, m-b is parked (no relay row), lane-a makes 30 calls
+        rows = self.dry(relay.RELAY_DRY_JOBS)
+        with tempfile.TemporaryDirectory() as d:
+            jobs = Path(d)
+            key, woken, off = self.choose(rows, relay.load_job_records(jobs))
+            self.assertEqual(woken["kind"], "model")
+            rows = rows + [self.row("job1", "2026-10-24T14:50:00+00:00", target=key[1])]   # lane-a's rows only
+            relay.write_job_record(jobs, "job1", "1", "2026-10-24T14:45:00+00:00", key, 30, 0, 1, woken, off)
+            self.assertFalse(relay.chains(off, True, 30), "job 1 does not chain")
+            self.assertEqual(self.choose(rows, relay.load_job_records(jobs)), (None, None, True),
+                             "the next cron job finds m-b's wake spent and the clock fresh")

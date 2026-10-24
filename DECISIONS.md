@@ -3,6 +3,25 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-24
+
+- **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
+  wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id
+  (2026-10-24): 478 relay jobs; the dry streaks before the 9 relay solves were 4, 23, 4, 1, 1, 20, 19, 109 and 154
+  jobs, and the current one is 134 (last relay solve 2026-10-18). Relay jobs per day, 10-18..24: 26, 32, 12, 14, 21,
+  34, 19. A threshold of 30 (the plan's first number) would have pushed the 10-14 and 10-18 solves back by ~79 and
+  ~123 days at one job a day; any threshold under 109 delays a past solve, and 160 delays none. A trial: the long
+  streaks predate the 10-23 per-problem budget, which may shorten them. Re-open with new solves. Wakes: a person
+  comment newer than the problem's last relay try (once per comment), a lane in the job whose model never relayed
+  anything (once per model, spent even when the lane is parked and writes no relay row), and the daily probe once the
+  last relay activity is 24 h old. The state is one file per job that picked a problem, `ledger/relay-jobs/
+  <run_id>-<run_attempt>.json` (fixer-only jobs included), plus the relay rows. **Accepted residual (Andy, option B):
+  the record is published after the job, so a failed publish or a crash can let the next job spend the same wake
+  again; the job count stays bounded by the cron and the ladder hand-offs, never a chain.** Codex's fix (reserve the
+  wake and publish before any relay work) would put a push token next to the step that runs untrusted Lean; not taken.
+  Codex: DISAGREE 20261024T133712452968Z, 20261024T134108240062Z, 20261024T140235994841Z, 20261024T140526958577Z
+  (the last on this residual alone).
+
 ## 2026-10-23
 
 - **The relay gives each problem 10 answered tries, and 30 once a try made progress (`relay.PROBLEM_FIRST`,

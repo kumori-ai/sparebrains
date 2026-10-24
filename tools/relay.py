@@ -282,6 +282,101 @@ def next_problem(open_list, lanes, by_problem, people_by_problem=None):
     return best[1] if best else None
 
 
+# The relay's backoff (DECISIONS.md 2026-10-24). Dry streaks before the 9 relay solves to 2026-10-24, in relay jobs:
+# 4, 23, 4, 1, 1, 20, 19, 109, 154. 160 is above all of them, so it would have delayed none; past it, a job relays only
+# on a wake, and never chains the next.
+RELAY_DRY_JOBS = 160
+DAILY_S = 24 * 3600
+
+
+def _when(ts):
+    from datetime import datetime
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
+def dry_streak(rows, records):
+    """(relay jobs since the last one with an accept, the latest relay activity) from the relay ledger rows grouped by
+    run_id plus the job records (ledger/relay-jobs/), which also count a job that wrote no relay row. A rerun's
+    attempts are one job."""
+    jobs = {}
+    for r in rows:
+        if is_relay(r) and r.get("run_id"):
+            j = jobs.setdefault(r["run_id"], {"ts": _ts(r), "accepts": 0})
+            j["ts"] = min(j["ts"], _ts(r))
+            j["accepts"] += r.get("verdict") == "accept"
+    for rec in records:
+        j = jobs.setdefault(rec["run_id"], {"ts": rec["ts"], "accepts": 0})
+        j["ts"] = min(j["ts"], rec["ts"])
+        j["accepts"] += rec.get("accepts") or 0
+    streak = 0
+    for j in sorted(jobs.values(), key=lambda j: j["ts"], reverse=True):
+        if j["accepts"]:
+            break
+        streak += 1
+    clock = max([_ts(r) for r in rows if is_relay(r)] + [rec["ts"] for rec in records], default="")
+    return streak, clock
+
+
+def choose_problem(open_list, lanes, by_problem, people_by_problem, rows, records, now_iso):
+    """(problem, woken_by, backed_off). Under RELAY_DRY_JOBS dry jobs: next_problem, as before. At or past it, only a
+    wake not spent by an earlier job's record: a person comment newer than the problem's last relay try, a lane in
+    this job whose model never relayed anything, or the daily probe once the last relay activity is a day old."""
+    streak, clock = dry_streak(rows, records)
+    if streak < RELAY_DRY_JOBS:
+        return next_problem(open_list, lanes, by_problem, people_by_problem), None, False
+    spent = [rec.get("woken_by") or {} for rec in records]
+    people_by_problem = people_by_problem or {}
+    for t in sorted(open_list, key=lambda t: t["order"]):
+        key = (t["target_set"], t["target"])
+        prow, people = by_problem.get(key, []), people_by_problem.get(key, [])
+        if not people or resting(prow, people, lanes):
+            continue
+        relay_rows = [r for r in prow if is_relay(r)]
+        latest = max(people)
+        woken = {"kind": "comment", "problem": f"{key[0]}/{key[1]}", "comment_ts": latest}
+        if (not relay_rows or latest > _ts(relay_rows[-1])) and woken not in spent \
+                and any(tries_left(prow, l["backend"], l.get("model"), people) > 0 for l in lanes):
+            return key, woken, True
+    relayed = {r.get("model") for r in rows if is_relay(r)}
+    for l in lanes:
+        woken = {"kind": "model", "model": l.get("model")}
+        if l.get("model") and l["model"] not in relayed and woken not in spent:
+            pick = next_problem(open_list, lanes, by_problem, people_by_problem)
+            return (pick, woken, True) if pick else (None, None, True)
+    if not clock or _when(now_iso) - _when(clock) > DAILY_S:
+        pick = next_problem(open_list, lanes, by_problem, people_by_problem)
+        return (pick, {"kind": "daily"}, True) if pick else (None, None, True)
+    return None, None, True
+
+
+def chains(backed_off, picked, calls):
+    """Another relay job follows (attempt.yml): only after a job that had a problem and made calls, never a backed-off
+    one, so a wake buys exactly one job."""
+    return bool(picked and calls > 0 and not backed_off)
+
+
+def write_job_record(jobs_dir, run_id, run_attempt, ts, problem, calls, accepts, relay_rows, woken_by, backed_off):
+    """ledger/relay-jobs/<run_id>-<run_attempt>.json, one per job that picked a problem, whatever it then did: the
+    backoff's clock and its spent wakes. .json, never .jsonl, so ledger_files.try_files never reads it as tries; the
+    attempt in the name keeps a rerun from colliding in publish.py."""
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    path = jobs_dir / f"{run_id}-{run_attempt}.json"
+    path.write_text(json.dumps({"run_id": str(run_id), "run_attempt": str(run_attempt), "ts": ts,
+                                "problem": "/".join(problem) if problem else None, "calls": calls, "accepts": accepts,
+                                "relay_rows": relay_rows, "woken_by": woken_by, "backed_off": backed_off}) + "\n")
+    return path
+
+
+def load_job_records(jobs_dir):
+    out = []
+    for f in sorted(jobs_dir.glob("*.json")) if jobs_dir.exists() else []:
+        try:
+            out.append(json.loads(f.read_text()))
+        except ValueError:
+            pass
+    return out
+
+
 def load_people(path):
     """people_comments() written to a file by an earlier workflow step, so the step that runs untrusted
     Lean never holds the GitHub token. Missing or unreadable reads as no comments."""

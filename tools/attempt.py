@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+RELAY_JOBS = ROOT / "ledger" / "relay-jobs"           # one record per relay-next job: the backoff's state (relay.py)
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import ledger_files
 from check import judge                                              # the judge, unchanged
@@ -357,17 +358,26 @@ def main():
         by_problem = relay.problem_rows(ledger_rows)               # rounds: the swarm (DECISIONS.md 2026-10-08)
         people = (relay.load_people(os.environ["SB_PEOPLE_FILE"]) if os.environ.get("SB_PEOPLE_FILE")
                   else relay.people_comments())
-        if args.relay_next:
-            pick = relay.next_problem(relay.fetch_json("/targets.json")["open"], order, by_problem, people)
+        relay_woken, relay_backed_off = None, False
+        if args.relay_next:                              # the backoff (DECISIONS 2026-10-24) decides first
+            relay_records = relay.load_job_records(RELAY_JOBS)
+            pick, relay_woken, relay_backed_off = relay.choose_problem(
+                relay.fetch_json("/targets.json")["open"], order, by_problem, people, ledger_rows, relay_records,
+                datetime.now(timezone.utc).isoformat(timespec="seconds"))
             names = [pick[1]] if pick else []
+            if relay_backed_off:
+                streak, clock = relay.dry_streak(ledger_rows, relay_records)
+                print(f"relay: backed off, {streak} relay jobs without an accept (from {relay.RELAY_DRY_JOBS}), last relay "
+                      f"activity {clock}; " + (f"woken by {json.dumps(relay_woken)}" if pick else "no wake left; nothing to relay"))
             if pick:
                 target_set, tdir = pick[0], ROOT / "targets" / pick[0]
                 print(f"relay: next open problem with tries left is {target_set}/{pick[1]}")
-            else:
+            elif not relay_backed_off:
                 print("relay: no open problem has news since its last round, or every one is resting")
     lane_manifest = [{k: l[k] for k in ("backend", "provider", "model", "tier", "rank")} for l in order]
     lane_roster_sha = hashlib.sha256(json.dumps(lane_manifest, sort_keys=True).encode()).hexdigest()[:12]
     t_start = time.time()
+    t_iso_start = datetime.now(timezone.utc).isoformat(timespec="seconds")
     print(f"run {run_id}: {len(names)} targets × {len(order)} lanes × {args.attempts} attempts, "
           f"mode {mode}, cap {args.max_calls} calls")
     for l in order:
@@ -1336,13 +1346,17 @@ def main():
         for prov, why in exhausted.items():
             print(f"  {prov}: {why}")
     print(f"\nsite: {SITE}/runs/{run_id}")
+    if args.relay and args.relay_next and names:       # the backoff's clock and its spent wakes, fixer-only jobs too
+        relay.write_job_record(RELAY_JOBS, run_id, os.environ.get("GITHUB_RUN_ATTEMPT", "1"), t_iso_start,
+                               (target_set, names[0]), calls, accepts, sum(1 for r in job_rows if relay.is_relay(r)),
+                               relay_woken, relay_backed_off)
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a") as fh:
             fh.write(f"calls={calls}\naccepts={accepts}\nlanes={len(order)}\ntargets={len(names)}\nmode={mode}\nremaining={remaining}\n")
             # Stage 2 chains itself (DECISIONS.md 2026-10-08): another relay job follows while this one had a
             # problem to work and made calls. Zero calls (every lane gated) does not chain, so it cannot spin.
-            fh.write(f"relay_more={1 if (args.relay and args.relay_next and names and calls > 0) else 0}\n")
+            fh.write(f"relay_more={1 if (args.relay and args.relay_next and relay.chains(relay_backed_off, bool(names), calls)) else 0}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as fh:
