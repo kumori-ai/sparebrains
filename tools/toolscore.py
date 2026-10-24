@@ -35,6 +35,7 @@ their statement hashes in ledger/speed/sample.jsonl. Each run week asks every fr
 a problem no try solves is censored at that budget, and router errors are kept apart from tries.
 """
 import argparse, hashlib, json, os, re, subprocess, sys, time, uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -78,6 +79,24 @@ GONE = re.compile(r"HTTP 404|unknown backend", re.I)
 
 class LaneGone(RuntimeError):
     """The pinned lane does not exist in kumori any more: re-pin the series (a new lane starts a new series)."""
+
+
+class Refused(RuntimeError):
+    """The lane refused this request (share spent, gated, benched, rate limited, never fits): the router's text, its
+    error_code and, when it knows, how many seconds until the lane recovers (retry_after)."""
+    def __init__(self, msg, error_code=None, retry_after=None):
+        super().__init__(msg)
+        self.error_code, self.retry_after = error_code, retry_after
+
+
+# kumori's error_code for a lane that is refusing, not failing (api_v1_llm_bp): waited for and asked again
+REFUSAL_CODES = {"rate_limited_429", "quota_paced", "rpm_spacing", "benched", "pool_gated", "daily_cap_exhausted"}
+NO_RETRY_CODES = {"daily_cap_exhausted"}     # does not come back within a run
+REFUSAL_WAIT_MAX_S = 600
+
+
+REFUSAL_WAIT_S = 180   # a refused lane is waited for and asked again, like the relay's PARK_WAIT_S (run 40114239227: every
+REFUSAL_RETRIES = 2    # lane refused once around 17:03Z and answered by 17:45Z), at most this many times a run
 
 
 class CapReached(Exception):
@@ -233,8 +252,9 @@ def resolve_one(s, t, text, prefix, ask, judge, chain_fn, retries=RESOLVE_RETRIE
         except Exception as e:
             if GONE.search(str(e)):
                 raise LaneGone(str(e)[:200]) from e
-            if STOP_RUN.search(str(e)):
-                return None
+            code = getattr(e, "error_code", None)
+            if STOP_RUN.search(str(e)) or code in REFUSAL_CODES:
+                raise Refused(str(e)[:300], code, getattr(e, "retry_after", None)) from e
             row["router_errors"] += 1
             row["last_error"] = str(e)[:200]
     else:
@@ -270,7 +290,8 @@ def file_hash(paths):
 
 
 def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_requests=MAX_REQUESTS,
-                  owed=lambda lane, s, t: True, deadline=None, stop_at_raw=True, gone=None):
+                  owed=lambda lane, s, t: True, deadline=None, stop_at_raw=True, gone=None, sleep=time.sleep,
+                  now=time.time):
     """One process's re-solve over (sample entry, try) items, the lanes interleaved item by item (Mistral's lanes share
     one rate limit). A lane that is gone (404) is written down as `lane_gone` and skipped, a refused one (share, gate,
     bench) is skipped for this run; neither stops the others. Every request is taken from the budget before it is
@@ -281,12 +302,14 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
     when a later item raises."""
     budget = max_requests if isinstance(max_requests, Budget) else Budget(max_requests)
     gone = [] if gone is None else gone
-    refused, raw_hit = set(), set()
+    refused, raw_hit, refusals = set(), set(), defaultdict(int)
 
     def counted(ask):
-        def go(prompt):
+        def go(prompt):                                  # every request: the deadline, then the budget
+            if deadline is not None and now() > deadline:
+                raise CapReached("deadline reached")
             if not budget.take():
-                raise CapReached()
+                raise CapReached("request cap reached")
             go.n += 1
             return ask(prompt)
         go.n = 0
@@ -296,25 +319,38 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
             if lane in gone or lane in refused or (lane, s["week"], s["target_set"], s["target"]) in raw_hit \
                     or not owed(lane, s, t):
                 continue
-            if budget.left <= 0 or (deadline is not None and time.time() > deadline):
+            if budget.left <= 0 or (deadline is not None and now() > deadline):
                 return gone
             text, prefix = text_for(s)
-            ask = counted(ask_for(lane))
             where = {"lane": lane, "cohort": cohort_of(s), "week": s["week"], "target_set": s["target_set"],
                      "target": s["target"], "try": t}
-            try:
-                r = resolve_one(s, t, text, prefix, ask, judge, chain_fn)
-            except CapReached:
-                if ask.n:
-                    write({**where, "verdict": "error", "reason": "request cap reached", "requests": ask.n})
-                return gone
-            except LaneGone as e:
-                gone.append(lane)
-                write({**where, "verdict": "lane_gone", "reason": str(e), "requests": ask.n})
-                continue
+            while True:                                  # a refusal is waited out, up to REFUSAL_RETRIES a run
+                if deadline is not None and now() > deadline:   # every request, a retry after a wait included
+                    return gone
+                ask = counted(ask_for(lane))
+                try:
+                    r = resolve_one(s, t, text, prefix, ask, judge, chain_fn)
+                except CapReached as e:
+                    if ask.n:
+                        write({**where, "verdict": "error", "reason": str(e), "requests": ask.n})
+                    return gone
+                except LaneGone as e:
+                    gone.append(lane)
+                    write({**where, "verdict": "lane_gone", "reason": str(e), "requests": ask.n})
+                    r = None
+                except Refused as e:
+                    write({**where, "verdict": "refused", "reason": str(e), "error_code": e.error_code,
+                           "requests": ask.n})
+                    refusals[lane] += 1
+                    if refusals[lane] > REFUSAL_RETRIES or e.error_code in NO_RETRY_CODES \
+                            or (deadline is not None and now() > deadline):
+                        refused.add(lane)
+                        r = None
+                    else:                                # the server's own clock when it gives one, capped
+                        sleep(min(e.retry_after, REFUSAL_WAIT_MAX_S) if e.retry_after else REFUSAL_WAIT_S)
+                        continue
+                break
             if r is None:
-                refused.add(lane)
-                write({**where, "verdict": "refused", "requests": ask.n})
                 continue
             if stop_at_raw and r.get("cold") == "accept":
                 raw_hit.add((lane, s["week"], s["target_set"], s["target"]))
@@ -393,7 +429,7 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
                "gone": key in gone, "by_rung": defaultdict(lambda: {"problems": 0, "raw": 0, "assisted": 0})}
         for arm, field in (("raw", "cold"), ("assisted", "verdict")):
             a = {"solved": 0, "attempts_to_first": [], "not_solved_within": 0, "owed": 0, "spent": 0, "requests": 0,
-                 "chars": 0, "output_tokens": 0, "tries": 0, "tries_without_tokens": 0}
+                 "chars": 0, "output_tokens": 0, "tries": 0, "tries_without_tokens": 0, "finished": 0}
             for p in solved:
                 allr = sorted(by[key].get((p["week"], p["target_set"], p["target"]), []), key=lambda r: r["ts"])
                 answered = [r for r in allr if r.get("verdict") in ("accept", "reject")]
@@ -417,7 +453,8 @@ def size_report(rows, sample, tries=RESOLVE_TRIES):
                 rep["by_rung"][p.get("rung")][arm] += 1
             a["attempts_to_first"].sort()
             a["yield"] = round(a["solved"] / a["spent"], 3) if a["solved"] else None
-            a["wilson95"] = wilson95(a["solved"], len(solved))
+            a["finished"] = a["solved"] + a["not_solved_within"]          # owed problems are not failures
+            a["wilson95"] = wilson95(a["solved"], a["finished"])
             rep[arm] = a
         rep["by_rung"] = dict(rep["by_rung"])
         out.append(rep)
@@ -435,7 +472,8 @@ def render_size(report):
              "chain attempts to first | not solved within 3, raw / chain | requests, raw / chain | chars, raw / chain | "
              "output tokens, raw / chain |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in report:
-        f = lambda a: f"{a['solved']}/{r['problems']} ({a['wilson95'][0]:.2f}-{a['wilson95'][1]:.2f})" if a["wilson95"] else "-"
+        f = lambda a: (f"{a['solved']}/{a['finished']} ({a['wilson95'][0]:.2f}-{a['wilson95'][1]:.2f})" if a["wilson95"]
+                       else "-") + (f", {a['owed']} owed" if a["owed"] else "")
         lines.append(f"| {r['run_week']} | {r['chain']} | {r['lane']} | {f(r['raw'])} | {f(r['assisted'])} | "
                      f"{', '.join(map(str, r['raw']['attempts_to_first'])) or '-'} | "
                      f"{', '.join(map(str, r['assisted']['attempts_to_first'])) or '-'} | "
@@ -589,6 +627,14 @@ def load_jsonl(files):
     return [json.loads(l) for f in files for l in f.read_text().splitlines() if l.strip()]
 
 
+def row_ids(run_id, row, seq):
+    """try_id: the logical try (run, lane, cohort, problem, try), shared by a refusal and the answer after it;
+    answer_id: this one event, unique within the process by seq (Codex 20261024T191033337558Z)."""
+    key = [run_id, row["lane"], row.get("cohort"), row.get("week"), row.get("target_set"), row.get("target"), row.get("try")]
+    h = lambda v: hashlib.sha256(json.dumps(v).encode()).hexdigest()[:12]
+    return {"try_id": h(key), "answer_id": h(key + [seq])}
+
+
 GONE_EXIT = 3          # --resolve's exit code when a pinned lane is gone; attempt.yml turns it into a red run
 
 
@@ -625,6 +671,7 @@ def resolve_main(args, run_id, chain, names_ix, lean):
     lean_env = file_hash(LEAN_ENV)
     out = SPEED_DIR / f"resolve-{run_id}-{k}.jsonl"
     sizes = dict(SIZE_LANES)
+    seq = [0]                                            # this process's row count, for unique event ids
 
     def ask_for(lane):
         def ask(prompt):
@@ -644,9 +691,8 @@ def resolve_main(args, run_id, chain, names_ix, lean):
         row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, "run_week": run_week,
                "chain": chain, "tools_hash": tools_hash, "lean_env": lean_env, "git_rev": rev, "request_config": config,
                "half": "report", "size_b": sizes.get(r["lane"]), **r}
-        row["answer_id"] = hashlib.sha256(json.dumps([run_id, row["lane"], row.get("cohort"), row.get("week"),
-                                                      row.get("target_set"), row.get("target"), row.get("try")])
-                                          .encode()).hexdigest()[:12]
+        row.update(row_ids(f"{run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}-{k}", row, seq[0]))
+        seq[0] += 1
         with out.open("a") as fh:
             fh.write(json.dumps(row) + "\n")
         print(f"[resolve] {row['lane']} {row.get('cohort')} {row.get('target_set')}/{row.get('target')} "

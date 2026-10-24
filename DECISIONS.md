@@ -68,6 +68,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   inside completion_tokens, Google's own API apart; kumori `_backends.py`), shows "unknown" where no counts came
   back and how many tries lacked them. Codex DISAGREE 20261024T155243924125Z (thinking counted twice, missing counts
   shown as 0), fixed.
+  **First run, 2026-10-24 (40114239227): 5 answered tries**, because every lane refused once around 17:03Z and the
+  re-solve dropped it for the run, without keeping the refusal's text, and the table counted untried problems as
+  failures ("0/45"). Fixed: a refused lane is waited for (the server's retry_after when it gives one, at most 600 s,
+  else 180 s) and asked again up to 2 times a run, never for daily_cap_exhausted; every refusal recorded with the
+  router's text and kumori's error_code; no request past the deadline, a retry after a wait included; each row its
+  own answer_id beside the try_id it shares with the refusal before it (Codex DISAGREE 20261024T191033337558Z and
+  20261024T191733767933Z: the deadline sits in the per-request wrapper, so router-error retries stop at it too;
+  fixed and recorded after the second round under the 2026-10-24 rule); each arm's interval is over its finished problems (solved, or not within 3),
+  owed ones shown apart.
 
 - **The relay backs off after 160 relay jobs without an accept (`relay.RELAY_DRY_JOBS`): then a job relays only on a
   wake, each wake spent once, and a backed-off job never chains the next.** Measured from the ledger by run_id

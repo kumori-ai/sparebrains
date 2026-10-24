@@ -161,7 +161,8 @@ class Resolve(unittest.TestCase):
     def test_a_refused_lane_stops_the_run(self):
         def ask(prompt):
             raise RuntimeError("HTTP 503 : minimax is gated: the 'sparebrains' share is spent")
-        self.assertIsNone(toolscore.resolve_one(self.S, 1, "x", PREFIX, ask, FakeLean().judge_text, None))
+        with self.assertRaises(toolscore.Refused):
+            toolscore.resolve_one(self.S, 1, "x", PREFIX, ask, FakeLean().judge_text, None)
 
     def test_a_lane_kumori_no_longer_has_is_gone_not_refused(self):
         # 2026-10-24: openrouter-minimax-m3-1-flash answered "HTTP 404 : unknown backend" and every nightly re-solve
@@ -351,8 +352,8 @@ class SizeSeriesFixes(unittest.TestCase):
             return ask
         budget = toolscore.Budget(5)
         toolscore.resolve_round([(self.ITEM, 1)], ["l"], ask_for, self.TEXT, FakeLean().judge_text, None,
-                                lambda r: None, budget)
-        self.assertEqual(budget.left, 4)
+                                lambda r: None, budget, sleep=lambda s: None)
+        self.assertEqual(budget.left, 5 - (1 + toolscore.REFUSAL_RETRIES), "each refusal and each retry is a request")
 
     def test_a_gone_lane_still_ends_red_when_a_later_round_crashes(self):
         def crash(gone):
@@ -385,9 +386,9 @@ class SizeSeriesFixes(unittest.TestCase):
         for ask, verdict in ((failing, "error"), (gated, "refused")):
             written = []
             toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
-                                    written.append, toolscore.Budget(2))
-            self.assertEqual([(w["verdict"], w["requests"]) for w in written],
-                             [(verdict, 2 if verdict == "error" else 1)])
+                                    written.append, toolscore.Budget(2), sleep=lambda s: None)
+            want = [("error", 2)] if verdict == "error" else [("refused", 1), ("refused", 1)]   # refused, retried, refused
+            self.assertEqual([(w["verdict"], w["requests"]) for w in written], want)
         self.assertEqual(toolscore.resolved_keys([{**written[0], "run_week": "w", "chain": "c"}]), set(),
                          "a refused try stays owed")
 
@@ -460,3 +461,99 @@ class RepinAndTokens(unittest.TestCase):
                "target": "a", "try": 1, "cold": "reject", "verdict": "reject", "ts": "1", "requests": 1}
         table = toolscore.render_size(toolscore.size_report([row], sample))
         self.assertIn("unknown / unknown", table, "no counts at all must not read as 0 tokens")
+
+
+class FirstRunFixes(unittest.TestCase):
+    """Run 40114239227 (2026-10-24): every lane refused once and was dropped for the run, the refusal's text was not
+    kept, and the table counted 40+ untried problems as failures (0/45)."""
+    ITEM = {"week": "solved-x", "target_set": "primer", "target": "t", "cohort": "solved", "statement_sha": "s"}
+    TEXT = staticmethod(lambda s: (PREFIX + " sorry", PREFIX))
+
+    def test_a_refused_lane_is_waited_for_and_asked_again_and_the_reason_is_kept(self):
+        calls, slept = [], []
+        def ask(prompt):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("HTTP 503 : lane-x is benched: circuit breaker open")
+            return "```lean\n" + PREFIX + "\n  rfl\n```", {}
+        written = []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(9), sleep=slept.append)
+        self.assertEqual([w["verdict"] for w in written], ["refused", "accept"])
+        self.assertIn("circuit breaker", written[0]["reason"])
+        self.assertEqual(slept, [toolscore.REFUSAL_WAIT_S])
+
+    def test_a_lane_refused_again_and_again_is_left_for_the_run(self):
+        def ask(prompt):
+            raise RuntimeError("HTTP 503 : l is gated")
+        written, slept = [], []
+        toolscore.resolve_round([(self.ITEM, t) for t in (1, 2, 3)], ["l"], lambda lane: ask, self.TEXT,
+                                FakeLean().judge_text, None, written.append, toolscore.Budget(99), sleep=slept.append)
+        self.assertEqual(len(written), toolscore.REFUSAL_RETRIES + 1)
+        self.assertEqual(len(slept), toolscore.REFUSAL_RETRIES)
+
+    def test_untried_problems_are_owed_not_failures(self):
+        sample = [{"week": "solved-x", "target_set": "primer", "target": t, "cohort": "solved", "rung": "primer"}
+                  for t in ("a", "b", "c")]
+        def r(t, try_no, cold, verdict):
+            return {"run_week": "w", "chain": "c", "lane": "l", "cohort": "solved", "week": "solved-x",
+                    "target_set": "primer", "target": t, "try": try_no, "cold": cold, "verdict": verdict,
+                    "ts": f"{t}{try_no}", "requests": 1}
+        rows = [r("a", 1, "reject", "accept")] + [r("b", i, "reject", "reject") for i in (1, 2, 3)]
+        rep = toolscore.size_report(rows, sample)[0]
+        self.assertEqual((rep["assisted"]["solved"], rep["assisted"]["finished"], rep["assisted"]["owed"]), (1, 2, 1))
+        lo, hi = rep["assisted"]["wilson95"]
+        self.assertTrue(lo < 0.5 < hi, "the interval is over the 2 finished problems, not all 3")
+        self.assertIn("1 owed", toolscore.render_size([rep]))
+
+    def test_the_failure_code_is_kept_and_its_own_clock_honored(self):
+        # kumori-89, 2026-10-24: kumori returns the refusal's error_code and, when it knows, when the lane recovers
+        class Err(RuntimeError):
+            def __init__(self, msg, code, retry_after=None):
+                super().__init__(msg)
+                self.error_code, self.retry_after = code, retry_after
+        calls, slept, written = [], [], []
+        def ask(prompt):
+            calls.append(1)
+            if len(calls) == 1:
+                raise Err("HTTP 429 : l rate limited", "rate_limited_429", retry_after=30)
+            return "```lean\n" + PREFIX + "\n  rfl\n```", {}
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(9), sleep=slept.append)
+        self.assertEqual((written[0]["error_code"], slept), ("rate_limited_429", [30]))
+        written, slept = [], []
+        def capped(prompt):
+            raise Err("HTTP 429 : l's daily cap is spent", "daily_cap_exhausted")
+        toolscore.resolve_round([(self.ITEM, t) for t in (1, 2)], ["l"], lambda lane: capped, self.TEXT,
+                                FakeLean().judge_text, None, written.append, toolscore.Budget(9), sleep=slept.append)
+        self.assertEqual(([w["verdict"] for w in written], slept), (["refused"], []), "a spent day is not waited for")
+
+    def test_no_request_is_made_past_the_deadline_even_after_a_wait(self):
+        # Codex 20261024T191033337558Z f1: a 180 s wait must not carry a retry past the deadline
+        clock, asked = [0.0], []
+        def ask(prompt):
+            asked.append(clock[0])
+            raise RuntimeError("HTTP 503 : l is gated")
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                lambda r: None, toolscore.Budget(9), deadline=60,
+                                sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0])
+        self.assertEqual(asked, [0.0])
+
+    def test_every_row_has_its_own_event_id_and_shares_its_try_id(self):
+        # f2: a refused row and the answer after it are one try, two events
+        a = {"lane": "l", "cohort": "solved", "week": "w", "target_set": "s", "target": "t", "try": 1}
+        ids = [toolscore.row_ids("run", a, seq) for seq in (0, 1)]
+        self.assertEqual(ids[0]["try_id"], ids[1]["try_id"])
+        self.assertNotEqual(ids[0]["answer_id"], ids[1]["answer_id"])
+
+    def test_router_error_retries_stop_at_the_deadline_too(self):
+        # Codex 20261024T191733767933Z: resolve_one's own retries went on past the deadline
+        clock, asked, written = [0.0], [], []
+        def ask(prompt):
+            asked.append(clock[0])
+            clock[0] += 61
+            raise RuntimeError("HTTP 502 : bad gateway")
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(9), deadline=60, now=lambda: clock[0])
+        self.assertEqual(asked, [0.0])
+        self.assertEqual([(w["verdict"], w["requests"]) for w in written], [("error", 1)], "the spent request is kept")
