@@ -14,6 +14,29 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   the lab's: Claude and Codex decide them from evidence and record them here with both verdict IDs. Only money,
   security and access, deploys, anything public, and people go to Andy.
 
+- **The worst free lane, lifted by tools: groq-allam's frozen answers replayed with zero model calls
+  (`tools/replay.py`, `ledger/replay/`).** groq-allam (allam-2-7b) is the weakest live lane: 8 of 1,129 answered
+  ladder tries in the ledger. Read 2026-10-24: 829 of its replies were rejected as "no proof extracted", and 510 of
+  those are Lean 3 (`:= begin ... end`, 279 cut off mid-loop by the output cap), which `extract_proof` cannot read
+  because it looks for `:= by`, so the fixer's Lean 3 pass never saw them. The tool: `proof_text.recover_lean3`, at
+  the raw-reply boundary, every transformation recorded (lean3_begin, repetition_cut, cut_at_max_lines,
+  truncated_closed, unclosed_braces), bounded at 200 lines; then the loop's Lean-only chain. Dry run, no Lean: the
+  replies Lean can be shown go from 365 to 867 of 1,190. The denominator for every claim is tools alone,
+  `subgoals.whole_goal` (each closer on the bare statement, once per problem), so automation that proves a goal by
+  itself is never the model's. Reported on the report half by problem hash (recovery built on the tune half), per
+  problem and per rung with Wilson intervals: as recorded, recovery off and on (each through the chain), tools
+  alone, and "model-assisted only" (on, not tools alone) beside "tools alone only"; neither alone is a net lift, and
+  failure-selected numbers are never a whole-lane claim. Exploratory: a historical cohort; fresh allam answers test
+  it again. The cohort is the full answered set (1,190, frozen with its query and provenance in
+  ledger/replay/README.md; all already public on /attempts), kumori-89's call over a new read endpoint. Lean runs
+  only in CI's sandbox (`attempt.yml` fixer_target=replay). Codex: DISAGREE 20261024T161556623579Z (the `sorry`
+  baseline never reaches automation, recovery in the wrong place, a failure-only cohort), AGREE
+  20261024T161801868685Z with follow-ups taken (first accepts kept, the cohort reconciled not cut, held out by
+  problem). On the build, DISAGREE 20261024T170221251251Z, fixed: the three attempts read during diagnosis
+  (15335, 15336, 15354) take their problems out; only results of the current code and Lean, for eligible attempts,
+  count; a problem counts only once every attempt has both arms and tools alone, the rest shown as pending, never as
+  failures; tools alone has one owner slice per problem; every rung has its own interval.
+
 - **The size series: 45 solved targets re-run every week by Ministral 3B, 8B and 14B (the -2512 snapshots) with
   that week's chain (`tools/toolscore.py`, extending the speed receipt #191).** Audit, 2026-10-24: nothing re-ran
   solved work with fresh calls. #191's re-solve wrote 0 answered tries in 4 nightly runs; its one pinned lane,

@@ -299,6 +299,16 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, na
     return None, tries
 
 
+def whole_goal(prefix, judge_text, tactics=AUTO_TACTICS):
+    """Tools alone (2026-10-24): each of Lean's closers on the bare statement, judged like any proof. The denominator
+    for a lane's tool lift, so automation that proves a goal by itself is never credited to the model. repair() cannot
+    stand in: it stops when no step of a proof survives (Codex 20261024T161556623579Z). The closer that worked, or None."""
+    for t in tactics:
+        if judge_text(prefix + "\n  " + t)["verdict"] == "accept":
+            return t
+    return None
+
+
 def repair(candidate, prefix, lean_out, *, ask, run_lean, judge_text, on_lemma=None, fix=None, names=None,
            tactics=AUTO_TACTICS):
     """APOLLO's loop on one rejected candidate. Returns a summary dict; `accepted` holds the final file

@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       fixer_target:
-        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call); lemmas = the lemma queue; toolscore = the tool scoreboard"
+        description: "issue #3: <set>/<target>, or all, whose failed proofs get their form repaired and re-judged (no model call); lemmas = the lemma queue; toolscore = the tool scoreboard; replay = the worst-lane replay"
         default: ""
       fixer_slices:
         description: 'fixer_target=all as a matrix: a JSON list of slices, e.g. ["0/6","1/6","2/6","3/6","4/6","5/6"]; automation only'
@@ -173,6 +173,11 @@ jobs:
             # the tool scoreboard (task #463): stored rejects the chain touched, re-run whole and then once per tool
             # it used with that tool left out; the report half (odd ids), Lean only, results to sparebrains_toolscore
             python3 tools/toolscore.py --half report --slice "${SLICE:-0/1}" --max-minutes 320
+          elif [ "$FIXER_TARGET" = "replay" ]; then
+            # the worst-lane replay (DECISIONS.md 2026-10-24): one lane's frozen raw replies, recovery off and on, the
+            # chain and tools alone, no model asked; Lean runs here, as the sandbox user, because the replies are untrusted
+            python3 tools/replay.py --slice "${SLICE:-0/1}" --max-minutes 320
+            python3 tools/replay.py --report || true
           elif [ "$FIXER_TARGET" = "lemmas" ]; then
             # the lemma queue: stored sketches' open steps, closest first, each to the 3 strongest live lanes
             python3 tools/attempt.py --lemmas --skip-benched --max-calls "${{ inputs.max_calls }}"
