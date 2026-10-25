@@ -1,1 +1,2 @@
 {"batch": "tpu32-20261023T1659", "status": "kumoriai/sparebrains-prover-tpu has status \"KernelWorkerStatus.ERROR\"", "first_seen_at": "2026-10-24T14:50:50+00:00", "run": "https://github.com/kumori-ai/sparebrains/actions/runs/40104264741", "files": [], "log_tail": null}
+{"batch": "smoke-tpu32-20261024T2034", "status": "kumoriai/sparebrains-prover-tpu has status \"KernelWorkerStatus.ERROR\"", "first_seen_at": "2026-10-25T21:03:11+00:00", "run": "https://github.com/kumori-ai/sparebrains/actions/runs/40233585101", "files": [], "log_tail": null}
