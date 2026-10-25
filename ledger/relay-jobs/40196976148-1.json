@@ -1,0 +1,1 @@
+{"run_id": "40196976148", "run_attempt": "1", "ts": "2026-10-25T13:20:39+00:00", "problem": "minif2f/test/amc12a_2020_p9", "calls": 41, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "model", "model": "mistral/leanstral-1-5"}, "backed_off": true}
