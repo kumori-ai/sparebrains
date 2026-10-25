@@ -1,0 +1,1 @@
+{"run_id": "40174114837", "run_attempt": "1", "ts": "2026-10-25T07:51:18+00:00", "problem": "minif2f/test/numbertheory_3pow2pownm1mod2pownp3eq2pownp2", "calls": 45, "accepts": 0, "relay_rows": 27, "woken_by": null, "backed_off": false}
