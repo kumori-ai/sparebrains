@@ -1,0 +1,1 @@
+{"run_id": "40504096091", "run_attempt": "1", "ts": "2026-10-27T12:31:39+00:00", "problem": "minif2f/test/imo_1974_p3", "calls": 45, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "model", "model": "aisingapore/Qwen-SEA-LION-v4.5-27B-IT"}, "backed_off": true}
