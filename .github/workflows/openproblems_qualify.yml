@@ -38,6 +38,11 @@ jobs:
           ref: main
           persist-credentials: false        # no push token on disk while untrusted code runs
 
+      - name: python env
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests
+
       - name: the candidate (named, or the daily pick)
         id: pick
         run: |
@@ -45,18 +50,12 @@ jobs:
             echo "evolve_file=${{ inputs.evolve_file }}" >> "$GITHUB_OUTPUT"
             echo "round=${{ inputs.round }}" >> "$GITHUB_OUTPUT"
           else
-            pick=$(python3 -I tools/openproblems.py next-qualify)
+            pick=$("$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py next-qualify)
             echo "daily pick: $pick"
             if [ "$pick" = "none" ]; then echo "nothing new passes the validation bar; no fold is run"; exit 0; fi
             echo "evolve_file=$(echo "$pick" | python3 -c 'import json,sys; print(json.load(sys.stdin)["evolve_file"])')" >> "$GITHUB_OUTPUT"
             echo "round=$(echo "$pick" | python3 -c 'import json,sys; print(json.load(sys.stdin)["round"])')" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: python env
-        if: steps.pick.outputs.evolve_file != ''
-        run: |
-          python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests
 
       - name: candidate sandbox
         if: steps.pick.outputs.evolve_file != ''
