@@ -1,0 +1,1 @@
+{"run_id": "40679184574", "run_attempt": "1", "ts": "2026-10-28T11:23:21+00:00", "problem": "minif2f/test/imo_1997_p5", "calls": 45, "accepts": 0, "relay_rows": 28, "woken_by": {"kind": "model", "model": "google/gemma-4-31b-it"}, "backed_off": true}
