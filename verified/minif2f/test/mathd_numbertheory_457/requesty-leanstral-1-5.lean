@@ -1,0 +1,16 @@
+import Mathlib
+
+open scoped Nat
+open scoped Real
+
+/-- What is the least positive integer $n$ such that $80325$ divides $n!$? -/
+theorem mathd_numbertheory_457 : IsLeast {n : ℕ | 0 < n ∧ 80325 ∣ n !} 17 := by
+  refine ⟨?_, ?_⟩
+  · refine ⟨by decide, ?_⟩
+    decide
+  · intro x hx
+    rcases hx with ⟨hxpos, hxdiv⟩
+    by_contra! hlt
+    have h : ∀ m, m < 17 → ¬ (0 < m ∧ 80325 ∣ m !) := by
+      decide
+    exact h x hlt ⟨hxpos, hxdiv⟩
