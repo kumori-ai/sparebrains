@@ -107,6 +107,9 @@ def lane_max_tokens(lane, default):
     return max(default, relay.MAX_TOKENS) if (lane.get("capability") or {}).get("is_reasoning_model") else default
 
 
+LADDER_CALL_S = 120                 # a cold try's long_call bound: twice the old 60 s ceiling, half the relay's 240
+
+
 def bench_delay(retry_after, consecutive):
     """Repeated refusals park a lane longer, never less than the router asks."""
     minimum = max(5, retry_after or 60)
@@ -481,7 +484,7 @@ def main():
                 "quality_tier": lane["tier"], "tier_rank": lane["rank"], "attempt_no": attempt_no, "mode": mode,
                 "capability": lane.get("capability", {}),
                 "request_config": {"max_tokens": sent_tokens(lane), "temperature": 0.2,
-                                   "reasoning_effort": lane_effort(lane), "router_timeout_s": 60,
+                                   "reasoning_effort": lane_effort(lane), "router_timeout_s": LADDER_CALL_S,
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
 
@@ -520,8 +523,12 @@ def main():
         if relay_ctx:                                    # stage 2: the dossier, never a known proof
             prompt, meta = relay.relay_prompt(target_text, relay_ctx["dossier"], relay_ctx["this_job"],
                                               relay_ctx.get("real_names"))
-        # a relay try may think for minutes (kumori's opt-in long_call, sparebrains keys only)
-        long_or_not = {"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx else {"timeout_s": 60}
+        # a relay try may think for minutes (kumori's opt-in long_call, sparebrains keys only). A cold try gets the
+        # same opt-in at half the time (2026-10-28): at timeout_s 60 the slow lanes lost about half their calls to
+        # kumori's upstream timeout (1,935 of 5,621 sparebrains calls in 3 days, kumori #572; sealion 27B 223 of 290,
+        # iteracompute qwen3 27B 202 of 227), each a 504 after 30-60 s with no answer to recover.
+        long_or_not = ({"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx
+                       else {"timeout_s": LADDER_CALL_S, "long_call": True})
         if lane_effort(lane):
             long_or_not["reasoning_effort"] = lane_effort(lane)
         t0 = time.monotonic()

@@ -34,7 +34,8 @@ class DailyReport(unittest.TestCase):
             row("2026-10-28T02:00:00+00:00", "new", "accept", backend="lane-b", tier="tiny", mode="prover"),
             row("2026-10-28T03:00:00+00:00", "hard", "reject"),
             row("2026-10-28T03:30:00+00:00", "hard", "reject", backend="lane-b", tier="tiny"),
-            row("2026-10-28T04:00:00+00:00", "hard", "error", backend="lane-c", tier="high"),   # not answered
+            dict(row("2026-10-28T04:00:00+00:00", "hard", "error", backend="lane-c", tier="high"),   # not answered
+                 reason="KumoriAPIError: kumori /api/v1/llm/chat HTTP 504 : <!DOCTYPE html>"),
             row("2026-10-27T11:00:00+00:00", "hard", "skipped"),                                # outside and skipped
         ])
         write(self.ledger / "primer" / "1.jsonl", [row("2026-10-28T05:00:00+00:00", "p1", "accept", target_set="primer", rung="primer")])
@@ -63,6 +64,7 @@ class DailyReport(unittest.TestCase):
     def test_window_counts_only_answered_tries_in_the_last_24_hours(self):
         t = self.report["totals"]
         self.assertEqual((t["judged"], t["answered"], t["accepted"]), (6, 5, 3))
+        self.assertEqual(t["errors"], {"upstream timeout (504)": 1})
 
     def test_first_solves_name_the_target_the_lane_and_the_mode(self):
         self.assertEqual(self.report["first_solves"], [{"grade": "high school", "key": "minif2f/test/new", "lane": "lane-b",
@@ -96,6 +98,7 @@ class DailyReport(unittest.TestCase):
     def test_markdown_carries_the_headline_and_every_grade(self):
         md = daily_report.render(self.report)
         self.assertIn("**2 first-time solves**", md)
+        self.assertIn("Lost before the kernel: 1 upstream timeout (504)", md)
         for g in ("kindergarten", "middle school", "high school", "college"):
             self.assertIn(g, md)
         self.assertIn("s3b", md)

@@ -12,7 +12,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
 """
 import argparse, json, sys
 import ledger_files
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -173,8 +173,12 @@ def build(ledger, now, hours=24):
     judged = [r for r in window if r["verdict"] in ("accept", "reject", "error")]
     answered = [r for r in judged if r["verdict"] != "error"]
     g, firsts = grades(rows, since)
+    errors = Counter("upstream timeout (504)" if "HTTP 504" in (r.get("reason") or "") else
+                     "router 5xx" if "HTTP 5" in (r.get("reason") or "") else "other error"
+                     for r in judged if r["verdict"] == "error")
     return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours,
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
+                       "errors": dict(errors),
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
                        "solved_ever": sum(x["solved"] for x in g), "open": sum(x["open"] for x in g)},
             "first_solves": sorted(firsts, key=lambda f: f["ts"]), "grades": g, "speed": speed(ledger),
@@ -186,6 +190,8 @@ def render(d):
     out += [f"**{d['day']}** (the {d['hours']} hours to {d['to'][11:16]} UTC): **{len(d['first_solves'])} first-time solves**, "
             f"{t['accepted']} accepts from {t['answered']} answered tries by {t['lanes']} lanes on {t['problems']} problems. "
             f"{t['solved_ever']} problems solved ever, {t['open']} open.", ""]
+    if t.get("errors"):
+        out += ["Lost before the kernel: " + ", ".join(f"{n} {k}" for k, n in sorted(t["errors"].items(), key=lambda x: -x[1])), ""]
     for f in d["first_solves"]:
         out.append(f"- first solve: `{f['key']}` by {f['lane']} ({f['tier']}, {f['mode']})")
     if d["first_solves"]:

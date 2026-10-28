@@ -239,7 +239,8 @@ class DeadLaneTests(RetryPacingTests):
         env['llm_chat'].assert_called_once()
 
     def test_a_row_records_the_timeout_the_call_asked_for(self):
-        """Every relay row said router_timeout_s 60 while relay calls ask 240 s (2026-10-22)."""
+        """Every relay row said router_timeout_s 60 while relay calls ask 240 s (2026-10-22). A cold try asks
+        LADDER_CALL_S as a long_call since 2026-10-28 (half its calls on the slow lanes died at 60 s)."""
         env, lane = self.runner()
         env['llm_chat'].side_effect = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)
         env['relay'] = Mock(relay_prompt=Mock(return_value=("prompt", None)), LONG_CALL_S=240)
@@ -248,7 +249,8 @@ class DeadLaneTests(RetryPacingTests):
         self.assertEqual((row['request_config']['router_timeout_s'], row['request_config']['long_call']), (240, True))
         env['run_one']('demo', lane, 1)
         row = env['record'].call_args[0][0]
-        self.assertEqual((row['request_config']['router_timeout_s'], row['request_config']['long_call']), (60, False))
+        self.assertEqual((row['request_config']['router_timeout_s'], row['request_config']['long_call']), (attempt.LADDER_CALL_S, True))
+        self.assertEqual(attempt.LADDER_CALL_S, 120)
 
     def test_a_timeout_on_this_target_is_the_lanes_own_error(self):
         env, lane = self.runner()

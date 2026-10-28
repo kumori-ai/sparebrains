@@ -26,6 +26,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   nothing is new, so no Lean run repeats (the 10-19 Actions rule). `openproblems.yml` runs daily 09:00 UTC, 12
   Leanstral asks seeded from every evolve row, same bar, same sandbox; final test shots stay by hand (2 of 3 left).
   The hand dispatches keep their inputs. 443 tests OK.
+- **A cold try is a long_call of 120 s, and the ladder runs 3 workers (was 60 s and 2).** Measured today: the
+  ladder's largest outcome was kumori's HTTP 504 (10-27: 419 of 958 ladder tries; 10-28: 278 of 690; 2,937 since
+  10-20, median at 45.5 s against 9.1 s for an answered call). kumori (#572) read its logs: every one is an upstream
+  timeout at the timeout_s the call asked, 30 or 60 s, never a finished answer, so a client-side recovery would
+  save nothing; the slow lanes answer in 15-24 s median and lose half their calls at the line (sealion 27B 223 of
+  290, iteracompute qwen3 27B 202 of 227, agnes 3.0 flash 199 of 394, 3 days). The lever on our side is the time:
+  the relay already asks 240 s through kumori's long_call (sparebrains keys only); a cold try now asks 120 s the
+  same way (`attempt.LADDER_CALL_S`), and the job's workers go from 2 to 3 so a slow lane holding one for two
+  minutes costs less of the clock (run 40609387312: 334 calls in its first 90 min, 100 in the next 230, most lanes
+  parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
+  receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
+  #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
 - **The reach run's verdict (rules written 2026-10-19, judged 2026-10-28).** Runs 39301536190 and 39328013197
   together: 59 open problems (32 and 27; one of the planned 60 is missing from job 2), tools arm solved 2
   (amc12_2001_p21, amc12a_2009_p6), alone arm 3 (algebra_sum1onsqrt2to1onsqrt10000lt198, induction_sumkexp3eqsumksq,

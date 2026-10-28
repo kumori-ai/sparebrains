@@ -200,7 +200,9 @@ jobs:
             # every set: primer and mil statements + reference proofs kernel-checked by the targets workflow (2026-09-02)
             # (the 2026-10-08 test window's 30-call cap ended 2026-10-09: the loop's verdict is in, DECISIONS.md;
             # every reject the ladder makes now gets the loop's free pass from the retro)
-            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 2 --max-minutes 320
+            # --jobs 3 (2026-10-28, was 2): a cold try may now hold a worker up to 120 s (long_call), and the runner's
+            # 4 vCPU hold three Lean checks; run 40609387312 made 334 calls in its first 90 min and 100 in the next 230
+            python3 tools/attempt.py --ladder --sets primer,mil,minif2f/test --attempts 3 --jobs 3 --max-minutes 320
           else
             python3 tools/attempt.py \
               --sample "${{ inputs.sample }}" --seed "${{ inputs.seed }}" \
