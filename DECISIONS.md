@@ -72,7 +72,16 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   and whitespace normalized (Codex f3), so a copy that differs in a variable name or literal order is not caught;
   the summary pairs whichever treatment arm ran against alone (Codex f1: the old summary compared tools vs alone
   whatever ran, which would have miscounted this run). Codex DISAGREE round 1 (f1, f2 blocking; f3, f4), all four
-  taken; round 2 after the pilot's rows, on the rows.
+  taken. **Pilot result (run 40733385091, 17:11 to 18:55 UTC): no lift.** 15 open + 15 solved, 4 calls per arm,
+  Leanstral: alone solved 6 of 30, lessons solved 6 of 30, the same six (all from the solved set: amc12a_2021_p18,
+  imo_1964_p2, mathd_algebra_17, mathd_algebra_392, mathd_algebra_44, mathd_numbertheory_430), 0 disagreements,
+  p = 1.0; no open problem fell to either arm. Where they differ: calls to the solve (lessons 2 vs alone 4 on
+  algebra_17, 2 vs 3 on algebra_392, 4 vs 2 on numbertheory_430), tokens per solve 507k vs 563k, seconds per solve
+  3,570 vs 4,091; none of it a claim at n = 6. Read: on this lane the lessons neither helped nor hurt what gets
+  solved; the easy six fall either way and the hard 24 fall to neither, so the retrieval is not where the distance
+  is. Before a bigger run the variant to test is the retrieval itself (nearest by goal shape, not statement tokens;
+  or lessons drawn from the problem's own one-step goals), and the writer to test it on is a weaker lane than
+  Leanstral, where ReProver's lift was found. No second run sized from this one.
 - **The biology rung runs itself up to the shot (Andy: "build 2 first", 2026-10-28).** Evolve was put on a daily
   cron this morning; qualify, the leave-one-site-out bar that selects a candidate, was still by hand, so a passing
   candidate would sit. Now `openproblems_qualify.yml` runs daily 15:00 UTC: `openproblems.py next-qualify` picks the
