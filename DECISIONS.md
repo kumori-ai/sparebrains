@@ -3,6 +3,28 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-28
+
+- **The daily school report (`tools/daily_report.py`, `ledger/daily/<day>.{json,md}`).** Andy's ask: one morning
+  read of how close the project is getting, across every student, tool and grade, in place of the counts-only daily
+  log and kumori's mail reading a lagging table. The report is read from the ledger alone: the last 24 hours by grade
+  (kindergarten primer, middle school MIL, high school miniF2F, college formal-conjectures and openproblems.bio), who
+  answered, who passed first and by which mode, the top performers (accepts over answered, ranked only from 3
+  answered), the size series as tool lift (this week beside last, refusals shown), the Kaggle batches finished and
+  failed, the relay's backoff and the days each rung has sat idle. The openproblems rung shows the leave-one-site-out
+  qualify verdict, never a screen score: the best evolve rmse on record (0.8916 vs 0.9684, round 2, 2026-10-21)
+  came from one split and that candidate missed qualify on Pearson (-0.010 over 6 sites, 2026-10-22). The retro
+  workflow writes the files daily; the issues workflow posts the same text as the daily log comment; kumori's
+  07:00 mail is to render the JSON (kumori's side, handed to a kumori session). What the first run showed
+  (2026-10-28 15:09 UTC): 0 first-time solves, goal-closer idle 7.5 days, formal-conjectures 6.5, openproblems.bio
+  5.7, relay backed off, and the 3B lane at 11 of 26 first accepts against 3 of 11 the week before. 439 tests OK.
+- **The reach run's verdict (rules written 2026-10-19, judged 2026-10-28).** Runs 39301536190 and 39328013197
+  together: 59 open problems (32 and 27; one of the planned 60 is missing from job 2), tools arm solved 2
+  (amc12_2001_p21, amc12a_2009_p6), alone arm 3 (algebra_sum1onsqrt2to1onsqrt10000lt198, induction_sumkexp3eqsumksq,
+  aime_1988_p8), tools-only 2 against alone-only 3, two-sided sign test p = 1.0: no claim, as the rule predicted.
+  Re-derived here from the rows; kumori-ff's script reproduces run 39271052543 exactly (12 vs 5 of 30, p 0.039).
+  The replication (seed headtohead-replication-2026-10-19) has not run: run 1's "better" stands unreplicated until it does.
+
 ## 2026-10-24
 
 - **The TPU kernel fetches its weights itself, before vLLM, so a stalled download and a hung initialization are told

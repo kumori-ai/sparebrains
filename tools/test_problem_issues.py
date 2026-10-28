@@ -1,6 +1,9 @@
 """Issue threads, rendered offline from a fixture dossier: what the bot posts and what it never posts."""
 import sys
+import tempfile
+import json
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -143,24 +146,29 @@ class LedgerDayTests(unittest.TestCase):
 
 
 class DailyLogTests(unittest.TestCase):
-    def test_counts_first_time_solves_and_actions_runs(self):
-        rows = [dict(target_set="s", target="a", backend="x", verdict="accept", try_mode="relay"),
-                dict(target_set="s", target="b", backend="y", verdict="accept", try_mode="prover"),
-                dict(target_set="s", target="c", backend="y", verdict="reject", try_mode="prover"),
-                dict(target_set="s", target="c", backend="y", verdict="error", try_mode="relay")]
+    def test_posts_the_school_report_and_the_actions_runs(self):
+        import daily_report
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ledger" / "s" / "1.jsonl"
+            f.parent.mkdir(parents=True)
+            f.write_text("".join(json.dumps(dict(ts=ts, target_set="s", target=t, backend=b, verdict=v, mode=m, quality_tier="low")) + "\n"
+                                 for ts, t, b, v, m in [("2026-10-16T10:00:00+00:00", "a", "x", "accept", "relay"),
+                                                        ("2026-10-17T10:00:00+00:00", "a", "x", "accept", "relay"),
+                                                        ("2026-10-17T11:00:00+00:00", "b", "y", "accept", "prover"),
+                                                        ("2026-10-17T12:00:00+00:00", "c", "y", "reject", "prover"),
+                                                        ("2026-10-17T13:00:00+00:00", "c", "y", "error", "relay")]))
+            report = daily_report.build(Path(tmp) / "ledger", datetime(2026, 10, 17, 22, 0, tzinfo=timezone.utc))
         runs = [dict(name="schedule", path=".github/workflows/attempt.yml", conclusion="success"),
                 dict(name="workflow_dispatch", path=".github/workflows/attempt.yml", conclusion="success"),
                 dict(name="prover", path=".github/workflows/prover.yml", conclusion="failure"),
                 dict(name="bench", path=".github/workflows/bench.yml", conclusion="skipped")]
-        text = pi.daily_log(rows, {"s/a"}, runs, "2026-10-17")
+        text = pi.daily_log(report, runs)
         self.assertTrue(text.startswith(pi.LOG_MARKER))
-        self.assertIn("4 tries judged by the Lean kernel, 3 answered, **2 accepted**, by 2 lanes on 3 problems", text)
-        self.assertIn("**First-time solves:** [`s/b`]", text)                 # s/a was solved before the window
-        self.assertNotIn("`s/a`]", text)
-        self.assertIn("| `prover` | 2 | 1 |", text)
+        self.assertIn("**1 first-time solves**, 2 accepts from 3 answered tries by 2 lanes on 3 problems", text)
+        self.assertIn("first solve: `s/b` by y (low, prover)", text)                 # s/a was solved before the window
+        self.assertNotIn("`s/a`", text)
         self.assertIn("**GitHub Actions runs:** attempt 2 success; prover 1 failure\n", text)   # by workflow file, skipped left out
         self.assertIn("kumori_agents.md", text)
-
 
 
 class FakeGitHub:

@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
-import ledger_files
+import daily_report, ledger_files
 import relay
 
 REPO = "kumori-ai/sparebrains"
@@ -193,24 +193,9 @@ def load_rows(since_day):
     return out
 
 
-def daily_log(rows, solved_before, runs, day):
-    """The daily log comment for the 24 hours ending now, from ledger rows and Actions runs: counts only."""
-    judged = [r for r in rows if r.get("verdict") in ("accept", "reject", "error")]
-    answered = [r for r in judged if r["verdict"] in ("accept", "reject")]
-    accepted = [r for r in judged if r["verdict"] == "accept"]
-    first = sorted({key_of(r["target_set"], r["target"]) for r in accepted} - solved_before)
-    modes = defaultdict(lambda: [0, 0])
-    for r in answered:
-        m = modes[r.get("try_mode") or "cold"]
-        m[0] += 1
-        m[1] += r["verdict"] == "accept"
-    lines = [LOG_MARKER, f"**{day}** (the 24 hours to {datetime.now(timezone.utc):%H:%M} UTC)", "",
-             f"{len(judged)} tries judged by the Lean kernel, {len(answered)} answered, **{len(accepted)} accepted**, by "
-             f"{len({r['backend'] for r in judged})} lanes on {len({(r['target_set'], r['target']) for r in judged})} problems.", ""]
-    if first:
-        lines += ["**First-time solves:** " + ", ".join(f"[`{k}`]({relay.SITE}/problems/{k})" for k in first), ""]
-    lines += ["| try mode | answered | accepted |", "|---|---:|---:|"]
-    lines += [f"| `{m}` | {a} | {k} |" for m, (a, k) in sorted(modes.items(), key=lambda x: -x[1][0])]
+def daily_log(report, runs):
+    """The daily log comment: the school report (tools/daily_report.py) plus the Actions runs behind it."""
+    lines = [LOG_MARKER, daily_report.render(report).rstrip()]
     if runs:
         by = defaultdict(lambda: defaultdict(int))
         for r in runs:
@@ -458,15 +443,8 @@ def main():
             print(f"daily log: {day} already posted on #{log['number']}")
         else:
             since = (now - timedelta(hours=24)).isoformat()
-            rows = [r for r in load_rows(f"{now - timedelta(hours=24):%Y-%m-%d}") if (r.get("ts") or "") > since]
-            solved_before = {key_of(r["target_set"], r["target"]) for r in load_rows("0000")
-                             if r.get("verdict") == "accept" and (r.get("ts") or "") <= since}
-            try:
-                runs = gh.call("GET", f"/actions/runs?created=>={since[:19]}&per_page=100")["workflow_runs"]
-            except Exception as e:                   # the Actions line is a nicety; the log posts without it
-                print(f"actions runs unavailable ({type(e).__name__}); log without them")
-                runs = []
-            text = daily_log(rows, solved_before, runs, day)
+            report = daily_report.build(ROOT / "ledger", now)
+            text = daily_log(report, runs)
             if today:                                # a correction is said out loud, never silent
                 text += f"\n\n_Corrected {now:%H:%M} UTC: the first version missed rows that do not open with their timestamp (volunteer hand-offs)._"
                 gh.write("PATCH", f"/issues/comments/{today[-1]['id']}", {"body": text})

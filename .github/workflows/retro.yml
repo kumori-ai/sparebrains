@@ -1,5 +1,5 @@
 # The weekly retro (Kumori task #460; tools/retro.py): last week's tries and accepts by mode, first-time solves,
-# and where the loop stopped, as ledger/retro/<year>-W<week>.md. Read from the ledger only, no model, $0. Daily,
+# and where the loop stopped, as ledger/retro/<year>-W<week>.md; and the daily school report, ledger/daily/<day>.md. Read from the ledger only, no model, $0. Daily,
 # because GitHub's schedule drops events here (attempt.yml, 2026-10-09): a day whose page exists publishes nothing.
 name: retro
 
@@ -32,6 +32,12 @@ jobs:
       - name: last week's failure triage
         run: python3 tools/triage.py | tee -a "$RUNNER_TEMP/out.txt"
 
+      # The daily school report (tools/daily_report.py): the last 24 hours by grade, lane and tool, as
+      # ledger/daily/<day>.{json,md}; the issues workflow posts the same text on the log issue and kumori's
+      # morning mail renders the JSON, so the public log and the mail are one text from one source.
+      - name: today's school report
+        run: python3 tools/daily_report.py | tee -a "$RUNNER_TEMP/out.txt"
+
       - name: publish the page
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,4 +47,4 @@ jobs:
           git config user.email "sparebrains-bot@users.noreply.github.com"
           python3 tools/publish.py --message "retro: $(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-200)
 
-          Generated-by: no model; tools/retro.py and tools/triage.py over the ledger, cost \$0"
+          Generated-by: no model; tools/retro.py, tools/triage.py and tools/daily_report.py over the ledger, cost \$0"
