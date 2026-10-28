@@ -44,7 +44,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   best candidate by `best()`'s own validation rule (Pearson lead, rmse, swap no worse, intervals clear) across every
   evolve file whose exact code has no qualify receipt, one a day; a miss is a receipt and is never re-run; a day with
   nothing new runs no fold. The final test shot stays a person's call (2 of 3 left). First pick, today:
-  evolve-39809530205 round 14, unqualified since 10-22. Deep-search before this (research profile, arxiv + web +
+  evolve-39809530205 round 14, unqualified since 10-22. **Its receipt (qualify-40724328488, 16:52 UTC): missed the
+  bar, and it is the closest yet.** Pearson per cell above knnr at every one of the 6 folds (mean +0.0166, worst
+  +0.0051; the 10-22 candidate was -0.0103 mean), rmse below knnr at 4 of 6, above at normal sites 2 and 3 (0.569
+  vs 0.510, 0.487 vs 0.456): the same shape as shot 1 on test (10-21), correlation up and rmse not, which the
+  10-22 note hypothesised as shrinkage toward the mean. The bar asks for both at every site, so no shot is
+  reserved; the loop runs again tomorrow on whatever evolve adds. Deep-search before this (research profile, arxiv + web +
   github; Reddit via the DDG harvest and Arctic Shift returned nothing on-topic newer than the 2023 LeanDojo
   threads): a held-out fold bar with pre-registered rules is the shape openproblems.bio itself and AlphaEvolve's
   evaluation cascade use (openevolve README, cascade_evaluation; read 2026-10-28); retrieval of premises lifted a
