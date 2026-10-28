@@ -6,7 +6,7 @@ take one of these names (test_ledger_files), or its real tries would be hidden."
 from pathlib import Path
 
 BENCHMARKS = ("speed",)
-NOT_TRIES = BENCHMARKS + ("prover-beats", "replay")   # replay: re-judged stored answers, never new tries (2026-10-24)
+NOT_TRIES = BENCHMARKS + ("prover-beats", "replay", "lane-repair")   # replay, lane-repair: re-judged stored answers, never new tries (2026-10-24, -28)
 LEDGER = Path(__file__).resolve().parent.parent / "ledger"
 
 

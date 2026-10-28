@@ -38,6 +38,31 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
   receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
   #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
+- **A free lane writes a repair pass, rules written before it runs (2026-10-28; Andy's school: the stronger free
+  lanes teach the weaker, Kumori's tools carry the lesson; no frontier model in the loop).** The question: can a
+  free lane write a python repair pass that turns stored rejects our chain still rejects after its own run? The
+  frozen groq-allam replay (ledger/replay/, 2026-10-24) sets the cohort. On the tune half the chain itself turns
+  6 of 44 unknown_name rejects, 2 of 47 lean3_syntax, 20 of 54 unsolved_goals (Codex f1: the first draft here said
+  "0", which was the on-arm vs off-arm difference, not the chain's lift); the experiment is the residual, the rows
+  the chain's `on` arm still rejects: unknown_name 38 tune on 33 problems, 26 report on 22; "tools today: 0" is
+  true of that residual only and is said so. `tools/lane_repair.py`: the writer is one Kumori router lane named
+  per run (strongest free tier first), asked with the class, the contract `repair(proof, lean_output) -> proof`,
+  our pass for that class as the thing to beat, and up to 8 example (proof, Lean output) pairs drawn from the TUNE
+  half only; a candidate that crashes or changes nothing on the examples goes back to the writer with the
+  traceback, at most 2 repairs a round, at most 12 writer asks a run (the evolve loop's shape). Untrusted python
+  runs only in the candidate container (`tools/sandbox`, gVisor, no network, read-only root, a second entry
+  `repair_entry.py`: JSON lines in, JSON lines out); the host validates the output (every id once, nothing unsent,
+  every proof a string under 20,000 chars, 4 MB total) and judges each repaired proof by the kernel in CI's judge
+  sandbox, each independently, under the target's own prefix. Score: residual tune rejects turned. A candidate is
+  kept at 3 or more (a screening rule, not evidence); every kept candidate runs ONCE on the report half and every
+  kept candidate's report result is published, no winner picked on report. What we may say: the report half's
+  count of distinct problems turned with its Wilson interval over problems (repeated attempts of one problem are
+  one observation, Codex f2), attempt counts beside it as description. The writer never sees a report-half row.
+  A run has an overall deadline (`--max-minutes`, 300); work past it is recorded pending, never as a miss, and a
+  cut-off tune run keeps nothing (Codex f4). Credit: the row names the writer lane and the pass's sha. Cost $0
+  (free lanes); runner time about one kernel judge per changed proof. First class: unknown_name. Expected before it
+  runs: a miss is likelier than not; a miss still measures the writer lanes' ceiling on this work, which the school
+  needs to know. Codex DISAGREE 20261028T153820660037Z (f1 blocking, fixed here; f2-f4 built in), round 2 pending.
 - **The reach run's verdict (rules written 2026-10-19, judged 2026-10-28).** Runs 39301536190 and 39328013197
   together: 59 open problems (32 and 27; one of the planned 60 is missing from job 2), tools arm solved 2
   (amc12_2001_p21, amc12a_2009_p6), alone arm 3 (algebra_sum1onsqrt2to1onsqrt10000lt198, induction_sumkexp3eqsumksq,

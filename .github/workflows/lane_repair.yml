@@ -1,0 +1,77 @@
+# A free lane writes a repair pass (DECISIONS.md 2026-10-28, rules written before it runs; tools/lane_repair.py): one
+# Kumori router lane writes python for one failure class, its code runs only in the candidate container (gVisor, no
+# network), every repaired proof is judged by the kernel in the judge sandbox, selection on the tune half, one report-half
+# run per kept pass. Dispatch by hand, one job, $0 in model cost (free lanes).
+name: lane-repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      failure_class:
+        description: "the class the pass is for"
+        type: choice
+        options: [unknown_name, lean3_syntax, unsolved_goals]
+        default: unknown_name
+      lane:
+        description: "the writer: a Kumori router lane"
+        default: "requesty-leanstral-1-5"
+      rounds:
+        description: "writer asks at most, repairs included"
+        default: "12"
+
+permissions:
+  contents: write        # publish the ledger rows
+
+concurrency:
+  group: lane-repair
+  cancel-in-progress: false
+
+jobs:
+  write-and-score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted code runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests
+
+      - name: lean + mathlib cache + build
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: candidate sandbox (gVisor, no network; proven before any candidate runs)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy
+          PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
+
+      - name: write and score
+        env:
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          python3 tools/lane_repair.py --class "${{ inputs.failure_class }}" --lane "${{ inputs.lane }}" \
+            --rounds "${{ inputs.rounds }}" 2>&1 | tee "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
+
+      - name: publish the ledger
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls ledger/lane-repair/*.jsonl >/dev/null 2>&1 || exit 0
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "lane repair $GITHUB_RUN_ID: $SUMMARY
+
+          Generated-by: router lane ${{ inputs.lane }} via Kumori wrote the pass, cost \$0; scored by tools/lane_repair.py, verifier Lean v4.33.1 + mathlib (tools/check.py) in the judge sandbox"
