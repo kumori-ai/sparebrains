@@ -49,10 +49,10 @@ class Loop(unittest.TestCase):
         self.judge = lambda text: {"verdict": "accept" if "bar" in text and "foo" not in text else "reject"}
         self.prefix = lambda s, t: "import Mathlib"
 
-    def run_loop(self, replies, keep_at=3):
+    def run_loop(self, replies, keep_at=3, **kw):
         it = iter(replies)
-        return lr.run("unknown_name", lambda p: next(it), "lane-w", self.cohort, set(range(1, 13)), self.half,
-                      in_process_runner, self.judge, self.prefix, rounds=len(replies), keep_at=keep_at)
+        return lr.run("unknown_name", [("lane-w", lambda p: next(it))], self.cohort, set(range(1, 13)), self.half,
+                      in_process_runner, self.judge, self.prefix, rounds=len(replies), keep_at=keep_at, **kw)
 
     def test_a_pass_that_turns_enough_tune_rejects_is_kept_and_run_once_on_the_report_half(self):
         rows = self.run_loop([GOOD])
@@ -71,10 +71,46 @@ class Loop(unittest.TestCase):
         self.assertEqual((r["turned"], r["n"], r["problems_turned"], r["problems"]), (2, 3, 1, 2))
 
     def test_a_cut_off_tune_run_is_pending_and_decides_nothing(self):
-        it = iter([GOOD])
-        rows = lr.run("unknown_name", lambda p: next(it), "lane-w", self.cohort, set(range(1, 13)), self.half,
-                      in_process_runner, self.judge, self.prefix, rounds=1, max_minutes=-1)
+        rows = self.run_loop([GOOD], max_minutes=-1)
         self.assertEqual(rows[0].get("pending"), "deadline after 0 asks")
+
+    def test_a_refused_writer_hands_the_ask_to_the_next_lane_without_spending_a_round(self):
+        refuse = lambda p: {"error": "KumoriAPIError: x is benched: rate limited by the upstream free tier"}
+        it = iter([GOOD])
+        rows = lr.run("unknown_name", [("benched", refuse), ("lane-w", lambda p: next(it))], self.cohort,
+                      set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=1)
+        self.assertEqual((rows[0]["writer"], rows[0]["kept"]), ("lane-w", True))
+
+    def test_every_writer_refused_is_one_row_and_the_end(self):
+        refuse = lambda p: {"error": "x is benched: rate limited"}
+        rows = lr.run("unknown_name", [("a", refuse), ("b", refuse)], self.cohort, set(range(1, 13)), self.half,
+                      in_process_runner, self.judge, self.prefix, rounds=4)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("every writer refused", rows[0]["refused"])
+
+    def test_rows_reach_the_sink_as_they_finish_and_a_report_crash_is_on_its_row(self):
+        seen = []
+        calls = {"n": 0}
+        def judge(text):
+            calls["n"] += 1
+            if calls["n"] > 6:                             # the tune half judged fine; the report half's judge dies
+                raise RuntimeError("report-only crash")
+            return self.judge(text)
+        it = iter([GOOD, NOOP])
+        rows = lr.run("unknown_name", [("lane-w", lambda p: next(it))], self.cohort, set(range(1, 13)), self.half,
+                      in_process_runner, judge, self.prefix, rounds=2, sink=seen.append)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual((rows[0]["kept"], rows[0]["tune_turned"]), (True, 6))
+        self.assertTrue(rows[0]["error"].startswith("report: RuntimeError"))
+        self.assertNotIn("report_turned", rows[0])
+
+    def test_stdout_is_bounded_while_it_streams(self):
+        import io
+        with self.assertRaises(RuntimeError):
+            lr.read_bounded(io.StringIO("x" * 200), cap=100)
+        self.assertEqual(lr.read_bounded(io.StringIO("ok"), cap=100), "ok")
+        with self.assertRaises(ValueError):
+            lr.parse_output('{"id": 1, "proof": "a"}\n{"id": 1, "proof": "b"}\n')
 
     def test_the_output_protocol_refuses_extra_missing_or_oversized_proofs(self):
         its = [{"id": 1, "target_set": "s", "target": "a", "proof": "x", "lean_output": ""}]

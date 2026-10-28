@@ -7,7 +7,7 @@ no accept the tools already had is ever the pass's credit (the chain turns 6 of 
 itself; the residual 38 is this experiment's whole cohort, Codex f1 2026-10-28). Kept at `keep_at` tune turns; a kept pass runs once on
 the report half, and the report half's count with its Wilson interval is all that may be claimed.
 
-    python3 tools/lane_repair.py --class unknown_name --lane requesty-leanstral-1-5 --rounds 12     # CI's sandbox only
+    python3 tools/lane_repair.py --class unknown_name --lanes requesty-leanstral-1-5,mistral-codestral-latest --rounds 12   # CI only
     python3 tools/lane_repair.py --class unknown_name --count                                      # what it would score
 """
 import argparse, hashlib, json, os, subprocess, sys, tempfile, time
@@ -104,22 +104,55 @@ def container_runner(code, its, image="sb-candidate", timeout=600):
                "--mount", f"type=bind,src={entry},dst=/app/repair_entry.py,readonly",
                image, "python", "-I", "/app/repair_entry.py", "/app/cand.py"]
         feed = "".join(json.dumps({"id": it["id"], "proof": it["proof"], "lean_output": it["lean_output"]}) + "\n" for it in its)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        import threading
+        err_tail = {"text": ""}
+        def drain_err():
+            for line in proc.stderr:
+                err_tail["text"] = (err_tail["text"] + line)[-1500:]
+        threading.Thread(target=drain_err, daemon=True).start()
         try:
-            r = subprocess.run(cmd, input=feed, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"candidate ran past {timeout} s on {len(its)} proofs")
-        if r.returncode != 0:
-            raise RuntimeError(r.stderr[-1500:] or f"exit {r.returncode}")
-        if len(r.stdout) > MAX_OUT_BYTES:
-            raise RuntimeError(f"output {len(r.stdout):,} bytes (cap {MAX_OUT_BYTES:,})")
-        got = {}
-        for line in r.stdout.splitlines():
-            if line.strip():
-                o = json.loads(line)
-                if o["id"] in got:
-                    raise RuntimeError(f"id {o['id']} answered twice")
-                got[o["id"]] = o["proof"]
-        return validate_output(its, got)
+            proc.stdin.write(feed)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        try:
+            out = read_bounded(proc.stdout, MAX_OUT_BYTES, deadline=time.time() + timeout)
+        except Exception:
+            proc.kill()
+            proc.wait()
+            raise
+        rc = proc.wait(timeout=30)
+        if rc != 0:
+            raise RuntimeError(err_tail["text"] or f"exit {rc}")
+        return validate_output(its, parse_output(out))
+
+
+def read_bounded(stream, cap, deadline=None):
+    """Read a candidate's stdout while it streams, never past `cap` bytes or `deadline`: the host's memory is not the
+    candidate's to spend (Codex f3, 2026-10-28)."""
+    chunks, size = [], 0
+    while True:
+        if deadline and time.time() > deadline:
+            raise RuntimeError("candidate ran past its deadline")
+        chunk = stream.read(65536)
+        if not chunk:
+            return "".join(chunks)
+        size += len(chunk)
+        if size > cap:
+            raise RuntimeError(f"output past {cap:,} bytes")
+        chunks.append(chunk)
+
+
+def parse_output(text):
+    got = {}
+    for line in text.splitlines():
+        if line.strip():
+            o = json.loads(line)
+            if o["id"] in got:
+                raise ValueError(f"id {o['id']} answered twice")
+            got[o["id"]] = o["proof"]
+    return got
 
 
 MAX_PROOF_CHARS, MAX_OUT_BYTES = 20_000, 4_000_000
@@ -183,24 +216,52 @@ def half_result(its, turned, pending):
             "problems_turned": len(hit), "problems": len(probs), "wilson95_problems": [lo, hi]}
 
 
-def run(cls, ask, writer, cohort, still_rejected, half, runner, judge, prefix_of, rounds=MAX_ASKS, keep_at=KEEP_AT,
-        repairs=REPAIRS, log=lambda s: None, max_minutes=None):
+REFUSED = ("is benched", "rate limit", "spent its share", "is gated", "held_for_others")
+
+
+def refused(reply):
+    return not isinstance(reply, str) and any(w in str(reply.get("error", "")) for w in REFUSED)
+
+
+def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, rounds=MAX_ASKS, keep_at=KEEP_AT,
+        repairs=REPAIRS, log=lambda s: None, max_minutes=None, sink=lambda row: None):
+    """`writers`: [(lane, ask)] in preference order; a refused ask (the router benched or gated the lane) moves to the
+    next lane without spending a round, and a round where every writer refused is one row and the end of the run.
+    Every row goes to `sink` the moment it is complete (Codex f5: a later crash loses nothing earlier)."""
     deadline = time.time() + 60 * max_minutes if max_minutes else None
+
+    def ask_any(prompt):
+        for lane, ask in writers:
+            reply = ask(prompt)
+            if not refused(reply):
+                return lane, reply
+        return None, reply
     exs = examples(cohort, cls, half)
     tune, report = items(cohort, cls, still_rejected, half, "tune"), items(cohort, cls, still_rejected, half, "report")
     ours = our_pass_source(cls) if cls in OUR_PASS else "(no pass of ours targets this class yet)"
     rows, asks, last = [], 0, None
+
+    def emit(row):
+        rows.append(row)
+        sink(row)
+        log(json.dumps({k: v for k, v in row.items() if k not in ("code", "tune_ids", "report_ids")})[:400])
+
     while asks < rounds:
         if deadline and time.time() > deadline:
-            rows.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": writer,
-                         "round": len(rows), "pending": f"deadline after {asks} asks"})
+            emit({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": None,
+                  "round": len(rows), "pending": f"deadline after {asks} asks"})
             break
         prompt = brief(cls, exs, ours)
         if last is not None:
             prompt += ("\n\nYour last attempt " + (f"crashed: {last['error'][-800:]}" if "error" in last
                        else f"turned {last['tune_turned']} of {last['tune_n']} rejects on our side") + ". Do better.")
         t = time.time()
-        reply = ask(prompt)
+        writer, reply = ask_any(prompt)
+        if writer is None:
+            emit({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": None,
+                  "round": len(rows), "refused": f"every writer refused: {reply.get('error')}"[:300]})
+            break
+        ask = dict(writers)[writer]
         asks += 1
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": writer,
                "round": len(rows), "ask_s": round(time.time() - t, 1), "repair_asks": 0, "screen_errors": []}
@@ -235,14 +296,16 @@ def run(cls, ask, writer, cohort, still_rejected, half, runner, judge, prefix_of
                            tune_problems_turned=t_res["problems_turned"], tune_problems=t_res["problems"])
                 row["kept"] = len(turned) >= keep_at and not pend       # a cut-off tune run decides nothing
                 if row["kept"]:                                          # once, the only claim; every kept pass published
-                    rep, rpend = score(code, report, runner, judge, prefix_of, deadline)
-                    r_res = half_result(report, rep, rpend)
-                    row.update(report_turned=r_res["turned"], report_n=r_res["n"], report_ids=rep, report_pending=rpend,
-                               report_problems_turned=r_res["problems_turned"], report_problems=r_res["problems"],
-                               wilson95=r_res["wilson95_problems"])
-        rows.append(row)
+                    try:
+                        rep, rpend = score(code, report, runner, judge, prefix_of, deadline)
+                        r_res = half_result(report, rep, rpend)
+                        row.update(report_turned=r_res["turned"], report_n=r_res["n"], report_ids=rep, report_pending=rpend,
+                                   report_problems_turned=r_res["problems_turned"], report_problems=r_res["problems"],
+                                   wilson95=r_res["wilson95_problems"])
+                    except Exception as e:                                # the row says so; earlier rows are already out
+                        row["error"] = f"report: {type(e).__name__}: {e}"[-500:]
+        emit(row)
         last = row
-        log(json.dumps({k: v for k, v in row.items() if k not in ("code", "tune_ids", "report_ids")})[:400])
     return rows
 
 
@@ -259,7 +322,7 @@ def still_rejected_by_tools():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--class", dest="cls", required=True, choices=sorted(OUR_PASS))
-    ap.add_argument("--lane", help="the writer: a Kumori router lane")
+    ap.add_argument("--lanes", help="the writers, Kumori router lanes in preference order, comma-separated")
     ap.add_argument("--rounds", type=int, default=MAX_ASKS)
     ap.add_argument("--count", action="store_true", help="print the tune and report counts and stop (no model, no Lean)")
     ap.add_argument("--out", default=None)
@@ -274,21 +337,23 @@ def main(argv=None):
           f"{len(examples(cohort, a.cls, problem_half))} examples for the writer", flush=True)
     if a.count:
         return 0
-    if not a.lane:
-        sys.exit("--lane names the writer")
+    if not a.lanes:
+        sys.exit("--lanes names the writers")
     import decompose, lean_tools
-    ask, _ = decompose.router_ask(a.lane)
+    writers = [(lane, decompose.router_ask(lane)[0]) for lane in a.lanes.split(",") if lane.strip()]
     prefix_of = lambda s, t: (lambda text: text[:PROOF_SEP.search(text).end()])((ROOT / "targets" / s / f"{t}.lean").read_text())
     run_id = os.environ.get("GITHUB_RUN_ID") or datetime.now(timezone.utc).strftime("local-%Y%m%dT%H%M%S")
     out = Path(a.out) if a.out else OUT / f"{a.cls}-{run_id}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
-    rows = run(a.cls, ask, a.lane, cohort, still, problem_half, container_runner, lean_tools.judge_text, prefix_of,
-               rounds=a.rounds, log=lambda s: print(s, flush=True), max_minutes=a.max_minutes)
-    with out.open("a") as fh:
-        fh.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    def sink(row):
+        with out.open("a") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    rows = run(a.cls, writers, cohort, still, problem_half, container_runner, lean_tools.judge_text, prefix_of,
+               rounds=a.rounds, log=lambda s: print(s, flush=True), max_minutes=a.max_minutes, sink=sink)
     kept = [r for r in rows if r.get("kept")]
-    print(f"{a.cls} by {a.lane}: {len(rows)} candidates, {len(kept)} kept"
-          + (f"; best report {max(r['report_turned'] for r in kept)} of {kept[0]['report_n']}" if kept else "; a miss"))
+    each = "; ".join(f"{r['writer']} r{r['round']}: report {r.get('report_problems_turned', '?')} of {r.get('report_problems', '?')} problems"
+                     for r in kept)                       # every kept pass, its own held-out result; no winner (Codex f6)
+    print(f"{a.cls}: {len(rows)} rows, {len(kept)} kept" + (f"; {each}" if kept else "; a miss"))
     return 0
 
 
