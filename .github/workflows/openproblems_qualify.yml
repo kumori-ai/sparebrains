@@ -1,18 +1,25 @@
 # Leave-one-site-out before any test scoring (task #477; DECISIONS 2026-10-22): one evolve candidate, every training
 # site held out in turn, both directions, each run in its own gVisor container; it must beat knnr on rmse and Pearson
 # at every site. Training files only: the test set is never downloaded here. A shot can be reserved only for a
-# candidate whose exact code has a passing receipt. Dispatch by hand.
+# candidate whose exact code has a passing receipt. By hand with a named candidate, or daily (2026-10-28, after the
+# 09:00 UTC evolve): `openproblems.py next-qualify` picks the best candidate by the bar's own validation rule whose
+# exact code has no receipt yet, one a day, and a day with nothing new runs nothing. A pass is reserved for a final
+# shot by hand (2 of 3 left); a miss is a receipt and is never re-run.
 name: openproblems-qualify
 
 on:
+  schedule:
+    - cron: "0 15 * * *"
   workflow_dispatch:
     inputs:
       evolve_file:
-        description: "ledger/openproblems/evolve-RUN.jsonl holding the candidate"
-        required: true
+        description: "ledger/openproblems/evolve-RUN.jsonl holding the candidate (empty = the daily pick)"
+        required: false
+        default: ""
       round:
-        description: "the candidate's round in that file"
-        required: true
+        description: "the candidate's round in that file (empty = the daily pick)"
+        required: false
+        default: ""
 
 permissions:
   contents: write        # publish the receipt
@@ -31,19 +38,36 @@ jobs:
           ref: main
           persist-credentials: false        # no push token on disk while untrusted code runs
 
+      - name: the candidate (named, or the daily pick)
+        id: pick
+        run: |
+          if [ -n "${{ inputs.evolve_file }}" ]; then
+            echo "evolve_file=${{ inputs.evolve_file }}" >> "$GITHUB_OUTPUT"
+            echo "round=${{ inputs.round }}" >> "$GITHUB_OUTPUT"
+          else
+            pick=$(python3 -I tools/openproblems.py next-qualify)
+            echo "daily pick: $pick"
+            if [ "$pick" = "none" ]; then echo "nothing new passes the validation bar; no fold is run"; exit 0; fi
+            echo "evolve_file=$(echo "$pick" | python3 -c 'import json,sys; print(json.load(sys.stdin)["evolve_file"])')" >> "$GITHUB_OUTPUT"
+            echo "round=$(echo "$pick" | python3 -c 'import json,sys; print(json.load(sys.stdin)["round"])')" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: python env
+        if: steps.pick.outputs.evolve_file != ''
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests
 
       - name: candidate sandbox
+        if: steps.pick.outputs.evolve_file != ''
         run: PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
 
       - name: leave one site out
+        if: steps.pick.outputs.evolve_file != ''
         shell: bash
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py qualify --work "$RUNNER_TEMP/op" \
-            --evolve-file "${{ inputs.evolve_file }}" --round "${{ inputs.round }}" \
+            --evolve-file "${{ steps.pick.outputs.evolve_file }}" --round "${{ steps.pick.outputs.round }}" \
             --out "ledger/openproblems/qualify-${GITHUB_RUN_ID}.json" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
@@ -60,6 +84,6 @@ jobs:
           git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
-          python3 tools/publish.py --message "openproblems qualify $GITHUB_RUN_ID: ${{ inputs.evolve_file }} round ${{ inputs.round }}: $SUMMARY
+          python3 tools/publish.py --message "openproblems qualify $GITHUB_RUN_ID: ${{ steps.pick.outputs.evolve_file }} round ${{ steps.pick.outputs.round }}: $SUMMARY
 
           Training data only, each fold's candidate in its own gVisor container, reference knnr_chunked (random_state 0), cost \$0"

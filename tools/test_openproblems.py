@@ -582,3 +582,35 @@ class Final(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NextQualify(unittest.TestCase):
+    """The scheduled qualify (2026-10-28): the best candidate by the bar's own rule, across every evolve file, whose
+    exact code has no qualify receipt yet; nothing when none is new. Rows and receipts are stand-ins."""
+    REF = {"rmse": 1.0, "mean_pearson_per_cell": 0.70}
+
+    def rows(self):
+        good = lambda rnd, pear, code: {"round": rnd, "code": code, "reference": {"knnr_py": self.REF},
+                                        "metrics": {"rmse": 0.9, "mean_pearson_per_cell": pear}}
+        return {"ledger/openproblems/evolve-1.jsonl": [good(0, 0.72, "a"), {"round": 1, "error": "crash"}],
+                "ledger/openproblems/evolve-2.jsonl": [good(0, 0.75, "b"), good(1, 0.71, "c")]}
+
+    def test_the_best_unqualified_candidate_by_pearson(self):
+        pick = op.next_qualify(self.rows(), [])
+        self.assertEqual((pick["evolve_file"], pick["round"]), ("ledger/openproblems/evolve-2.jsonl", 0))
+
+    def test_a_candidate_with_a_receipt_for_its_exact_code_is_skipped(self):
+        import hashlib
+        receipts = [{"code_sha": hashlib.sha256(b"b").hexdigest(), "verdict": {"passed": False}}]
+        pick = op.next_qualify(self.rows(), receipts)
+        self.assertEqual((pick["evolve_file"], pick["round"]), ("ledger/openproblems/evolve-1.jsonl", 0))
+
+    def test_nothing_new_is_none(self):
+        import hashlib
+        receipts = [{"code_sha": hashlib.sha256(c.encode()).hexdigest()} for c in "abc"]
+        self.assertIsNone(op.next_qualify(self.rows(), receipts))
+
+    def test_a_candidate_below_the_bar_is_never_picked(self):
+        rows = {"ledger/openproblems/evolve-3.jsonl": [{"round": 0, "code": "z", "reference": {"knnr_py": self.REF},
+                                                        "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.80}}]}
+        self.assertIsNone(op.next_qualify(rows, []))

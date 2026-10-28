@@ -712,6 +712,27 @@ def check_qualified(ledger_dir, source, code):
     sys.exit("no passing leave-one-site-out receipt for this candidate's exact code (run openproblems_qualify)")
 
 
+def next_qualify(rows_by_file, receipts):
+    """The scheduled qualify's pick (2026-10-28): across every evolve file, the best candidate by best()'s rule against
+    its own run's reference, whose exact code no qualify receipt names yet; None when nothing is new. One pick a day:
+    the receipt (pass or miss) is what stops it being picked again, so a miss is never re-run and a pass is reserved
+    by hand (the final shots stay a person's call)."""
+    import hashlib
+    done = {r.get("code_sha") for r in receipts}
+    cands = []
+    for f, rows in rows_by_file.items():
+        for r in rows:
+            if "metrics" not in r or not r.get("code") or hashlib.sha256(r["code"].encode()).hexdigest() in done:
+                continue
+            ref = next(iter((r.get("reference") or {}).values()), None)
+            if ref and best([r], ref):
+                cands.append((r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"], f, r["round"]))
+    if not cands:
+        return None
+    _, _, f, rnd = max(cands)
+    return {"evolve_file": f, "round": rnd}
+
+
 def qualify(work, code, source, out):
     """Leave-one-site-out on the training data only (the test files are never downloaded here), both directions."""
     import anndata as ad
@@ -1110,7 +1131,7 @@ def final(work, code, source, out):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check",
+    ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check", "next-qualify",
                                    "qualify"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
@@ -1131,6 +1152,14 @@ def main():
         return 0
     if a.cmd == "sandbox-check":
         return sandbox_check(Path(a.work or tempfile.mkdtemp()))
+    if a.cmd == "next-qualify":             # prints the pick as JSON, or "none"; no data, no model
+        led = ROOT / "ledger" / "openproblems"
+        rows = {str(f.relative_to(ROOT)): [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+                for f in sorted(led.glob("evolve-*.jsonl"))}
+        receipts = [json.loads(f.read_text()) for f in led.glob("qualify-*.json")]
+        pick = next_qualify(rows, receipts)
+        print(json.dumps(pick) if pick else "none")
+        return 0
     if a.cmd == "qualify":
         return qualify(Path(a.work), candidate_from(a.evolve_file, a.round), {"evolve_file": a.evolve_file, "round": a.round},
                        a.out)

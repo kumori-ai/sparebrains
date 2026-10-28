@@ -38,6 +38,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
   receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
   #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
+- **The biology rung runs itself up to the shot (Andy: "build 2 first", 2026-10-28).** Evolve was put on a daily
+  cron this morning; qualify, the leave-one-site-out bar that selects a candidate, was still by hand, so a passing
+  candidate would sit. Now `openproblems_qualify.yml` runs daily 15:00 UTC: `openproblems.py next-qualify` picks the
+  best candidate by `best()`'s own validation rule (Pearson lead, rmse, swap no worse, intervals clear) across every
+  evolve file whose exact code has no qualify receipt, one a day; a miss is a receipt and is never re-run; a day with
+  nothing new runs no fold. The final test shot stays a person's call (2 of 3 left). First pick, today:
+  evolve-39809530205 round 14, unqualified since 10-22. Deep-search before this (research profile, arxiv + web +
+  github; Reddit via the DDG harvest and Arctic Shift returned nothing on-topic newer than the 2023 LeanDojo
+  threads): a held-out fold bar with pre-registered rules is the shape openproblems.bio itself and AlphaEvolve's
+  evaluation cascade use (openevolve README, cascade_evaluation; read 2026-10-28); retrieval of premises lifted a
+  small prover 47.6% to 51.2% on mathlib's random split in LeanDojo/ReProver (arXiv 2306.15626, 2023), the receipt
+  behind the lessons station as the next math build; expert iteration is how Goedel-Prover was built
+  (goedel-lm.github.io, 2025), and what the "3B comes up to speed" claim would need to be literal.
 - **A free lane writes a repair pass, rules written before it runs (2026-10-28; Andy's school: the stronger free
   lanes teach the weaker, Kumori's tools carry the lesson; no frontier model in the loop).** The question: can a
   free lane write a python repair pass that turns stored rejects our chain still rejects after its own run? The
