@@ -396,6 +396,29 @@ def publish_solves(solves, goals_by_sha, run_id, record, judge_text):
                               record=record, run_id=run_id, lane=TACTIC_LANE)
 
 
+def unswept(goals, sweep_rows, recipes):
+    """The goals some recipe in `recipes` has never been tried on (by sha): what a scheduled sweep owes. A goal
+    every recipe has a row for is done, whatever the outcome; a new recipe makes every goal new again."""
+    tried = {}
+    for r in sweep_rows:
+        tried.setdefault(r.get("sha"), set()).add(r.get("recipe"))
+    # A templated recipe (@nlinarith-sq, @interval-cases) leaves no row on a goal it cannot be built for, so it
+    # never decides; a goal with any row was offered every template of its sweep.
+    literal = {r for r in recipes if not r.startswith("@")}
+    return [g for g in goals if g["sha"] not in tried or not literal <= tried[g["sha"]]]
+
+
+def sweep_rows():
+    out = []
+    for f in sorted((ROOT / "ledger" / "tactics").glob("sweep-*.jsonl")):
+        for line in f.open():
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                pass
+    return out
+
+
 def run_sweep(args):
     """`sweep`: every recipe on the open goals (the stored queue, readable ones) and on the solved problems' goals,
     one slice of them. Rows go to --out (the ledger); solves are reported by name only, never as proof text."""
@@ -407,8 +430,21 @@ def run_sweep(args):
     still_open = {(t["target_set"], t["target"]) for t in targets["open"]}      # the queue is a snapshot
     open_goals = [{**g, "status": "open"} for g in json.loads(QUEUE.read_text())
                   if g.get("file_ok") and (g["target_set"], g["target"]) in still_open]
-    solved_goals, read = _load("solved")
-    goals = sorted(open_goals + [{**g, "status": "solved"} for g in solved_goals], key=lambda g: g["sha"])[k::n]
+    if args.new_only:
+        # The scheduled sweep: every open problem's one-step goal in the ledger today, the queue's included, minus
+        # those every recipe has a row for; the solved problems' back-check stays with the hand-dispatched sweep.
+        fresh, read = _load("open")
+        queued = {g["sha"] for g in open_goals}
+        open_goals += [{**g, "status": "open", "file_ok": None} for g in fresh if g["sha"] not in queued]
+        goals = unswept(open_goals, sweep_rows(), recipes)
+        if args.count_new:
+            print(len(goals))
+            return 0
+        solved_goals = []
+    else:
+        solved_goals, read = _load("solved")
+    goals = sorted(goals if args.new_only else open_goals + [{**g, "status": "solved"} for g in solved_goals],
+                   key=lambda g: g["sha"])[k::n]
     rows, cands = sweep(goals, recipes, read, lean_tools.run_lean, lean_tools.judge_text, lambda g: g["status"],
                         args.jobs)
     for r in rows:
@@ -451,6 +487,8 @@ def main():
     ap.add_argument("--recipes", help="sweep: recipes separated by `,`, steps within one by `;`")
     ap.add_argument("--slice", default="0/1", help="sweep: k/N, every Nth goal from k, for a matrix of jobs")
     ap.add_argument("--publish", action="store_true", help="sweep: record solves outside the bar (needs KUMORI_API_KEY)")
+    ap.add_argument("--new-only", action="store_true", help="sweep: only open goals no recipe here has been tried on (the schedule)")
+    ap.add_argument("--count-new", action="store_true", help="sweep: print how many goals --new-only would take, and stop")
     ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
     ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")

@@ -18,6 +18,14 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   07:00 mail is to render the JSON (kumori's side, handed to a kumori session). What the first run showed
   (2026-10-28 15:09 UTC): 0 first-time solves, goal-closer idle 7.5 days, formal-conjectures 6.5, openproblems.bio
   5.7, relay backed off, and the 3B lane at 11 of 26 first accepts against 3 of 11 the week before. 439 tests OK.
+- **Two idle rungs get a schedule (Andy: "go build it", 2026-10-28).** The goal closer, by hand only since 10-19,
+  made 11 of W43's 28 first-time solves at 11 for 11 tries and then sat 7.5 days; the biology evolve sat 5.7. Now:
+  `tactics.yml` runs Sunday 03:10 UTC on `--new-only`, the open problems' one-step goals no literal recipe has a
+  row for (a templated recipe leaves no row where it cannot be built, so it never decides; 105 goals on 10-28,
+  of 300 open one-step goals in the ledger, 208 queued), about 30 goals a job and 4 jobs at most, no job when
+  nothing is new, so no Lean run repeats (the 10-19 Actions rule). `openproblems.yml` runs daily 09:00 UTC, 12
+  Leanstral asks seeded from every evolve row, same bar, same sandbox; final test shots stay by hand (2 of 3 left).
+  The hand dispatches keep their inputs. 443 tests OK.
 - **The reach run's verdict (rules written 2026-10-19, judged 2026-10-28).** Runs 39301536190 and 39328013197
   together: 59 open problems (32 and 27; one of the planned 60 is missing from job 2), tools arm solved 2
   (amc12_2001_p21, amc12a_2009_p6), alone arm 3 (algebra_sum1onsqrt2to1onsqrt10000lt198, induction_sumkexp3eqsumksq,

@@ -1,9 +1,13 @@
 # openproblems.bio predict_modality (task #477, roadmap row 11; the bar in DECISIONS.md 2026-10-20): a free model
 # writes predict(), and each candidate runs as a separate user on the site-1 validation split only. The test set is
-# never scored here. Dispatch by hand.
+# never scored here. By hand, and once a day (2026-10-28): 12 Leanstral asks seeded from every evolve row so far, at a
+# quiet hour for the shared free key, because the rung sat idle 6 days with nothing dispatching it (its last run
+# 2026-10-22 19:17 UTC) while the ladder ran 400 jobs; the daily report (ledger/daily/) shows each day's rounds.
 name: openproblems
 
 on:
+  schedule:
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       rounds:
@@ -72,8 +76,8 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
-          "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py evolve --work "$RUNNER_TEMP/op" --rounds "${{ inputs.rounds }}" \
-            --lane "${{ inputs.lane }}" --max-asks "${{ inputs.max_asks }}" --seed-upto "${{ inputs.seed_upto }}" \
+          "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py evolve --work "$RUNNER_TEMP/op" --rounds "${{ inputs.rounds || 12 }}" \
+            --lane "${{ inputs.lane || 'leanstral' }}" --max-asks "${{ inputs.max_asks || 0 }}" --seed-upto "${{ inputs.seed_upto || '' }}" \
             --out "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
@@ -89,5 +93,5 @@ jobs:
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
           python3 tools/publish.py --message "openproblems evolve $GITHUB_RUN_ID: $SUMMARY
 
-          Generated-by: ${{ inputs.lane == 'leanstral' && 'Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral''s Labs API' || format('router lane {0} via Kumori', inputs.lane) }}, cost \$0, via tools/openproblems.py; scored on the site-1 validation split only
+          Generated-by: ${{ (inputs.lane || 'leanstral') == 'leanstral' && 'Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral''s Labs API' || format('router lane {0} via Kumori', inputs.lane) }}, cost \$0, via tools/openproblems.py; scored on the site-1 validation split only
           Run on: $MACHINE"

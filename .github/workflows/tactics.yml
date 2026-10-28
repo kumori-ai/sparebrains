@@ -2,11 +2,16 @@
 # loop left, on the open problems and, as a back-check, on the solved ones, Lean only, no model asked. One Lean run
 # per goal holds all recipes; the kernel's full judge and splice decide every solve. Rows go to the ledger
 # (ledger/tactics/), with timings, and carry no proof text; a solve outside the stage-3 bar's 50 is recorded like a
-# goal batch's (the kernel judges it again, ledger, verified/, the site), and one on the bar's 50 waits for its grading. Dispatch by hand: on
-# demand and capped (GitHub's terms: project work only, proportionate; 10 jobs is half the Free plan's 20).
+# goal batch's (the kernel judges it again, ledger, verified/, the site), and one on the bar's 50 waits for its grading. By hand: on
+# demand and capped (GitHub's terms: project work only, proportionate; 10 jobs is half the Free plan's 20). Weekly
+# (2026-10-28): only the open problems' goals no recipe has been tried on yet (`--new-only`: the loop leaves new
+# one-step goals every night; 105 unswept on 2026-10-28, and goal-closer made 11 of W43's 28 first solves at 11 for 11),
+# at most 4 jobs, none when there is nothing new. Never the same Lean run twice.
 name: tactics
 
 on:
+  schedule:
+    - cron: "10 3 * * 0"
   workflow_dispatch:
     inputs:
       recipes:
@@ -34,14 +39,31 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       slices: ${{ steps.s.outputs.slices }}
+      new_only: ${{ steps.s.outputs.new_only }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
       - id: s
+        env:
+          RECIPES: ${{ inputs.recipes || 'grind,field_simp; ring_nf; nlinarith,bound,@nlinarith-sq,@interval-cases' }}
         run: |
-          n=$(( ${{ inputs.slices }} > 10 ? 10 : ${{ inputs.slices }} ))
+          python3 -m pip install -q requests
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            new=$(python3 tools/goal_closer.py sweep --new-only --count-new --recipes "$RECIPES" 2>/dev/null | tail -1)
+            echo "unswept open goals: $new"
+            n=$(( (new + 29) / 30 )); n=$(( n > 4 ? 4 : n ))          # ~30 goals a job, 4 jobs at most, 0 = nothing to do
+            echo "new_only=true" >> "$GITHUB_OUTPUT"
+          else
+            n=$(( ${{ inputs.slices || 10 }} > 10 ? 10 : ${{ inputs.slices || 10 }} ))
+            echo "new_only=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "slices=$(python3 -c "import json; print(json.dumps([f'{k}/$n' for k in range($n)]))")" >> "$GITHUB_OUTPUT"
 
   sweep:
     needs: plan
+    if: ${{ needs.plan.outputs.slices != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:
@@ -69,9 +91,10 @@ jobs:
 
       - name: sweep one slice
         env:
-          RECIPES: ${{ inputs.recipes }}
+          RECIPES: ${{ inputs.recipes || 'grind,field_simp; ring_nf; nlinarith,bound,@nlinarith-sq,@interval-cases' }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}     # records a solve outside the bar on the site
           SLICE: ${{ matrix.slice }}
+          NEW_ONLY: ${{ needs.plan.outputs.new_only == 'true' && '--new-only' || '' }}
         run: |
           if [ "${{ inputs.mode }}" = "retype" ]; then
             out="ledger/tactics/retype-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
@@ -81,7 +104,7 @@ jobs:
           fi
           out="ledger/tactics/sweep-${GITHUB_RUN_ID}-${SLICE%/*}.jsonl"
           # 3 Lean processes on the runner's 4 vCPU and 16 GB (each holds mathlib, ~3 GB)
-          python3 tools/goal_closer.py sweep --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --publish --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
+          python3 tools/goal_closer.py sweep $NEW_ONLY --recipes "$RECIPES" --slice "$SLICE" --jobs 3 --publish --out "$out" 2>&1 | tee "$RUNNER_TEMP/sweep.txt"
           echo "SUMMARY=$(grep -c '"outcome": "solved"' "$out" || true) solved rows in slice $SLICE" >> "$GITHUB_ENV"
 
       - name: publish the ledger
@@ -92,7 +115,7 @@ jobs:
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
-          python3 tools/publish.py --message "tactic ${{ inputs.mode }} $GITHUB_RUN_ID: $SUMMARY
+          python3 tools/publish.py --message "tactic ${{ inputs.mode || 'sweep' }} $GITHUB_RUN_ID: $SUMMARY
 
           Generated-by: tools/goal_closer.py sweep (Lean only, no model, cost \$0); verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)
           Judged on: $MACHINE"

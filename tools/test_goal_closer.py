@@ -226,3 +226,25 @@ class FakeRoot:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnsweptTests(unittest.TestCase):
+    """The scheduled sweep (2026-10-28) takes only goals a recipe has never been tried on, so a weekly run is new
+    work, never the same Lean runs again (DECISIONS 2026-10-19: real project work only)."""
+    GOALS = [{"sha": "a", "target_set": "s", "target": "t1", "goal": "g"},
+             {"sha": "b", "target_set": "s", "target": "t2", "goal": "g"},
+             {"sha": "c", "target_set": "s", "target": "t3", "goal": "g"}]
+    ROWS = [{"sha": "a", "recipe": "grind", "outcome": "failed"}, {"sha": "a", "recipe": "bound", "outcome": "failed"},
+            {"sha": "b", "recipe": "grind", "outcome": "failed"}]
+
+    def test_a_goal_every_recipe_was_tried_on_is_left_out(self):
+        self.assertEqual([g["sha"] for g in gc.unswept(self.GOALS, self.ROWS, ["grind", "bound"])], ["b", "c"])
+
+    def test_a_new_recipe_makes_every_goal_new_again(self):
+        self.assertEqual([g["sha"] for g in gc.unswept(self.GOALS, self.ROWS, ["grind", "omega"])], ["a", "b", "c"])
+
+    def test_a_templated_recipe_with_no_row_does_not_make_a_goal_new(self):
+        self.assertEqual([g["sha"] for g in gc.unswept(self.GOALS, self.ROWS, ["grind", "bound", "@interval-cases"])], ["b", "c"])
+
+    def test_no_rows_means_every_goal(self):
+        self.assertEqual(len(gc.unswept(self.GOALS, [], ["grind"])), 3)
