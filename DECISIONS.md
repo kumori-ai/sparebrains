@@ -38,6 +38,28 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
   receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
   #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
+- **The lessons station, rules written before it runs (2026-10-28; the school's first teacher mechanic).** A lane
+  asked to prove a theorem is shown the 3 nearest solved theorems by statement (TF-IDF cosine over the statement's
+  tokens, docstring and hypothesis names left out) with their kernel-accepted proofs from verified/, the shortest per
+  target (`tools/lessons.py`; 332 solved targets indexed today). Never the problem's own proof and never a proof of
+  the same statement (by statement sha), so a solved problem is taught only by others; test_lessons covers both.
+  The receipt behind it: ReProver (arXiv 2306.15626, 2023), a single-GPU prover 47.6% to 51.2% with premise
+  retrieval on mathlib's random split, found by deep-search today. The measurement is the head-to-head as already
+  ruled (2026-10-19): the same Leanstral, arms `alone` and `lessons` (alone with the block in front, the judged
+  file unchanged), 4 calls per arm, the same problems in a seeded order, seed `lessons-2026-10-28` so the solved
+  problems are fresh (none an earlier head-to-head measured) and the open ones are the open list's order. What we
+  may say: "lessons help" only if the problems solved by the lessons arm alone outnumber those solved by the alone
+  arm alone and a two-sided sign test gives p < 0.05; otherwise the numbers and intervals, no claim. Expected
+  before it runs: on 15 open + 15 solved, a lift of 2 to 4 problems would be in line with ReProver's 3.6 points
+  and would not reach p < 0.05 at this size; the first run is a pilot that sizes the second, and it says so. Cost
+  $0 (the free Leanstral key); one dispatch, about 90 min. Publication scope, said plainly (Codex f2): the rows go to
+  ledger/headtohead/ on main and an open problem either arm solves is recorded and published like any other try
+  (the lessons lane is Leanstral under mode `lessons`); that is the standing scope of every head-to-head, not a
+  private experiment. Residuals: the same-theorem guard hashes the declaration with its name and docstring removed
+  and whitespace normalized (Codex f3), so a copy that differs in a variable name or literal order is not caught;
+  the summary pairs whichever treatment arm ran against alone (Codex f1: the old summary compared tools vs alone
+  whatever ran, which would have miscounted this run). Codex DISAGREE round 1 (f1, f2 blocking; f3, f4), all four
+  taken; round 2 after the pilot's rows, on the rows.
 - **The biology rung runs itself up to the shot (Andy: "build 2 first", 2026-10-28).** Evolve was put on a daily
   cron this morning; qualify, the leave-one-site-out bar that selects a candidate, was still by hand, so a passing
   candidate would sit. Now `openproblems_qualify.yml` runs daily 15:00 UTC: `openproblems.py next-qualify` picks the

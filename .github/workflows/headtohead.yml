@@ -22,6 +22,12 @@ on:
       seed:
         description: "a replication's own seed (fresh solved problems, none an earlier run measured); the default is run 1's"
         default: "headtohead-2026-10-19"
+      arms:
+        description: "comma-separated from alone, tools, lessons (lessons: alone with the nearest verified proofs shown, tools/lessons.py)"
+        default: "alone,tools"
+      lessons:
+        description: "lessons arm: solved theorems shown per problem"
+        default: "3"
 
 permissions:
   contents: write        # publish the ledger rows and any verified proofs
@@ -59,6 +65,7 @@ jobs:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
           python3 tools/headtohead.py run --open "${{ inputs.open }}" --solved "${{ inputs.solved }}" --calls "${{ inputs.calls }}" --slice "${{ inputs.slice }}" --seed "${{ inputs.seed }}" \
+            --arms "${{ inputs.arms }}" --lessons "${{ inputs.lessons }}" \
             --out "ledger/headtohead/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-400)" >> "$GITHUB_ENV"
 

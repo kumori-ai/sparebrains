@@ -89,6 +89,16 @@ class Fairness(unittest.TestCase):
         rows2, _ = h.run([t], lambda s, n: TARGET, call, None, lambda x: {"verdict": "accept"}, calls=2)
         self.assertEqual([r["arm"] for r in rows], [r["arm"] for r in rows2])
 
+    def test_the_lessons_arm_is_alone_with_the_block_in_front_and_the_same_budget(self):
+        t = {"target_set": "s", "target": "t1", "status": "solved", "rung": "aime"}
+        prompts = []
+        call = lambda p: (prompts.append(p), {"text": answer("  positivity\n"), "tokens": 10})[1]
+        rows, _ = h.run([t], lambda s, n: TARGET, call, None, lambda x: {"verdict": "accept"}, calls=2,
+                        arms=("alone", "lessons"), lesson_block=lambda s, n, text: "## Lessons: 1 solved theorem\n")
+        self.assertEqual(sorted(r["arm"] for r in rows), ["alone", "lessons"])
+        self.assertEqual(sum(p.startswith("## Lessons") for p in prompts), 1)
+        self.assertTrue(all(p.endswith("```") for p in prompts))     # the target file follows the block unchanged
+
     def test_the_summary_counts_the_paired_disagreements(self):
         rows = [{"arm": "alone", "target": "a", "outcome": "failed", "calls": 4, "tokens": 40, "seconds": 9},
                 {"arm": "tools", "target": "a", "outcome": "solved", "calls": 2, "tokens": 30, "seconds": 20},
@@ -99,6 +109,18 @@ class Fairness(unittest.TestCase):
         self.assertEqual((s["alone"]["solved"], s["tools"]["solved"]), (1, 2))
         self.assertEqual(s["alone"]["calls_per_solve"], 5.0)   # every call the arm spent, over its solves
         self.assertEqual(s["tools"]["calls_per_solve"], 1.5)
+
+    def test_the_summary_pairs_whichever_treatment_arm_ran_against_alone(self):
+        row = lambda arm, t, out: {"arm": arm, "target": t, "outcome": out, "calls": 1, "tokens": 1, "seconds": 1}
+        both = [row(a, t, "solved") for t in "abcdef" for a in ("alone", "lessons")]
+        s = h.summary(both)                                     # six ties: no disagreement, p = 1
+        self.assertEqual((s["only_lessons"], s["only_alone_vs_lessons"], s["p_lessons"]), ([], [], 1.0))
+        self.assertNotIn("p", s)                                 # no tools arm ran: no tools-vs-alone number is faked
+        wins = [row("alone", "a", "failed"), row("lessons", "a", "solved"), row("alone", "b", "solved"), row("lessons", "b", "failed"),
+                row("alone", "c", "failed"), row("lessons", "c", "solved")]
+        s = h.summary(wins)
+        self.assertEqual((s["only_lessons"], s["only_alone_vs_lessons"]), (["a", "c"], ["b"]))
+        self.assertEqual(s["p_lessons"], 1.0)                    # 2 vs 1 is no evidence
 
 
 if __name__ == "__main__":

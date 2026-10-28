@@ -31,6 +31,7 @@ HARD_RUNGS = ("math-L4", "math-L5", "amc12", "aime", "imo", "custom")
 SEED = "headtohead-2026-10-19"
 ALONE = {"backend": "mistral-leanstral-1-5", "provider": "mistral", "model": "labs-leanstral-1-5-1",
          "mode": "leanstral", "file": "leanstral"}
+LESSONS = {**ALONE, "mode": "lessons", "file": "lessons"}     # the same lane, taught by verified proofs (2026-10-28)
 
 
 def theorem_as_goal(target_text):
@@ -70,11 +71,12 @@ class Meter:
         return leanstral.reply(r)
 
 
-def alone(target_text, ask, judge_text, calls=CALLS):
-    """(proof file or None, calls to the solve): the whole proof, raw, until one is accepted."""
+def alone(target_text, ask, judge_text, calls=CALLS, preface=""):
+    """(proof file or None, calls to the solve): the whole proof, raw, until one is accepted. `preface` is the
+    lessons arm's block (tools/lessons.py), put before the same prompt; the file judged is the target's, unchanged."""
     import leanstral
     for i in range(calls):
-        reply = ask(leanstral.PROMPT.format(target=target_text))
+        reply = ask(preface + leanstral.PROMPT.format(target=target_text))
         name = re.search(r"theorem\s+(\S+)", target_text).group(1)
         proof = extract_proof(reply, name) if isinstance(reply, str) else None
         if proof:
@@ -96,17 +98,25 @@ def with_tools(target_text, ask, run_lean, judge_text, fix=None, calls=CALLS):
     return (cand, budget["asks"]) if judge_text(cand)["verdict"] == "accept" else (None, None)
 
 
-def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS, jobs=3):
-    """Both arms on every problem, in a random order per problem (seeded). Returns (rows, solves)."""
+ARMS = ("alone", "tools", "lessons")
+
+
+def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS, jobs=3, arms=("alone", "tools"),
+        lesson_block=None):
+    """Every arm in `arms` on every problem, in a random order per problem (seeded). The lessons arm is `alone` with
+    tools/lessons.py's block in front (`lesson_block(target_set, target, text)` -> str), never the problem's own
+    proof. Returns (rows, solves)."""
     def one(t):
         text = read_target(t["target_set"], t["target"])
-        order = ["alone", "tools"]
+        order = list(arms)
         random.Random(f"{SEED}/{t['target']}").shuffle(order)
         rows, solves = [], []
         for arm in order:
             m, t0 = Meter(call), time.monotonic()
             if arm == "alone":
                 cand, k = alone(text, m.ask, judge_text, calls)
+            elif arm == "lessons":
+                cand, k = alone(text, m.ask, judge_text, calls, preface=lesson_block(t["target_set"], t["target"], text))
             else:
                 cand, k = with_tools(text, m.ask, run_lean, judge_text, fix, calls)
             rows.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "arm": arm,
@@ -152,9 +162,17 @@ def summary(rows):
                     "seconds_per_solve": per("seconds"), "calls_total": sum(r["calls"] for r in rs)}
     solved = {(r["target"], r["arm"]) for r in rows if r["outcome"] == "solved"}
     names = {r["target"] for r in rows}
-    out["only_tools"] = sorted(n for n in names if (n, "tools") in solved and (n, "alone") not in solved)
-    out["only_alone"] = sorted(n for n in names if (n, "alone") in solved and (n, "tools") not in solved)
-    out["p"] = round(sign_p(len(out["only_tools"]), len(out["only_alone"])), 4)
+    # The paired test is between the treatment arm that ran (tools or lessons) and alone; a run with both treatment
+    # arms reports each against alone (Codex f1, 2026-10-28: the old code compared tools vs alone whatever ran).
+    for arm in ("tools", "lessons"):
+        if arm not in by:
+            continue
+        only_t = sorted(n for n in names if (n, arm) in solved and (n, "alone") not in solved)
+        only_a = sorted(n for n in names if (n, "alone") in solved and (n, arm) not in solved)
+        out[f"only_{arm}"], out[f"only_alone_vs_{arm}"] = only_t, only_a
+        out[f"p_{arm}"] = round(sign_p(len(only_t), len(only_a)), 4)
+    if "tools" in by:                                   # the names earlier runs and tests read
+        out["only_alone"], out["p"] = out["only_alone_vs_tools"], out["p_tools"]
     return out
 
 
@@ -169,7 +187,7 @@ def record(solves, run_id, judge_text):
     except Exception as e:
         print(f"site recording off ({type(e).__name__}); the ledger still gets every row", flush=True)
     for arm, t, cand in solves:
-        lane = ALONE if arm == "alone" else decompose.LANE
+        lane = ALONE if arm == "alone" else LESSONS if arm == "lessons" else decompose.LANE
         rec = prover.Recorder(f"headtohead-{run_id}", post, lane)
         prefix = cand[:PROOF_SEP.search(cand).end()]
         r = judge_text(cand)                                  # the kernel again, on the way in
@@ -191,9 +209,19 @@ def main():
     ap.add_argument("--slice", default="0/1", help="k/N: the open problems whose name hashes to k (a run too long for one job)")
     ap.add_argument("--seed", default=SEED, help="a replication's own seed: its solved problems skip every one an "
                     "earlier run in ledger/headtohead/ measured")
+    ap.add_argument("--arms", default="alone,tools", help="comma-separated from alone, tools, lessons")
+    ap.add_argument("--lessons", type=int, default=3, help="lessons arm: solved theorems shown")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     import fixer, lean_tools, leanstral, relay
+    arms = tuple(x.strip() for x in a.arms.split(",") if x.strip())
+    assert all(x in ARMS for x in arms) and len(arms) >= 2, f"--arms from {ARMS}, at least two"
+    lesson_block = None
+    if "lessons" in arms:
+        import lessons
+        ix = lessons.index()
+        print(f"lessons: {len(ix)} solved targets in the index", flush=True)
+        lesson_block = lambda tset, name, text: lessons.block(ix, text, a.lessons, exclude=f"{tset}/{name}")
     key = leanstral.key_from_env()
     targets = relay.fetch_json("/targets.json")
     path = lambda t: ROOT / "targets" / t["target_set"] / f"{t['target']}.lean"
@@ -212,7 +240,8 @@ def main():
     names_ix = lean_tools.index()
     rows, solves = run(problems, lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text(), call,
                        lean_tools.run_lean, lean_tools.judge_text,
-                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix), calls=a.calls)
+                       fix=lambda proof, out: fixer.fix(proof, out, *names_ix), calls=a.calls, arms=arms,
+                       lesson_block=lesson_block)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "a") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
