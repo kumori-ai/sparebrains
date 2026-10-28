@@ -38,6 +38,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
   receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
   #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
+  Correction the same evening (kumori #316, measured from App Engine's gate lines, 10-27 21Z to 10-28 21Z): of 729
+  "benched" refusals to sparebrains, 541 (74%) came after a real call failed upstream (provider 429 or the breaker
+  after timeouts) and at most 170 (23%) were kumori's own RPM spacing, waits of 60 s or less; there is no tenant
+  share in the refusal path. So the parks in run 40609387312 were the providers' free tiers running dry as the run
+  went on, not kumori's pacing, and I had that wrong earlier today. The lever for calls/day is more distinct lanes
+  and providers (kumori's discovery scout), not more calls per lane; raising spacing would trade short 503s for
+  provider 429s and longer benches. No sparebrains change.
 - **groq-qwen3-8-27b reopened (kumori #316 met its reopen condition, 2026-10-28 evening).** kumori's read of
   kumori_api_usage since 10-23 19:00Z: 229 answers from other callers, 27 too-large 429s every one classified
   request_too_large and failed without benching the lane, no unclassified 429 since 10-25. The lane's too-large
