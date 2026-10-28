@@ -1,0 +1,525 @@
+{
+ "day": "2026-10-28",
+ "first_solves": [],
+ "grades": [
+  {
+   "accepts": 21,
+   "answered": 25,
+   "first_solves": [],
+   "grade": "kindergarten",
+   "lanes": [
+    {
+     "accepts": 5,
+     "answered": 5,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 4,
+     "answered": 4,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 3,
+     "answered": 3,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 2,
+     "lane": "iteracompute-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 2,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 2,
+     "lane": "tokenharbor-deepseek-v4-1-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "openrouter-xing4-0-29b-a4b",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "tokenharbor-mimo-v2-6-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    }
+   ],
+   "open": 0,
+   "solved": 74
+  },
+  {
+   "accepts": 17,
+   "answered": 109,
+   "first_solves": [],
+   "grade": "middle school",
+   "lanes": [
+    {
+     "accepts": 4,
+     "answered": 13,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 4,
+     "answered": 5,
+     "lane": "requesty-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 3,
+     "answered": 16,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 24,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 1,
+     "answered": 23,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "low"
+    },
+    {
+     "accepts": 1,
+     "answered": 7,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "tokenharbor-deepseek-v4-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 1,
+     "answered": 2,
+     "lane": "iteracompute-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 4,
+     "lane": "meganova-manta-flash-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "meganova-l3-70b-euryale-v2-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-chimerax",
+     "tier": "tiny"
+    }
+   ],
+   "open": 0,
+   "solved": 60
+  },
+  {
+   "accepts": 72,
+   "answered": 403,
+   "first_solves": [],
+   "grade": "high school",
+   "lanes": [
+    {
+     "accepts": 29,
+     "answered": 37,
+     "lane": "requesty-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 5,
+     "answered": 32,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 5,
+     "answered": 31,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "medium"
+    },
+    {
+     "accepts": 4,
+     "answered": 22,
+     "lane": "meganova-l3-70b-euryale-v2-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 4,
+     "answered": 18,
+     "lane": "meganova-l3-3-ms-nevoria-70b",
+     "tier": "high"
+    },
+    {
+     "accepts": 4,
+     "answered": 4,
+     "lane": "tokenharbor-mimo-v2-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 3,
+     "answered": 36,
+     "lane": "agnes-agnes-3-0-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 3,
+     "answered": 4,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 2,
+     "answered": 34,
+     "lane": "meganova-manta-flash-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 2,
+     "answered": 8,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 8,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 5,
+     "lane": "tokenharbor-deepseek-v4-1-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 2,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 2,
+     "answered": 2,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 11,
+     "lane": "routeway-gemma-4-26b-a4b-it-chimerax",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 1,
+     "answered": 6,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "low"
+    },
+    {
+     "accepts": 1,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 44,
+     "lane": "meganova-l3-8b-stheno-v3-2",
+     "tier": "low"
+    },
+    {
+     "accepts": 0,
+     "answered": 38,
+     "lane": "kaggle-goedel-prover-v2-8b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 20,
+     "lane": "sealion-qwen-sea-lion-v4-32b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 19,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "mistral-codestral-2508",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "mistral-codestral-latest",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "agnes-agnes-2-5-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "mistral-leanstral-1-5",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "tokenharbor-mimo-v2-6-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "mistral-ministral-3b-2512",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-nex-n2-5-mini",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-nex-n2-5-pro",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-xing4-0-29b-a4b",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "sealion-gemma-sea-lion-v4-27b-it",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "sealion-llama-sea-lion-v3-70b-it",
+     "tier": "high"
+    }
+   ],
+   "open": 47,
+   "solved": 197
+  },
+  {
+   "accepts": 0,
+   "answered": 0,
+   "first_solves": [],
+   "grade": "college",
+   "lanes": [],
+   "open": 0,
+   "solved": 0
+  }
+ ],
+ "hours": 24,
+ "kaggle": {
+  "failed": [],
+  "finished": [
+   {
+    "answers": 16,
+    "batch": "goals-20261027T1813",
+    "finished_at": "2026-10-27T19:35:10+00:00"
+   },
+   {
+    "answers": 16,
+    "batch": "goals-20261028T0133",
+    "finished_at": "2026-10-28T03:07:20+00:00"
+   }
+  ]
+ },
+ "relay": {
+  "backed_off": true,
+  "last": "2026-10-28T11:23:21+00:00"
+ },
+ "rungs": [
+  {
+   "idle_days": 0.2,
+   "last": "2026-10-28T11:17:41+00:00",
+   "rung": "competition math (ladder)"
+  },
+  {
+   "idle_days": 0.1,
+   "last": "2026-10-28T13:00:39+00:00",
+   "rung": "relay"
+  },
+  {
+   "idle_days": 0.3,
+   "last": "2026-10-28T08:53:46+00:00",
+   "rung": "prover"
+  },
+  {
+   "idle_days": 7.5,
+   "last": "2026-10-21T03:56:10+00:00",
+   "rung": "goal-closer"
+  },
+  {
+   "accepts_ever": 0,
+   "idle_days": 6.5,
+   "last": "2026-10-22T02:49:39+00:00",
+   "rung": "formal-conjectures",
+   "tries_24h": 0
+  },
+  {
+   "crashed": 123,
+   "idle_days": 5.7,
+   "last": "2026-10-22T22:59:10+00:00",
+   "qualify": {
+    "at": "2026-10-22T15:37:06+00:00",
+    "mean_pearson_delta": -0.010299999999999995,
+    "passed": false,
+    "sites": 6
+   },
+   "qualify_runs": 3,
+   "rounds_24h": 0,
+   "rung": "openproblems.bio",
+   "scored": 75
+  }
+ ],
+ "speed": [
+  {
+   "accepted": 11,
+   "lane": "mistral-ministral-3b-2512",
+   "prev_accepted": 3,
+   "prev_targets": 11,
+   "prev_week": "2026-10-19",
+   "refused": 77,
+   "size_b": 3,
+   "targets": 26,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 11,
+   "lane": "mistral-ministral-8b-2512",
+   "prev_accepted": 3,
+   "prev_targets": 6,
+   "prev_week": "2026-10-19",
+   "refused": 81,
+   "size_b": 8,
+   "targets": 27,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 10,
+   "lane": "mistral-ministral-14b-2512",
+   "prev_accepted": 5,
+   "prev_targets": 10,
+   "prev_week": "2026-10-19",
+   "refused": 79,
+   "size_b": 14,
+   "targets": 29,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 4,
+   "lane": "agnes-agnes-2-5-flash",
+   "prev_accepted": 4,
+   "prev_targets": 5,
+   "prev_week": "2026-10-19",
+   "refused": 44,
+   "size_b": null,
+   "targets": 7,
+   "week": "2026-10-26"
+  }
+ ],
+ "to": "2026-10-28T15:16:23.398256+00:00",
+ "totals": {
+  "accepted": 110,
+  "answered": 537,
+  "judged": 944,
+  "lanes": 40,
+  "open": 47,
+  "problems": 269,
+  "solved_ever": 331
+ }
+}
