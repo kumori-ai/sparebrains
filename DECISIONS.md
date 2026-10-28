@@ -38,6 +38,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   parked by then). The daily report now carries "lost before the kernel" by kind, so tomorrow's 504 count is the
   receipt: the bar is the 504 share of ladder tries under 20% on 10-29 (was 40-44%). kumori's own next step on
   #572, a 503 with Retry-After at once for a lane whose recent timeout rate is high, is theirs to ship.
+- **groq-qwen3-8-27b reopened (kumori #316 met its reopen condition, 2026-10-28 evening).** kumori's read of
+  kumori_api_usage since 10-23 19:00Z: 229 answers from other callers, 27 too-large 429s every one classified
+  request_too_large and failed without benching the lane, no unclassified 429 since 10-25. The lane's too-large
+  refusal is about one request's size, so attempt.py now treats request_too_large like never_fits (halve
+  max_tokens, ask the same cell again, no park, not a call); PAUSED_LANES is empty. What it was worth before the
+  pause: 116 accepts a week, all re-solves; the first-time count is the thing to watch in the daily report.
 - **The lessons station, rules written before it runs (2026-10-28; the school's first teacher mechanic).** A lane
   asked to prove a theorem is shown the 3 nearest solved theorems by statement (TF-IDF cosine over the statement's
   tokens, docstring and hypothesis names left out) with their kernel-accepted proofs from verified/, the shortest per

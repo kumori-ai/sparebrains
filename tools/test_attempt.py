@@ -41,16 +41,19 @@ class LaneMetadataTests(unittest.TestCase):
                 attempt.lanes('unknown-nvidia')
 
     def test_a_lane_sparebrains_paused_is_never_asked_even_by_name(self):
-        """groq-qwen3-8-27b, 2026-10-23: a 1,000 output-tokens-a-minute cap on a key other apps share (kumori-45),
-        and 0 first-time solves in 116 accepts."""
-        rows = [dict(name='groq-qwen3-8-27b', provider='groq', model='qwen/qwen3.8-27b', quality_tier='high'),
+        """The pause list is a mechanism, not a lane: groq-qwen3-8-27b sat in it 2026-10-23..28 (kumori-45, then
+        reopened on kumori #316); the mechanism is tested with a stand-in and the list is empty today."""
+        rows = [dict(name='lane-x', provider='p', model='m', quality_tier='high'),
                 dict(name='groq-gptoss', provider='groq', model='openai/gpt-oss-120b', quality_tier='high')]
-        with patch.object(attempt, 'llm_backends', return_value=rows):
+        with patch.object(attempt, 'llm_backends', return_value=rows), \
+                patch.dict(attempt.PAUSED_LANES, {'lane-x': 'test'}, clear=True):
             known, unknown = attempt.lanes('')
             self.assertEqual([l['backend'] for l in known + unknown], ['groq-gptoss'])
-            known, unknown = attempt.lanes('groq-qwen3-8-27b')
+            known, unknown = attempt.lanes('lane-x')
             self.assertEqual(known + unknown, [])
-        self.assertIn('groq-qwen3-8-27b', attempt.PAUSED_LANES)
+        self.assertEqual(attempt.PAUSED_LANES, {})
+        self.assertTrue(attempt.is_never_fits(attempt.KumoriAPIError('x', status_code=429, payload={'error_code': 'request_too_large'})))
+        self.assertFalse(attempt.is_never_fits(attempt.KumoriAPIError('x', status_code=429, payload={'error_code': 'rate_limited'})))
 
     def test_paused_lane_is_not_tested(self):
         with patch.object(attempt, 'llm_backends', return_value=[

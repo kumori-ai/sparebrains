@@ -87,7 +87,11 @@ MIN_FIT_TOKENS = 4000
 
 
 def is_never_fits(e):
-    return "never_fits" in str(e) or (e.payload or {}).get("error_code") == "never_fits"
+    """kumori's never_fits (prompt + max_tokens over the lane's tokens a minute) and, since 2026-10-28, Groq's
+    request_too_large (one request over the lane's output tokens a minute, kumori #316): both are about this one
+    request's size, so the same answer applies (halve max_tokens, ask again), never a park of the lane."""
+    code = (e.payload or {}).get("error_code")
+    return "never_fits" in str(e) or code in ("never_fits", "request_too_large")
 
 
 RUNNING_DRY = set()   # lanes whose recent calls mostly came back empty, from the ledger at job start
@@ -117,15 +121,11 @@ def bench_delay(retry_after, consecutive):
 
 
 # Lanes this loop does not ask, with the dated reason and what reopens them. The router keeps them for other apps.
-PAUSED_LANES = {
-    # 2026-10-23, kumori-45 (kumori shared/kumori_free_llm/docs/20261023_groq_minute_admission.md): a hidden 1,000
-    # output-tokens-a-minute cap, named only in Groq's 429 body, on a key other apps share; one 1,264-token answer
-    # spent it. Its 116 accepts here (10-14..21) were all re-solves (0 first-time, primer/mil/MATH L1-3). kumori
-    # shipped output-token metering (f16a2bb, 2026-10-23) but asked to keep this paused: a 1,500-token call on the
-    # lane's own key drew Groq's OTPM 429, which kumori's parser misses (a 120 s backoff for every caller). Reopen
-    # only when kumori says that 429 is understood or handled (kumori #316), not on the metering alone.
-    "groq-qwen3-8-27b": "1,000 output tokens a minute on a shared key; 0 first-time solves (2026-10-23)",
-}
+# Empty since 2026-10-28: groq-qwen3-8-27b (paused 2026-10-23 for a hidden 1,000 output-tokens-a-minute cap on a shared
+# key, kumori-45) reopened when kumori #316 showed, from kumori_api_usage since 10-23 19:00Z, 229 answers from other
+# callers, 27 too-large 429s every one classified request_too_large and failed without benching the lane, and no
+# unclassified 429 since 10-25. Its too-large refusal is handled here like never_fits (is_never_fits).
+PAUSED_LANES = {}
 
 
 def public_record_ok(lane):
