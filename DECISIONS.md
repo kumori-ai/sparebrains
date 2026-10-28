@@ -68,7 +68,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   held-out result), all three built, two-round cap reached. Smoke 40719242897 (4 asks, Leanstral): the harness ran
   end to end (sandbox proven, 38 residual tune rejects, rows published) and every ask was refused in 0.5 s, the
   lane benched by its upstream free tier; so a writer is now a list of lanes, a refused ask hands to the next lane
-  without spending a round, and a round every writer refuses ends the run as one row.
+  without spending a round, and a round every writer refuses ends the run as one row. **Result, run 40720731565
+  (6 asks, Leanstral refused, Codestral wrote all 6): every pass passed the screen and turned 0 of 38 residual tune
+  rejects; 0 kept, a miss, as expected before it ran.** What the residual is: 46 of the 64 residual rows (tune and
+  report) carry Lean 3 syntax and 37 use Lean 3's trailing-comma tactic lines; `unknown_name` is only the FIRST error
+  Lean reports on a proof wrong in several places, so there is no one step for a text pass to fix. The measurement
+  stands as the weakest lane's ceiling for this class; the next cohort is one where a single named error is the
+  whole distance (a medium-tier lane's residual with exactly one positioned error after the chain), kumori #573.
 - **The reach run's verdict (rules written 2026-10-19, judged 2026-10-28).** Runs 39301536190 and 39328013197
   together: 59 open problems (32 and 27; one of the planned 60 is missing from job 2), tools arm solved 2
   (amc12_2001_p21, amc12a_2009_p6), alone arm 3 (algebra_sum1onsqrt2to1onsqrt10000lt198, induction_sumkexp3eqsumksq,
