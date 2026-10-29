@@ -444,6 +444,11 @@ def main():
         else:
             since = (now - timedelta(hours=24)).isoformat()
             report = daily_report.build(ROOT / "ledger", now)
+            try:
+                runs = gh.call("GET", f"/actions/runs?created=>={since[:19]}&per_page=100")["workflow_runs"]
+            except Exception as e:                   # the Actions line is a nicety; the log posts without it
+                print(f"actions runs unavailable ({type(e).__name__}); log without them")
+                runs = []
             text = daily_log(report, runs)
             if today:                                # a correction is said out loud, never silent
                 text += f"\n\n_Corrected {now:%H:%M} UTC: the first version missed rows that do not open with their timestamp (volunteer hand-offs)._"

@@ -228,6 +228,44 @@ class AiwarsRulesTests(unittest.TestCase):
         self.assertIn("9", pi.digested_runs(thread))                  # so --catchup never posts it twice
 
 
+class DailyFromMain(unittest.TestCase):
+    """--daily through main(): the branch that posts the log, with GitHub, the relay and the report faked.
+    (2026-10-29: ten Actions runs failed on a NameError here that no unit test of daily_log could see.)"""
+    class GH:
+        def __init__(self, token):
+            self.writes = []
+
+        def call(self, method, path, data=None):
+            if path.startswith("/actions/runs"):
+                return {"workflow_runs": [{"name": "attempt", "path": ".github/workflows/attempt.yml", "conclusion": "success"}]}
+            return [{"number": 5, "body": pi.LOG_MARKER + " x"}]          # the open log issue
+
+        def problem_issues(self):
+            return {}
+
+        def comments(self, number):
+            return []
+
+        def write(self, method, path, data=None):
+            self.writes.append((method, path, data))
+            return {"number": 5, "id": 1}
+
+    def test_daily_posts_the_report_with_the_actions_line(self):
+        from unittest import mock
+        gh_box = []
+        make = lambda token: gh_box.append(self.GH(token)) or gh_box[-1]
+        report = {"day": "2026-10-29", "hours": 24}
+        with mock.patch.object(pi, "GitHub", make), mock.patch.object(pi.relay, "fetch_json", return_value={"open": []}), \
+             mock.patch.object(pi.daily_report, "build", return_value=report), \
+             mock.patch.object(pi.daily_report, "render", return_value="report text"), \
+             mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), mock.patch.object(sys, "argv", ["problem_issues.py", "--daily"]):
+            self.assertEqual(pi.main(), 0)
+        (method, path, data), = gh_box[0].writes
+        self.assertEqual((method, path), ("POST", "/issues/5/comments"))
+        self.assertIn("report text", data["body"])
+        self.assertIn("**GitHub Actions runs:** attempt 1 success", data["body"])
+
+
 class GateNotes(unittest.TestCase):
     def test_status_checks_share_one_comment_a_day(self):
         gh, thread = FakeGitHub(), []
