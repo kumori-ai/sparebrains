@@ -60,7 +60,18 @@ jobs:
       - name: contract test environment
         run: |
           python3 -m venv "$RUNNER_TEMP/contract-tests"
-          "$RUNNER_TEMP/contract-tests/bin/pip" install -c tools/sandbox/requirements.txt numpy scipy requests   # scipy: the sandbox streaming tests (2026-10-22)
+          "$RUNNER_TEMP/contract-tests/bin/pip" install -c tools/sandbox/requirements.txt numpy scipy requests pyflakes   # scipy: the sandbox streaming tests (2026-10-22)
+
+      - name: undefined names (pyflakes)
+        # 2026-10-29: a refactor left `runs` undefined in problem_issues.py --daily; 439 unit tests stayed green because
+        # none drove that branch, and the issues workflow failed ten times overnight. Undefined names only, so the gate
+        # is hard from day one. prover_kernel_tpu.py is skipped: prover.py splices hf_prefetch.py into it at build.
+        run: |
+          n=$(ls tools/*.py | grep -vc '/prover_kernel_tpu.py$')
+          [ "$n" -gt 0 ] || { echo "no files scanned; verdict meaningless"; exit 1; }
+          found=$(ls tools/*.py | grep -v '/prover_kernel_tpu.py$' | xargs "$RUNNER_TEMP/contract-tests/bin/python" -m pyflakes | grep 'undefined name' || true)
+          if [ -n "$found" ]; then echo "$found"; exit 1; fi
+          echo "no undefined names in $n files"
 
       - name: attempt and publishing contracts (no LLM calls)
         run: '"$RUNNER_TEMP/contract-tests/bin/python" -m unittest discover -s tools -p "test_*.py"'
