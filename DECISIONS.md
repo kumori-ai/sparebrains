@@ -3,6 +3,43 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-29
+
+- **Lessons, second pilot: the goal-shape retrieval on a weaker writer, rules written before it runs (kumori #574).**
+  The 10-28 pilot found no lift on Leanstral (6 vs 6 of 30, the same six) and named the next variant: the retrieval
+  itself, on a lane where ReProver's lift was found (a small prover, arXiv 2306.15626). Built today, measured before
+  it was trusted. *Retrieval `conclusion`* (`tools/lessons.py --by conclusion`): the lesson pool is ranked by the
+  shape of what must be proved, the declaration after its last top-level colon, as a set of operators, types and
+  Mathlib names with the bound variables dropped, dot notation reduced to its last segment and Lean's per-literal
+  type ascriptions removed, binary weights, TF-IDF cosine; the pilot's `statement` retrieval keeps its own
+  tokenizer, unchanged (Codex f2 caught the shape tokenizer leaking into it: 15 of 30 statement rankings moved). Where the loop left a problem one-step goals (`ledger/goal-queue.json`, readable and not the theorem
+  restated: 136 goals on 74 targets today; 9 of the 30 pilot problems, 7 open, 2 solved), the block shows up to 2
+  of them first and the lessons are the proofs nearest to those goals. Receipts for the ranking, on the 332-target
+  index: before the shape rules, mathd_numbertheory_495's stored goal (`IsLeast {.. a.gcd b = 6 .. a.lcm b = x}`)
+  ranked primer `20 + 20 = 40` first, because a, b, x and n were the four commonest conclusion tokens, `a.gcd` never
+  matched `Nat.gcd`, and ℕ appeared eight times in one goal; after them it ranks mathd_numbertheory_277 (IsLeast over
+  gcd 6 and lcm) first, then 559, 314, 296 (IsLeast over residues); amc12a_2021_p14's sum ranks sum theorems; the
+  statement retrieval on mathd_numbertheory_711 had `m + n = 406` first, the conclusion retrieval has 277. *Writer*:
+  `mistral-ministral-8b-2512` through the kumori router (`--lane`), the 8B of the speed series (13 of 31 size-series
+  targets this run week, `ledger/daily/2026-10-29.json`), both arms on it, the same prompt, 4 calls each, max_tokens
+  4000, temperature 0.2, the tools arm not run (it is Leanstral's). *The set*: the pilot's 30 by name
+  (`--same-as 40733385091`, the problems run 40733385091 measured, in its order; Codex f1: the seed re-draws the
+  solved 15 as the solved list grows, 12 of 15 would have matched today), so the pilot's alone 6 is a reference for
+  the lane's strength, never its control: the control is this lane's own alone arm. *The claim rule
+  is the 10-28 one*: "lessons help" only if the problems the lessons arm alone solved outnumber those the alone arm
+  alone solved and a two-sided sign test gives p < 0.05; otherwise numbers and intervals, no claim. *Expected before
+  it runs*: the 8B alone solves 2 to 6 of 30; a lift of 2 to 4 would be in line with ReProver and would not reach
+  p < 0.05 at this size, so this run sizes the next and says so; each lessons row records `{"by", "goals"}` so the
+  9 goal-shown problems can be read apart from the 21 conclusion-only ones (a split, not a claim, at n = 9). Cost
+  $0 (a free router lane); one dispatch. Publication scope as every head-to-head: rows to `ledger/headtohead/`, an
+  open problem either arm solves recorded and published under the lane (`mode` headtohead or lessons). Residuals:
+  tokens per solve on router lanes come from the provider's `usage.completion_tokens`; a call without one makes the
+  row's and the summary's tokens null, never an undercount (Codex f3); every row carries the writer, the lanes that
+  served, the calls that errored and the answers cut at the cap (Codex f4), so a refusal or a truncation is told
+  from a wrong proof; a refused call (gate, bench, share) is a call the arm lost, not retried; 429s with a clock are
+  waited up to 3 times. Codex round 1 DISAGREE 20261029T214023272933Z_codex (f1, f2 blocking; f3, f4), round 2 DISAGREE 20261029T214501788383Z_codex (f3 still: an errored call's usage is unknown too), round 3 AGREE 20261029T214724901513Z_codex; every finding taken.
+  Tests fail-first: 477 OK (`test_lessons.ByConclusion`, `test_headtohead` lane and row metadata).
+
 ## 2026-10-28
 
 - **The daily school report (`tools/daily_report.py`, `ledger/daily/<day>.{json,md}`).** Andy's ask: one morning

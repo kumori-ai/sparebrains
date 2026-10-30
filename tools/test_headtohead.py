@@ -99,6 +99,65 @@ class Fairness(unittest.TestCase):
         self.assertEqual(sum(p.startswith("## Lessons") for p in prompts), 1)
         self.assertTrue(all(p.endswith("```") for p in prompts))     # the target file follows the block unchanged
 
+    def test_the_lessons_arm_records_which_retrieval_it_got(self):
+        t = {"target_set": "s", "target": "t1", "status": "solved", "rung": "aime"}
+        call = lambda p: {"text": answer("  positivity\n"), "tokens": 10}
+        rows, _ = h.run([t], lambda s, n: TARGET, call, None, lambda x: {"verdict": "accept"}, calls=2,
+                        arms=("alone", "lessons"),
+                        lesson_block=lambda s, n, text: ("## Lessons: 1 solved theorem\n", {"by": "conclusion", "goals": 2}))
+        by_arm = {r["arm"]: r for r in rows}
+        self.assertEqual(by_arm["lessons"]["lessons"], {"by": "conclusion", "goals": 2})
+        self.assertNotIn("lessons", by_arm["alone"])
+
+    def test_a_router_lane_answers_in_leanstral_shape_and_waits_out_a_429(self):
+        from utilities.kumori_api_client import KumoriAPIError
+        calls, slept = [], []
+        def llm_chat(backend, messages, **kw):
+            calls.append((backend, messages[0]["content"], kw))
+            if len(calls) == 1:
+                raise KumoriAPIError("per-lane RPM spacing", status_code=429, retry_after=2)
+            return answer("  positivity\n"), backend, {"usage": {"completion_tokens": 12}, "finish_reason": "stop"}
+        call = h.router_call("mistral-ministral-8b-2512", llm_chat, sleep=slept.append)
+        r = call("prove it")
+        self.assertEqual((r["text"], r["tokens"], r["finish"]), (answer("  positivity\n"), 12, "stop"))
+        self.assertEqual(slept, [2])
+        self.assertEqual([c[0] for c in calls], ["mistral-ministral-8b-2512"] * 2)
+        self.assertTrue(all(c[2]["system"] and c[2]["app_name"] == "sparebrains" and c[2]["include_metadata"] for c in calls))
+        def refuse(backend, messages, **kw):
+            raise KumoriAPIError("pool_gated", status_code=403)
+        self.assertIn("error", h.router_call("x", refuse, sleep=slept.append)("prove it"))   # a refusal is an error row, no wait
+        self.assertEqual(h.lane_of("mistral-ministral-8b-2512")["provider"], "mistral")
+
+    def test_same_as_names_the_exact_problems_of_an_earlier_run_in_its_order(self):
+        rows = [{"target_set": "s", "target": "b", "status": "solved", "rung": "aime", "arm": "alone"},
+                {"target_set": "s", "target": "b", "status": "solved", "rung": "aime", "arm": "lessons"},
+                {"target_set": "s", "target": "a", "status": "open", "rung": None, "arm": "alone"}]
+        self.assertEqual([(t["target"], t["status"]) for t in h.same_set(rows)], [("b", "solved"), ("a", "open")])
+
+    def test_a_call_with_no_token_count_makes_the_row_and_the_summary_null_not_zero(self):
+        t = {"target_set": "s", "target": "t1", "status": "solved", "rung": "aime"}
+        n = [0]
+        def call(p):
+            n[0] += 1
+            return {"text": answer("  positivity\n"), "tokens": None if n[0] == 1 else 10, "finish": "length", "backend": "lane-x"}
+        rows, _ = h.run([t], lambda s, n: TARGET, call, None, lambda x: {"verdict": "reject"}, calls=2,
+                        arms=("alone", "lessons"), lesson_block=lambda s, n, text: "## Lessons\n", writer="lane-x")
+        first = next(r for r in rows if r["calls"] == 2 and r["tokens"] is None)      # the arm whose first call was unmetered
+        self.assertEqual((first["cut"], first["errors"], first["writer"], first["served"]), (2, 0, "lane-x", ["lane-x"]))
+        self.assertIsNone(h.summary(rows)[first["arm"]]["tokens_per_solve"])
+        err_rows, _ = h.run([t], lambda s, n: TARGET, lambda p: {"error": "pool_gated"}, None,
+                            lambda x: {"verdict": "reject"}, calls=2, arms=("alone", "lessons"),
+                            lesson_block=lambda s, n, text: "## Lessons\n", writer="lane-x")
+        self.assertEqual({(r["errors"], r["tokens"], tuple(r["served"])) for r in err_rows}, {(2, None, ())})   # an error's usage is unknown
+        k = [0]
+        def err_then_solve(p):                           # Codex round 2, f3: an error then a metered solve is still unknown
+            k[0] += 1
+            return {"error": "timeout"} if k[0] % 2 else {"text": answer("  positivity\n"), "tokens": 10}
+        mixed, _ = h.run([t], lambda s, n: TARGET, err_then_solve, None, lambda x: {"verdict": "accept"}, calls=2,
+                         arms=("alone", "lessons"), lesson_block=lambda s, n, text: "## Lessons\n")
+        self.assertEqual({(r["outcome"], r["calls"], r["errors"], r["tokens"]) for r in mixed}, {("solved", 2, 1, None)})
+        self.assertTrue(all(h.summary(mixed)[a]["tokens_per_solve"] is None for a in ("alone", "lessons")))
+
     def test_the_summary_counts_the_paired_disagreements(self):
         rows = [{"arm": "alone", "target": "a", "outcome": "failed", "calls": 4, "tokens": 40, "seconds": 9},
                 {"arm": "tools", "target": "a", "outcome": "solved", "calls": 2, "tokens": 30, "seconds": 20},
