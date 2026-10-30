@@ -1,0 +1,516 @@
+{
+ "day": "2026-10-30",
+ "first_solves": [
+  {
+   "grade": "high school",
+   "key": "minif2f/test/amc12a_2021_p8",
+   "lane": "mistral-leanstral-1-5",
+   "mode": "leanstral",
+   "tier": "unknown",
+   "ts": "2026-10-30T08:27:57+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/aime_1987_p5",
+   "lane": "mistral-leanstral-1-5",
+   "mode": "leanstral",
+   "tier": "unknown",
+   "ts": "2026-10-30T08:29:09+00:00"
+  }
+ ],
+ "grades": [
+  {
+   "accepts": 21,
+   "answered": 27,
+   "first_solves": [],
+   "grade": "kindergarten",
+   "lanes": [
+    {
+     "accepts": 7,
+     "answered": 7,
+     "lane": "groq-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 5,
+     "answered": 8,
+     "lane": "iteracompute-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 4,
+     "answered": 4,
+     "lane": "requesty-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 3,
+     "answered": 4,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    }
+   ],
+   "open": 0,
+   "solved": 74
+  },
+  {
+   "accepts": 44,
+   "answered": 183,
+   "first_solves": [],
+   "grade": "middle school",
+   "lanes": [
+    {
+     "accepts": 14,
+     "answered": 21,
+     "lane": "requesty-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 13,
+     "answered": 18,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 9,
+     "answered": 14,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 5,
+     "answered": 6,
+     "lane": "groq-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 2,
+     "answered": 5,
+     "lane": "iteracompute-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 1,
+     "answered": 10,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 17,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 15,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "low"
+    },
+    {
+     "accepts": 0,
+     "answered": 11,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 10,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 9,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 8,
+     "lane": "meganova-l3-8b-stheno-v3-2",
+     "tier": "low"
+    },
+    {
+     "accepts": 0,
+     "answered": 8,
+     "lane": "meganova-manta-flash-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 8,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 6,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 5,
+     "lane": "meganova-l3-3-ms-nevoria-70b",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 5,
+     "lane": "meganova-l3-70b-euryale-v2-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 5,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    }
+   ],
+   "open": 0,
+   "solved": 60
+  },
+  {
+   "accepts": 165,
+   "answered": 745,
+   "first_solves": [
+    {
+     "grade": "high school",
+     "key": "minif2f/test/amc12a_2021_p8",
+     "lane": "mistral-leanstral-1-5",
+     "mode": "leanstral",
+     "tier": "unknown",
+     "ts": "2026-10-30T08:27:57+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/aime_1987_p5",
+     "lane": "mistral-leanstral-1-5",
+     "mode": "leanstral",
+     "tier": "unknown",
+     "ts": "2026-10-30T08:29:09+00:00"
+    }
+   ],
+   "grade": "high school",
+   "lanes": [
+    {
+     "accepts": 60,
+     "answered": 91,
+     "lane": "requesty-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 20,
+     "answered": 35,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 13,
+     "answered": 38,
+     "lane": "meganova-l3-3-ms-nevoria-70b",
+     "tier": "high"
+    },
+    {
+     "accepts": 9,
+     "answered": 13,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 8,
+     "answered": 9,
+     "lane": "iteracompute-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 7,
+     "answered": 24,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 6,
+     "answered": 25,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 5,
+     "answered": 22,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 5,
+     "answered": 20,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 4,
+     "answered": 37,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 4,
+     "answered": 31,
+     "lane": "meganova-l3-70b-euryale-v2-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 4,
+     "answered": 31,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 4,
+     "answered": 30,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "medium"
+    },
+    {
+     "accepts": 3,
+     "answered": 37,
+     "lane": "meganova-manta-flash-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 3,
+     "answered": 16,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 3,
+     "answered": 7,
+     "lane": "groq-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 2,
+     "answered": 115,
+     "lane": "mistral-leanstral-1-5",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 2,
+     "answered": 38,
+     "lane": "meganova-l3-8b-stheno-v3-2",
+     "tier": "low"
+    },
+    {
+     "accepts": 1,
+     "answered": 31,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "low"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "openrouter-xing4-0-29b-a4b",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 2,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 72,
+     "lane": "kaggle-goedel-prover-v2-8b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 6,
+     "lane": "mistral-codestral-latest",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 6,
+     "lane": "routeway-gemma-4-26b-a4b-it-chimerax",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "mistral-codestral-2508",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "agnes-agnes-2-5-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-gemma4-31b",
+     "tier": "high"
+    }
+   ],
+   "open": 44,
+   "solved": 200
+  },
+  {
+   "accepts": 0,
+   "answered": 0,
+   "first_solves": [],
+   "grade": "college",
+   "lanes": [],
+   "open": 0,
+   "solved": 0
+  }
+ ],
+ "hours": 24,
+ "kaggle": {
+  "failed": [],
+  "finished": [
+   {
+    "answers": 64,
+    "batch": "goals-20261029T1947",
+    "finished_at": "2026-10-29T22:04:26+00:00"
+   }
+  ]
+ },
+ "relay": {
+  "backed_off": true,
+  "last": "2026-10-29T13:26:49+00:00"
+ },
+ "rungs": [
+  {
+   "idle_days": 0.1,
+   "last": "2026-10-30T11:52:25+00:00",
+   "rung": "competition math (ladder)"
+  },
+  {
+   "idle_days": 1.0,
+   "last": "2026-10-29T14:30:08+00:00",
+   "rung": "relay"
+  },
+  {
+   "idle_days": 0.6,
+   "last": "2026-10-30T00:15:31+00:00",
+   "rung": "prover"
+  },
+  {
+   "idle_days": 9.4,
+   "last": "2026-10-21T03:56:10+00:00",
+   "rung": "goal-closer"
+  },
+  {
+   "accepts_ever": 0,
+   "idle_days": 8.4,
+   "last": "2026-10-22T02:49:39+00:00",
+   "rung": "formal-conjectures",
+   "tries_24h": 0
+  },
+  {
+   "crashed": 125,
+   "idle_days": 0.7,
+   "last": "2026-10-29T19:50:19+00:00",
+   "qualify": {
+    "at": "2026-10-29T21:11:14+00:00",
+    "mean_pearson_delta": 0.016150000000000015,
+    "passed": false,
+    "sites": 6
+   },
+   "qualify_runs": 5,
+   "rounds_24h": 12,
+   "rung": "openproblems.bio",
+   "scored": 85
+  }
+ ],
+ "speed": [
+  {
+   "accepted": 18,
+   "lane": "mistral-ministral-3b-2512",
+   "prev_accepted": 3,
+   "prev_targets": 11,
+   "prev_week": "2026-10-19",
+   "refused": 121,
+   "size_b": 3,
+   "targets": 41,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 15,
+   "lane": "mistral-ministral-8b-2512",
+   "prev_accepted": 3,
+   "prev_targets": 6,
+   "prev_week": "2026-10-19",
+   "refused": 128,
+   "size_b": 8,
+   "targets": 41,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 14,
+   "lane": "mistral-ministral-14b-2512",
+   "prev_accepted": 5,
+   "prev_targets": 10,
+   "prev_week": "2026-10-19",
+   "refused": 129,
+   "size_b": 14,
+   "targets": 41,
+   "week": "2026-10-26"
+  },
+  {
+   "accepted": 4,
+   "lane": "agnes-agnes-2-5-flash",
+   "prev_accepted": 4,
+   "prev_targets": 5,
+   "prev_week": "2026-10-19",
+   "refused": 64,
+   "size_b": null,
+   "targets": 10,
+   "week": "2026-10-26"
+  }
+ ],
+ "to": "2026-10-30T13:28:42.376478+00:00",
+ "totals": {
+  "accepted": 230,
+  "answered": 955,
+  "errors": {
+   "router 5xx": 199,
+   "upstream timeout (504)": 128
+  },
+  "judged": 1282,
+  "lanes": 32,
+  "open": 44,
+  "problems": 308,
+  "solved_ever": 334
+ }
+}
