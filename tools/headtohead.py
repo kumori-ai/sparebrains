@@ -38,7 +38,7 @@ SEED = "headtohead-2026-10-19"
 ALONE = {"backend": "mistral-leanstral-1-5", "provider": "mistral", "model": "labs-leanstral-1-5-1",
          "mode": "leanstral", "file": "leanstral"}
 LESSONS = {**ALONE, "mode": "lessons", "file": "lessons"}     # the same lane, taught by verified proofs (2026-10-28)
-ROUTER_MAX_TOKENS, ROUTER_WAIT_S = 4000, 300                 # the size series' cap (tools/toolscore.py); a 429's longest wait
+ROUTER_MAX_TOKENS = 4000                                     # the size series' cap (tools/toolscore.py)
 
 
 def lane_of(backend):
@@ -48,10 +48,13 @@ def lane_of(backend):
 
 def router_call(backend, llm_chat, max_tokens=ROUTER_MAX_TOKENS, tries=3, sleep=time.sleep):
     """A prompt to a Kumori router lane, answered in leanstral.call_prompt's shape ({text, tokens, finish} or
-    {error}). A 429 with a clock is waited out up to `tries` times, as attempt.make_ask does; any other refusal
-    (gate, bench, share) is an error, not a retry: a refused call is a call the arm lost."""
+    {error, reason}). The call is the ladder's cold try (attempt.py: long_call, LADDER_CALL_S): run 40977072274
+    asked the default ceiling and the lane's answers were cut at 30 s, which opened the router's breaker. A park
+    the router puts a clock on (a 429's spacing, a 503 bench) is waited out, up to relay.PARK_WAIT_S a time and
+    `tries` - 1 times across `tries` attempts, as the ladder waits; a refusal with no clock (gate, share) is the call
+    lost, not retried."""
     import uuid
-    import attempt
+    import attempt, relay
     from utilities.kumori_api_client import KumoriAPIError
 
     def call(prompt):
@@ -59,20 +62,22 @@ def router_call(backend, llm_chat, max_tokens=ROUTER_MAX_TOKENS, tries=3, sleep=
             try:
                 text, served, inf = llm_chat(backend, [{"role": "user", "content": prompt}], max_tokens=max_tokens,
                                              temperature=0.2, system=attempt.SYSTEM, app_name="sparebrains",
-                                             timeout=(10, 180), timeout_s=60, include_metadata=True,
-                                             request_id=uuid.uuid4().hex)
+                                             timeout=(10, attempt.LADDER_CALL_S + 15), timeout_s=attempt.LADDER_CALL_S,
+                                             long_call=True, include_metadata=True, request_id=uuid.uuid4().hex)
                 inf = inf or {}
                 return {"text": text or "", "tokens": (inf.get("usage") or {}).get("completion_tokens"),
                         "finish": inf.get("finish_reason") or inf.get("finish"), "backend": served}
             except KumoriAPIError as e:
                 wait = e.retry_after or 0
-                if i + 1 < tries and (e.status_code == 429 or "RPM spacing" in str(e)) and 0 < wait <= ROUTER_WAIT_S:
-                    sleep(wait)
+                parked = e.status_code in (429, 503) or "RPM spacing" in str(e) or "benched" in str(e)
+                if i + 1 < tries and parked and wait > 0:       # a clock longer than PARK_WAIT_S is waited that long, not refused
+                    sleep(min(wait, relay.PARK_WAIT_S))        # (Codex f1, 2026-10-30: the void run's bench was 194 s)
                     continue
-                return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+                return {"error": f"{type(e).__name__}: {str(e)[:160]}",
+                        "reason": e.error_code or ("benched" if "benched" in str(e) else f"http_{e.status_code}")}
             except Exception as e:
-                return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
-        return {"error": "refused: 429 on every try"}
+                return {"error": f"{type(e).__name__}: {str(e)[:160]}", "reason": type(e).__name__}
+        return {"error": f"parked on every try ({tries})", "reason": "parked"}
     return call
 
 
@@ -115,7 +120,7 @@ class Meter:
     (`unmetered`, so the row's tokens are null, never an undercount), errors, answers cut at the cap, lanes served."""
     def __init__(self, call):
         self.call, self.calls, self.tokens, self.lock = call, 0, 0, threading.Lock()
-        self.unmetered, self.errors, self.cut, self.served = 0, 0, 0, set()
+        self.unmetered, self.errors, self.cut, self.served, self.reasons = 0, 0, 0, set(), {}
 
     def ask(self, prompt):
         r = self.call(prompt)
@@ -132,6 +137,8 @@ class Meter:
             else:                                        # an error's usage is unknown too (Codex round 2, f3)
                 self.errors += 1
                 self.unmetered += 1
+                why = (r.get("reason") or r.get("error") or "none")[:60] if isinstance(r, dict) else "none"
+                self.reasons[why] = self.reasons.get(why, 0) + 1
         if not isinstance(r, dict) or "error" in r:
             return r if isinstance(r, dict) else None
         import leanstral
@@ -193,8 +200,11 @@ def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS
                          "status": t["status"], "outcome": "solved" if cand else "failed", "calls_to_solve": k,
                          "calls": m.calls, "tokens": None if m.unmetered else m.tokens,
                          "seconds": round(time.monotonic() - t0, 1), "errors": m.errors, "cut": m.cut,
+                         "reasons": m.reasons,
                          **({"writer": writer, "served": sorted(m.served)} if writer else {}),
                          **({"lessons": meta} if meta is not None else {})})
+            if m.errors == m.calls and m.calls:          # said in the log, so a benched lane is read as one, not as 0 of 30
+                print(f"{t['target']} {arm}: every call errored {m.reasons}", flush=True)
             if cand and t["status"] == "open":
                 solves.append((arm, t, cand))
         return rows, solves

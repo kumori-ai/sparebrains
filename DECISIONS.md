@@ -39,6 +39,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   from a wrong proof; a refused call (gate, bench, share) is a call the arm lost, not retried; 429s with a clock are
   waited up to 3 times. Codex round 1 DISAGREE 20261029T214023272933Z_codex (f1, f2 blocking; f3, f4), round 2 DISAGREE 20261029T214501788383Z_codex (f3 still: an errored call's usage is unknown too), round 3 AGREE 20261029T214724901513Z_codex; every finding taken.
   Tests fail-first: 477 OK (`test_lessons.ByConclusion`, `test_headtohead` lane and row metadata).
+  **Run 40977072274 (00:02 to 00:09 UTC, 10-30): void, not a measurement.** Both arms 0 of 30, 240 calls, 237
+  errors, 3 answers; the rows' `errors`/`served` (Codex f4) are what showed it. kumori's usage log for the window
+  has 6 of the 240: 3 answers from ministral-8b (about 1,100 output tokens, 18 s each) and 3 `upstream_timeout`
+  at 30.0 s, the server's default ceiling, not the 60 asked; the other 234 calls are not in kumori's log at all and
+  took about 2 s each; read as the router's breaker refusing them (an inference: the lane's state at 00:40 UTC was
+  `breaker_open`, 194 s left, and a bench is a 503 the old `router_call` did not wait on, only 429s). The lane is also `quality_tier` low, not medium. Fix
+  (same commit as this note): the call is the ladder's cold try (`long_call`, `LADDER_CALL_S` 120 s), a park with a
+  clock (429 or 503) is waited out, each wait capped at `relay.PARK_WAIT_S` (a 194 s clock waits 180, Codex f1), 3
+  tries, then the call is lost and named; a refusal with no clock is the call
+  lost, every row carries `reasons` (the error codes counted, `{}` when none) and an arm whose every call errored
+  says so in the log. Re-dispatched with the same inputs; the pre-registration above stands unchanged. Codex on the
+  fix: DISAGREE 20261030T002028745417Z_codex (f1 the wait cap, f2 the field on every row; both taken), AGREE 20261030T002226568849Z_codex.
 
 ## 2026-10-28
 

@@ -123,9 +123,19 @@ class Fairness(unittest.TestCase):
         self.assertEqual(slept, [2])
         self.assertEqual([c[0] for c in calls], ["mistral-ministral-8b-2512"] * 2)
         self.assertTrue(all(c[2]["system"] and c[2]["app_name"] == "sparebrains" and c[2]["include_metadata"] for c in calls))
+        self.assertTrue(all(c[2]["long_call"] and c[2]["timeout_s"] >= 120 for c in calls))   # the ladder's cold try, not the 30 s default
         def refuse(backend, messages, **kw):
-            raise KumoriAPIError("pool_gated", status_code=403)
-        self.assertIn("error", h.router_call("x", refuse, sleep=slept.append)("prove it"))   # a refusal is an error row, no wait
+            raise KumoriAPIError("pool_gated", status_code=403, payload={"error_code": "pool_gated"})
+        r = h.router_call("x", refuse, sleep=slept.append)("prove it")
+        self.assertEqual((("error" in r), r["reason"], slept), (True, "pool_gated", [2]))      # no clock: the call is lost, no wait
+        def benched(backend, messages, **kw):            # run 40977072274: 234 of 240 calls met this and were lost in 2 s each
+            raise KumoriAPIError("mistral-ministral-8b-2512 is benched: breaker_open", status_code=503, retry_after=7)
+        r = h.router_call("x", benched, tries=2, sleep=slept.append)("prove it")
+        self.assertEqual((r["reason"], slept), ("benched", [2, 7]))                           # waited once, then the call is lost, named
+        def benched_long(backend, messages, **kw):       # Codex f1 (2026-10-30): the void run's clock was 194 s, over PARK_WAIT_S
+            raise KumoriAPIError("x is benched: breaker_open", status_code=503, retry_after=194)
+        r = h.router_call("x", benched_long, tries=3, sleep=slept.append)("prove it")
+        self.assertEqual((r["reason"], slept[2:]), ("benched", [180, 180]))                   # waited the cap twice, never refused outright
         self.assertEqual(h.lane_of("mistral-ministral-8b-2512")["provider"], "mistral")
 
     def test_same_as_names_the_exact_problems_of_an_earlier_run_in_its_order(self):
@@ -142,6 +152,7 @@ class Fairness(unittest.TestCase):
             return {"text": answer("  positivity\n"), "tokens": None if n[0] == 1 else 10, "finish": "length", "backend": "lane-x"}
         rows, _ = h.run([t], lambda s, n: TARGET, call, None, lambda x: {"verdict": "reject"}, calls=2,
                         arms=("alone", "lessons"), lesson_block=lambda s, n, text: "## Lessons\n", writer="lane-x")
+        self.assertTrue(all(r["reasons"] == {} for r in rows))                         # error-free rows carry it too (Codex f2)
         first = next(r for r in rows if r["calls"] == 2 and r["tokens"] is None)      # the arm whose first call was unmetered
         self.assertEqual((first["cut"], first["errors"], first["writer"], first["served"]), (2, 0, "lane-x", ["lane-x"]))
         self.assertIsNone(h.summary(rows)[first["arm"]]["tokens_per_solve"])
@@ -149,6 +160,7 @@ class Fairness(unittest.TestCase):
                             lambda x: {"verdict": "reject"}, calls=2, arms=("alone", "lessons"),
                             lesson_block=lambda s, n, text: "## Lessons\n", writer="lane-x")
         self.assertEqual({(r["errors"], r["tokens"], tuple(r["served"])) for r in err_rows}, {(2, None, ())})   # an error's usage is unknown
+        self.assertEqual({tuple(r["reasons"].items()) for r in err_rows}, {(("pool_gated", 2),)})                 # and its reason is on the row
         k = [0]
         def err_then_solve(p):                           # Codex round 2, f3: an error then a metered solve is still unknown
             k[0] += 1
