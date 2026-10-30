@@ -216,6 +216,13 @@ class PlanArmTests(unittest.TestCase):
                 [row("b", "plan", "accept"), row("c", "alone", "accept"), row("c", "plan")]))
             self.assertIsNone(prover.plan_owed(d, plans))
             v = prover.plan_verdict(prover.plan_rows("p1", d))
+            (arm_dir / "rows-plan-p1-2.jsonl").write_text("".join(json.dumps(r) + "\n" for r in
+                [row("b", "plan", "accept"), row("c", "alone", "accept")]))    # c's plan arm never ran
+            self.assertEqual([p["target"] for p in prover.plan_owed(d, plans)["plans"]], ["c"])
+            # 2026-10-30: 5 plans stayed owed for 8 days because their problems were solved by other lanes before their
+            # batch; plan_work only builds open problems, so the gate (plan_owed() is None) could never open
+            self.assertIsNone(prover.plan_owed(d, plans, open_keys={("minif2f/test", "a"), ("minif2f/test", "b")}))
+            self.assertEqual([p["target"] for p in prover.plan_owed(d, plans, open_keys={("minif2f/test", "c")})["plans"]], ["c"])
             self.assertEqual((v["problems"], v["only_plan"], v["only_alone"]), (3, ["a", "b"], ["c"]))
 
     def test_batch_ids_with_a_prefix_parse(self):

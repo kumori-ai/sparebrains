@@ -3,6 +3,38 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-10-30
+
+- **The plan arm is judged: plans did not lift the prover (kumori #433, pre-registered 2026-10-19).** All of
+  `plans-2026-10-19`'s rows pooled (`prover.plan_verdict`, 250 rows over 7 batches, 10-19 to 10-26 10:58 UTC): 32 problems
+  judged in both arms; the plan arm solved 1 (aime_1994_p3), the alone arm 2 (aime_1994_p3, amc12b_2020_p22);
+  solved by the plan arm only: none; by alone only: 1; p = 1.0. By the rule written before the run, no claim, and
+  the cited-findings arm that waited on this (the old #253) is dropped. The other 5 of the 37 drafted plans
+  (amc12_2001_p21, amc12a_2009_p6, amc12a_2020_p7, amc12b_2021_p18, aime_1988_p8) were solved by other lanes before
+  their batch, so they were never judged, and that is the bug found with the verdict: `prover.plan_owed` counted
+  them owed while `plan_work` builds open problems only, so the gate `plan_owed() is None` could never open: shut by
+  design until the last judgment on 10-26 10:58 UTC, shut by the bug for the 4 days since. The Leanstral lane had
+  spent its 8 tries on everything outside the bar by 10-22 and has run "0 problems owed" every 2 hours since; from
+  10-26 the bar's problems should have been its queue, and decompose's bar goals waited behind the same gate. Fixed: a plan whose problem is no longer open is not owed (`open_keys`, every caller passes
+  the open list; a fail-first test); with it the gate is open and `leanstral.owed` holds 29 problems. Codex on this entry and the two below: DISAGREE 20261030T004302103250Z_codex and 20261030T004653402412Z_codex (receipt wording: the resolve schedule, the batch count and delay, the rows without a request count; all corrected), AGREE 20261030T004908233122Z_codex.
+- **The Leanstral lane's bar passed (kumori #476; bar in the 2026-10-18 entry: at least 3 first-time solves within 7
+  days of its first job, on the open problems outside the prover's 50, 8 tries a problem).** Read from the ledger
+  today: 13 accepts, all 13 first-time solves, between 10-18 and 10-21 00:18 UTC (aime_1988_p8, imo_1968_p5_1,
+  imo_1981_p6, imo_1983_p6, induction_nfactltnexpnm1ngt3, induction_pprime_pdvdapowpma, induction_prod1p1onk3le3m1onn,
+  induction_sumkexp3eqsumksq, mathd_algebra_362, numbertheory_4x3m7y3neq2003, numbertheory_fxeq4powxp6powxp9powx_f2powmdvdf2pown,
+  algebra_bleqa_apbon2msqrtableqambsqon8b, algebra_sum1onsqrt2to1onsqrt10000lt198). The lane then spent its 8 tries
+  on every owed problem (384 rows, last 10-22) and idled behind the plan-arm gate above; it resumes on the 29 now owed.
+  The task closes; the lane's 120k cap, streaming and reasoning_effort fallback stay as the 10-20/10-21 entries say.
+- **The speed receipt is built and running (kumori #191, from 2026-09-23).** Each week's set frozen
+  (`ledger/speed/sample-*.jsonl`), re-solved by this week's tools nightly in the retro branch of `attempt.yml`
+  (cron 10:17 UTC, 6 slices, `toolscore.py --resolve --max-minutes 60` first, a gone lane fails the run; 979 resolve
+  rows to date), the stored answers replayed through today's chain, compute measured as requests to first accept
+  (`requests` on every resolve row since run 39944925118's first night, the chain and tools hashes beside it; the 7
+  rows of that first run, 10-23, carry neither and count as unknown compute in any comparison, never as zero), the model held fixed per series (weekly on
+  one lane, the 3B/8B/14B size series). The daily report (`ledger/daily/<day>.json` `speed[]`) shows per lane the
+  targets, accepts and refusals this run week beside last; requests per accept is read from the rows, not from the
+  report. Closed as built; the numbers keep coming, and a lift claim is judged from them, never here.
+
 ## 2026-10-29
 
 - **Lessons, second pilot: the goal-shape retrieval on a weaker writer, rules written before it runs (kumori #574).**

@@ -264,7 +264,7 @@ def main():
     tried = tried_by(past, lane["backend"])
     reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
              if prover.REACHABLE.exists() else set())
-    goals = pick_goals(json.loads(goal_closer.QUEUE.read_text()), rung, tried, reach, prover.plan_owed() is None,
+    goals = pick_goals(json.loads(goal_closer.QUEUE.read_text()), rung, tried, reach, prover.plan_owed(open_keys=set(rung)) is None,
                        a.max_goals)
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
     ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)

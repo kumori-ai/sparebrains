@@ -154,7 +154,8 @@ def reply(r):
 def generate(out_path, key, open_list, rows, batch):
     reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
              if prover.REACHABLE.exists() else frozenset())
-    work = owed(open_list, rows, bar=prover.plan_owed() is None, reachable=reach)
+    bar = prover.plan_owed(open_keys={(t["target_set"], t["target"]) for t in open_list}) is None
+    work = owed(open_list, rows, bar=bar, reachable=reach)
     pacer = Pacer(MIN_GAP_S)
     cfg = {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, "gpus": None, "dtype": None, "top_p": None}
 

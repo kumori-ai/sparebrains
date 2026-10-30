@@ -260,16 +260,19 @@ def plan_rows(plans_id, ledger_root=ROOT / "ledger"):
             for r in map(json.loads, f.read_text().splitlines()) if r.get("plans_id") == plans_id]
 
 
-def plan_owed(ledger_root=ROOT / "ledger", plans=PLANS):
+def plan_owed(ledger_root=ROOT / "ledger", plans=PLANS, open_keys=None):
     """The plans file cut to the problems not yet judged in both arms; None once none are left. A budget stop can
-    end a plan batch early (2026-10-19: 7 of 35 problems), so the rest stay owed for the next push."""
+    end a plan batch early (2026-10-19: 7 of 35 problems), so the rest stay owed for the next push. A plan whose
+    problem is no longer open (`open_keys` given) is not owed: plan_work builds open problems only, so it would
+    never be judged (2026-10-30: 5 such plans held the gate shut for 4 days after the other 32 were judged on 10-26)."""
     if not plans.exists():
         return None
     doc = json.loads(plans.read_text())
     arms = defaultdict(set)
     for r in plan_rows(doc["id"], ledger_root):
         arms[(r["target_set"], r["target"])].add(r["arm"])
-    left = [p for p in doc["plans"] if arms[(p["target_set"], p["target"])] != {"alone", "plan"}]
+    left = [p for p in doc["plans"] if arms[(p["target_set"], p["target"])] != {"alone", "plan"}
+            and (open_keys is None or (p["target_set"], p["target"]) in open_keys)]
     return {**doc, "plans": left} if left else None
 
 
@@ -709,7 +712,8 @@ def main():
     if args.cmd == "next" and args.tpu:           # the TPU: the 8B outside the bar; the 32B (#534) only with --tpu32
         open_list = relay.fetch_json("/targets.json")["open"]
         reach = {(r["target_set"], r["target"]) for r in json.loads(REACHABLE.read_text())["reachable"]} if REACHABLE.exists() else set()
-        work, model, prefix = tpu_work(open_list, prover_rows(), prover_rows(lane=PROVER_32B), reach, plan_owed() is None,
+        work, model, prefix = tpu_work(open_list, prover_rows(), prover_rows(lane=PROVER_32B), reach,
+                                       plan_owed(open_keys={(t["target_set"], t["target"]) for t in open_list}) is None,
                                        tpu32=args.tpu32)
         if not work:
             return 0
@@ -720,8 +724,9 @@ def main():
         print(f"tpu batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)
         return 0
     if args.cmd == "next":                        # a plan batch (task #433) goes before any other kind
-        doc = plan_owed()
-        work = plan_work(doc, {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}) if doc else []
+        open_keys = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+        doc = plan_owed(open_keys=open_keys)
+        work = plan_work(doc, open_keys) if doc else []
         if work:
             batch = f"plan-{doc['id']}-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
             build(args.out, None, batch, budget_h=args.hours, problems=work)
