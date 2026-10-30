@@ -5,6 +5,16 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-10-30
 
+- **Lane-written repair pass, second cohort: a miss on lean3_syntax (kumori #573; rules the 2026-10-28 entry).** Run
+  40990511371 (02:14 to 02:38 UTC): cohort 45 tune rejects the chain still rejects, 53 report; 12 writer rounds, all
+  answered by `mistral-codestral-latest` (the first-listed writer, requesty-leanstral-1-5, wrote none; the log does not
+  say why, so unknown); 9 passes passed the screen and each turned 0 of 45 (3 rounds returned no code); nothing kept,
+  the report half never run. Read: the passes patch the error strings Lean printed (a trailing comma before `}`, a
+  stray `#print`), never the Lean 3 shape itself (`begin … end`, `cases h with x hx`, `nat.` names), and a regex pass
+  given one proof and one error cannot translate a proof. Two cohorts, two misses (unknown_name 0 of 38 on 10-28,
+  lean3_syntax 0 of 45 today); the third class, unsolved_goals, is the chain's own tactic territory. Parked: reopens
+  only with a different writer contract (a pass that may call Lean and iterate, or a stronger writer that turns at
+  least one tune reject in a dry screen before a full run), never with another cohort under this contract.
 - **The plan arm is judged: plans did not lift the prover (kumori #433, pre-registered 2026-10-19).** All of
   `plans-2026-10-19`'s rows pooled (`prover.plan_verdict`, 250 rows over 7 batches, 10-19 to 10-26 10:58 UTC): 32 problems
   judged in both arms; the plan arm solved 1 (aime_1994_p3), the alone arm 2 (aime_1994_p3, amc12b_2020_p22);
