@@ -1,0 +1,1 @@
+{"run_id": "41230452890", "run_attempt": "1", "ts": "2026-10-31T18:41:27+00:00", "problem": "minif2f/test/aime_1995_p7", "calls": 45, "accepts": 0, "relay_rows": 30, "woken_by": {"kind": "model", "model": "gemma-4-26b-a4b-it-darksoul:free"}, "backed_off": true}
