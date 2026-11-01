@@ -196,3 +196,61 @@ class Fairness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Bounded(unittest.TestCase):
+    """Run 40980090085 (2026-10-30): the lane answered nothing, every call waited out its parks, and the job printed
+    nothing for 5 h 38 min until the 340-minute timeout cancelled it; the publish step never ran, so 30 problems' worth
+    of calls left no row. A run is bounded on its clock and on the lane, and what finished is published."""
+    T = [{"target_set": "s", "target": f"t{i}", "status": "solved", "rung": "aime"} for i in range(4)]
+
+    def test_a_lane_that_only_errors_trips_the_breaker_and_the_rest_is_void_not_measured(self):
+        n = [0]
+        def call(p):
+            n[0] += 1
+            return {"error": "benched", "reason": "benched"}
+        rows, _ = h.run(self.T, lambda s, t: TARGET, call, None, lambda x: {"verdict": "reject"}, calls=4, jobs=1,
+                        arms=("alone", "lessons"), lesson_block=lambda s, t, text: "## L\n", breaker=6)
+        self.assertEqual(n[0], 6, "after 6 consecutive errored calls the lane is not called again")
+        void = [r for r in rows if r.get("void")]
+        self.assertTrue(void and all(r["void"] == "lane_down" for r in void))
+        s = h.summary(rows)
+        self.assertEqual(s["void_rows"], len(void))
+        self.assertEqual((s["alone"]["problems"], s["problems_paired"]), (0, 0), "void rows are not in any count")
+        self.assertLess(len(rows), 8, "problems after the trip are not started: no row")
+
+    def test_past_the_deadline_nothing_new_is_asked_and_finished_problems_still_count(self):
+        clock = [0.0]
+        def call(p):
+            clock[0] += 100
+            return {"text": answer("  positivity\n"), "tokens": 10}
+        with mock.patch.object(h.time, "monotonic", lambda: clock[0]):
+            rows, _ = h.run(self.T, lambda s, t: TARGET, call, None, lambda x: {"verdict": "accept"}, calls=1, jobs=1,
+                            arms=("alone", "lessons"), lesson_block=lambda s, t, text: "## L\n", deadline=250)
+        self.assertEqual(sorted((r["target"], r["arm"]) for r in rows[:2]), [("t0", "alone"), ("t0", "lessons")],
+                         "t0's two arms finished (100 s each)")
+        self.assertEqual(len([r for r in rows if r["target"] == "t1"]), 1, "t1's first arm started at 200 s; its second was not started")
+        self.assertEqual({r["target"] for r in rows if r["target"] not in ("t0", "t1")}, set(), "nothing starts past the deadline")
+        s = h.summary(rows)
+        self.assertEqual((s["problems_paired"], s["alone"]["solved"], s["void_rows"]), (1, 1, 0))
+
+    def test_a_problem_with_one_arm_void_is_not_paired(self):
+        rows = [{"arm": "alone", "target": "a", "outcome": "solved", "calls": 1, "tokens": 1, "seconds": 1},
+                {"arm": "lessons", "target": "a", "outcome": "failed", "calls": 1, "tokens": 1, "seconds": 1, "void": "deadline"},
+                {"arm": "alone", "target": "b", "outcome": "failed", "calls": 1, "tokens": 1, "seconds": 1},
+                {"arm": "lessons", "target": "b", "outcome": "solved", "calls": 1, "tokens": 1, "seconds": 1}]
+        s = h.summary(rows)
+        self.assertEqual((s["problems_paired"], s["only_lessons"], s["only_alone_vs_lessons"]), (1, ["b"], []))
+        only_treatment = [rows[3]]                       # the lessons arm finished, its control never started
+        s = h.summary(only_treatment, arms=("alone", "lessons"))
+        self.assertEqual((s["problems_paired"], s["only_lessons"], s["alone"]["problems"]), (0, [], 0), "no control, no win")
+        self.assertEqual(h.summary(only_treatment)["problems_paired"], 1, "without the configured arms the rows decide, as before")
+
+    def test_every_arm_prints_a_progress_line(self):
+        t = self.T[:1]
+        with mock.patch("builtins.print") as p:
+            h.run(t, lambda s, n: TARGET, lambda q: {"text": answer("  positivity\n"), "tokens": 10}, None,
+                  lambda x: {"verdict": "accept"}, calls=1, jobs=1, arms=("alone", "lessons"), lesson_block=lambda s, n, text: "## L\n")
+        lines = [c.args[0] for c in p.call_args_list if c.args]
+        self.assertTrue(any(l.startswith("t0 alone: solved") for l in lines), lines)
+        self.assertTrue(any(l.startswith("t0 lessons: solved") for l in lines), lines)

@@ -175,18 +175,49 @@ def with_tools(target_text, ask, run_lean, judge_text, fix=None, calls=CALLS):
 ARMS = ("alone", "tools", "lessons")
 
 
+BREAKER = 12          # consecutive errored calls before the lane is read as down: 3 problems' arms at 4 calls, ~1 h of parks
+
+
 def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS, jobs=3, arms=("alone", "tools"),
-        lesson_block=None, writer=None):
+        lesson_block=None, writer=None, deadline=None, breaker=BREAKER):
     """Every arm in `arms` on every problem, in a random order per problem (seeded). The lessons arm is `alone` with
     tools/lessons.py's block in front (`lesson_block(target_set, target, text)` -> str), never the problem's own
-    proof. Returns (rows, solves)."""
+    proof. Returns (rows, solves). Bounded two ways (run 40980090085, 2026-10-30: a lane that answered nothing was
+    asked for 5 h 38 min, nothing printed, the job's timeout cancelled it and nothing was published): past `deadline`
+    (time.monotonic) no call is made, and after `breaker` consecutive errored calls the lane is down and not called
+    again; an arm any such refusal touched is a row marked `void` (deadline / lane_down), kept for the record and
+    left out of every count and pair; an arm not started is no row. Every arm prints one line when it ends."""
+    state = {"errors": 0, "down": None, "lock": threading.Lock()}
+
+    def refusal():
+        if deadline is not None and time.monotonic() > deadline:
+            return "deadline"
+        return state["down"]
+
+    def guarded(prompt):
+        why = refusal()
+        if why:
+            return {"error": f"not asked: {why}", "reason": why}
+        r = call(prompt)
+        with state["lock"]:
+            if not isinstance(r, dict) or "error" in r:
+                state["errors"] += 1
+                if breaker and state["errors"] >= breaker and not state["down"]:
+                    state["down"] = "lane_down"
+                    print(f"lane down: {breaker} consecutive errored calls; the rest of the run is void", flush=True)
+            else:
+                state["errors"] = 0
+        return r
+
     def one(t):
         text = read_target(t["target_set"], t["target"])
         order = list(arms)
         random.Random(f"{SEED}/{t['target']}").shuffle(order)
         rows, solves = [], []
         for arm in order:
-            m, t0, meta = Meter(call), time.monotonic(), None
+            if refusal():                                # not started: no row, the summary says how many were measured
+                continue
+            m, t0, meta = Meter(guarded), time.monotonic(), None
             if arm == "alone":
                 cand, k = alone(text, m.ask, judge_text, calls)
             elif arm == "lessons":
@@ -203,9 +234,13 @@ def run(problems, read_target, call, run_lean, judge_text, fix=None, calls=CALLS
                          "reasons": m.reasons,
                          **({"writer": writer, "served": sorted(m.served)} if writer else {}),
                          **({"lessons": meta} if meta is not None else {})})
-            if m.errors == m.calls and m.calls:          # said in the log, so a benched lane is read as one, not as 0 of 30
-                print(f"{t['target']} {arm}: every call errored {m.reasons}", flush=True)
-            if cand and t["status"] == "open":
+            void = next((w for w in ("deadline", "lane_down") if w in m.reasons), None)
+            if void:
+                rows[-1]["void"] = void
+            print(f"{t['target']} {arm}: {rows[-1]['outcome']}{' (void: ' + void + ')' if void else ''} "
+                  f"calls={m.calls} errors={m.errors} {rows[-1]['seconds']}s"
+                  + (f" every call errored {m.reasons}" if m.errors == m.calls and m.calls else ""), flush=True)
+            if cand and t["status"] == "open" and not void:
                 solves.append((arm, t, cand))
         return rows, solves
 
@@ -230,9 +265,18 @@ def wilson(k, n, z=1.96):
     return (round(100 * (c - h), 1), round(100 * (c + h), 1))
 
 
-def summary(rows):
-    """Per arm: solved, interval, calls/tokens/seconds per solve; and the paired disagreements."""
-    by = {}
+def summary(rows, arms=None):
+    """Per arm: solved, interval, calls/tokens/seconds per solve; and the paired disagreements. Void rows (a
+    deadline or a lane down touched the arm) are counted apart, and a problem is paired only when every configured
+    arm (`arms`; the arms seen in the rows when not given) has a measured row for it: a treatment arm that finished
+    before the cutoff while its control never started is no win (Codex 20261101T180816309622Z f5)."""
+    void = [r for r in rows if r.get("void")]
+    arms_ran = set(arms) if arms else {r["arm"] for r in rows}
+    measured = [r for r in rows if not r.get("void")]
+    complete = {n for n in {r["target"] for r in measured}
+                if {r["arm"] for r in measured if r["target"] == n} == arms_ran}
+    rows = [r for r in measured if r["target"] in complete]
+    by = {arm: [] for arm in sorted(arms_ran)}             # an arm that ran shows, even with nothing measured
     for r in rows:
         by.setdefault(r["arm"], []).append(r)
     out = {}
@@ -255,6 +299,7 @@ def summary(rows):
         out[f"p_{arm}"] = round(sign_p(len(only_t), len(only_a)), 4)
     if "tools" in by:                                   # the names earlier runs and tests read
         out["only_alone"], out["p"] = out["only_alone_vs_tools"], out["p_tools"]
+    out["problems_paired"], out["void_rows"] = len(complete), len(void)
     return out
 
 
@@ -295,6 +340,8 @@ def main():
     ap.add_argument("--lessons", type=int, default=3, help="lessons arm: solved theorems shown")
     ap.add_argument("--lessons-by", default="statement", help="lessons arm: statement (the pilot) or conclusion (goal shape)")
     ap.add_argument("--lane", default="", help="a Kumori router lane in Leanstral's seat for alone and lessons (needs KUMORI_API_KEY)")
+    ap.add_argument("--max-minutes", type=float, default=300,
+                    help="the run's clock, inside the job's 340: past it nothing new is asked and what finished is published")
     ap.add_argument("--same-as", default="", help="run id: the exact problems that run measured, in its order (--open/--solved/--seed/--slice unused)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
@@ -345,13 +392,14 @@ def main():
     rows, solves = run(problems, lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text(), call,
                        lean_tools.run_lean, lean_tools.judge_text,
                        fix=lambda proof, out: fixer.fix(proof, out, *names_ix), calls=a.calls, arms=arms,
-                       lesson_block=lesson_block, writer=writer["backend"])
+                       lesson_block=lesson_block, writer=writer["backend"],
+                       deadline=time.monotonic() + 60 * a.max_minutes if a.max_minutes else None)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "a") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
     if solves:
         record(solves, datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"), lean_tools.judge_text, writer)
-    s = {"writer": writer["backend"], **({"lessons_by": a.lessons_by} if "lessons" in arms else {}), **summary(rows)}
+    s = {"writer": writer["backend"], **({"lessons_by": a.lessons_by} if "lessons" in arms else {}), **summary(rows, arms)}
     print("headtohead: " + json.dumps(s) + (f"; Leanstral stopped: {pacer.stop}" if pacer.stop else ""))
     return 0
 

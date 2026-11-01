@@ -25,6 +25,33 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   measured in the order fresh-first, so a lookalike that would pass the sites waits behind fresh methods, never
   forever.
 
+- **A head-to-head is bounded on its clock and on the lane, and what finished is published (kumori #574).** The
+  10-30 re-dispatch 40980090085 was not displaced by the concurrency group as the tracker note assumed: its step ran
+  00:31:58 to 06:10:41 UTC, printed one line, and the job's 340-minute timeout cancelled it, publish skipped, no row.
+  Arithmetic from the code as it was: a parked lane costs a call up to 135 s plus two 180 s waits, 4 calls an arm,
+  2 arms, 30 problems on 3 workers, about 20 hours when the lane never answers, with a log line only when an arm's
+  every call had errored. Now `tools/headtohead.py run --max-minutes` (300 of the job's 340) stops every new call
+  and arm at the deadline; after 12 consecutive errored calls across the run the lane is down and not called again
+  (an operational threshold, not a measured one; Codex's call, time-based would read slow work as failure); an arm
+  a refusal touched is a row marked `void` and counts nowhere, a void solve is never recorded; a problem pairs only
+  when every configured arm has a measured row (a treatment arm that finished before its control started is no win);
+  every arm prints one line when it ends. Tests `Bounded` (4, failed first); 487 OK. Codex three rounds
+  (20261101T180023898475Z DISAGREE, which also caught the wrong cancellation story and two wrong counts in the
+  #461 read below; 20261101T180816309622Z DISAGREE on pairing without a control; 20261101T181026090576Z AGREE).
+  The replication (alone vs lessons by conclusion, mistral-ministral-8b-2512, the 30 problems of 40733385091,
+  4 calls) is dispatched on this code once it is on main.
+- **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
+  (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
+  lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
+  by `field_simp; ring_nf; nlinarith`, run 39187801772). The pre-registered GPU goal-batch bar (the 2026-10-24 entry:
+  at least 3 first-time solves through goals within 7 days of the first goal batch): first batch goals-20261026T1324,
+  window to 2026-11-02 13:24 UTC; 14 batches judged, 1 solve (aime_1991_p9, goals-20261028T1301,
+  `ledger/minif2f/test/prover-goals-20261028T1301.jsonl`). It is graded at the window's end, met or missed beside the
+  prover's whole-problem rate over the same window, and the task closes on that entry. The dossier on/off arm folded
+  in on 10-22 is retired untested, a priority call, not a finding: two prompt-context arms (plans 10-30, lessons 10-28)
+  showed nothing at n = 30 and 32, the live prompt-side experiment is #574's retrieval on a weaker lane, and the charter
+  puts tools before prompts; it reopens as its own task if that retrieval lifts.
+
 ## 2026-10-30
 
 - **Lane-written repair pass, second cohort: a miss on lean3_syntax (kumori #573; rules the 2026-10-28 entry).** Run
