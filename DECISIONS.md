@@ -152,6 +152,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   Rows before today carry no answer time and are never counted. Codex DISAGREE twice (a clock reading is an estimate
   and may not claim failed rescues; a negative marker must not fall to the clock; the longest call could be a failed
   try) then AGREE 20261101T202432949984Z. 502 tests OK.
+- **Lessons by goal shape on an 8B router lane: no claim, the lane did not answer (kumori #574).** Run 41336436516
+  (mistral-ministral-8b-2512 via kumori, alone vs lessons by conclusion, the 30 problems of 40733385091, 4 calls an
+  arm, the bounded head-to-head of this morning): 132 calls, 53 answered, 75 refused as benched; the breaker ended it
+  after 12 consecutive refusals (two rows void `lane_down`, none by the deadline), 33 rows, 15 problems paired, all of
+  them open problems (the solved controls went untested), alone 0 of 15, lessons 0 of 15, p = 1.0. By the rule of
+  2026-10-28 no claim; a zero alone rate does not blind the paired test (six lessons-only solves would give
+  p = 0.03), both arms at zero is simply nothing observed. The bound did what it was built for: the 10-30 run on the
+  same lane died at 340 minutes with no row. Next, exploratory, same design and set: a free router lane that answers
+  today, sealion-qwen-sea-lion-v4-5-27b-it (23 of 33 high-school accepts in the 11-01 report, candidate evidence, not
+  an alone rate; not parked at dispatch), dispatched this evening; the smaller-model replication the premise asks for
+  (ReProver's lift was on a small model) waits for a transport to the direct Mistral lanes, which headtohead --lane
+  does not have (it always goes through kumori's router). Codex DISAGREE on my first account of this run
+  (20261101T210532526684Z: termination, coverage, the "alone rate" and the blind-test claim, all corrected here).
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
