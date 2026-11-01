@@ -449,14 +449,40 @@ def _ci_ok(m, ref):
     return bool(ci) and ci["rmse"][1] < 0 and ci["mean_pearson_per_cell"][0] > 0
 
 
+def metrics_fp(m):
+    """A candidate's identity on validation: its metrics to 4 places, both directions. Three daily qualify runs
+    (2026-10-29..31) measured one method three times because the receipt was keyed on the code's text, and the
+    writer had re-emitted its seed with new comments and max(1, ...) guards each day."""
+    sw = m.get("swap") or {}
+    return tuple(round(x, 4) if x is not None else None for x in
+                 (m.get("rmse"), m.get("mae"), m.get("mean_pearson_per_cell"), sw.get("rmse"), sw.get("mae"), sw.get("mean_pearson_per_cell")))
+
+
+def code_ast(code):
+    """The program behind the text: its parsed tree, so comments and spacing do not make a new candidate; None when it
+    does not parse."""
+    import ast
+    try:
+        return ast.dump(ast.parse(code))
+    except (SyntaxError, ValueError, TypeError):
+        return None
+
+
 def best(rows, ref):
     """The largest validation Pearson-per-cell lead among candidates better than the reference on rmse and Pearson
     (the bar's own pair), no worse on swap, and, with a validation bootstrap, clear of zero on both. Ranked by
     Pearson since 2026-10-22: ranked by rmse, shot 1 won rmse on test and lost Pearson (our hypothesis, not
     established: shrinkage toward the mean lowers rmse and flattens correlation); rmse breaks ties."""
-    ok = [r for r in rows if "metrics" in r and r["metrics"]["mean_pearson_per_cell"] > ref["mean_pearson_per_cell"]
-          and r["metrics"]["rmse"] < ref["rmse"] and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref)]
+    ok = [r for r in rows if "metrics" in r and not r.get("same_as_seed")
+          and r["metrics"]["mean_pearson_per_cell"] > ref["mean_pearson_per_cell"] and r["metrics"]["rmse"] < ref["rmse"] and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref)]
     return max(ok, key=lambda r: (r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"])) if ok else None
+
+
+def passes_bar(r, ref):
+    """best()'s checks alone, the eligibility a qualify pick needs; the elite's extra rule (no copy of itself) is
+    best()'s own (Codex 20261101T175436698449Z f1: eligibility and elite preference are two things)."""
+    return ("metrics" in r and r["metrics"]["mean_pearson_per_cell"] > ref["mean_pearson_per_cell"]
+            and r["metrics"]["rmse"] < ref["rmse"] and _swap_ok(r["metrics"], ref) and _ci_ok(r["metrics"], ref))
 
 
 def failed_checks(m, ref):
@@ -476,7 +502,7 @@ def failed_checks(m, ref):
 def best_or_closest(rows, ref):
     """The best candidate by the bar's rule, else the highest validation Pearson among those that ran (rmse breaks
     ties), the same order best() uses."""
-    ran = [r for r in rows if "metrics" in r and r.get("code")]
+    ran = [r for r in rows if "metrics" in r and r.get("code") and not r.get("same_as_seed")]
     return best(ran, ref) or (max(ran, key=lambda r: (r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"]))
                               if ran else None)
 
@@ -532,12 +558,16 @@ def screened(code, ask, screen, repairs):
         code = fixed
 
 
-def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None):
+def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None, seed_note=None):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
     beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
     `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
     more asks; a row records every ask it took. With `max_asks`, the run stops when its asks (rounds and repairs) reach
-    it, so writers compare on equal budgets (task #477 step 5). Every attempt is a row; the seed is context, not a row."""
+    it, so writers compare on equal budgets (task #477 step 5). Every attempt is a row; the seed is context, not a row.
+    `seed_note`: where the seed missed the held-out-site bar (loso_note), shown under it. A round whose validation
+    metrics equal the elite's, passing no check the elite fails, is the same method again: marked same_as_seed, never
+    the elite, and the next ask says so (Codex 20261101T175033685665Z f2: equal metrics with a bootstrap the elite
+    fails is not a copy)."""
     rows, asks = [], 0
     for i in range(rounds):
         if max_asks is not None and asks >= max_asks:
@@ -549,12 +579,18 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
                         else f"the closest so far; it does not yet pass: {', '.join(failed_checks(top['metrics'], ref))}")
             prompt += (f"\n\nThis is {standing}: {_fmt(top['metrics'])}. Beat the reference on both:"
                        f"\n```python\n{top['code']}```")
+            if seed_note and top is seed:
+                prompt += "\n\n" + seed_note
         if rows:
             last = rows[-1]
             if "error" in last and last.get("code"):       # a crash comes back with its code, to be fixed, not rewritten
                 prompt += f"\n\nThe last attempt crashed. Its code:\n```python\n{last['code']}```\nThe error: {last['error'][-1500:]}"
             elif "error" in last:
                 prompt += "\n\nThe last attempt failed: " + last["error"][-1500:]
+            elif last.get("same_as_seed"):
+                prompt += ("\n\nThe last attempt scored exactly the numbers above: it is the same method in other words. "
+                           "A copy is a wasted ask. Change the method (the model, the features, a per-site scale "
+                           "correction), not the comments or the guards.")
             elif last is not top:
                 prompt += f"\n\nThe last attempt scored {_fmt(last['metrics'])}."
         t = time.time()
@@ -573,6 +609,9 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
                 row.update(repair_asks=extra, screen_errors=seen)
             r = {"error": "screen: " + failed} if failed else score(code)
             row.update(code=code, **({"error": r["error"]} if "error" in r else {"metrics": r}))
+            if ("metrics" in row and top and metrics_fp(row["metrics"]) == metrics_fp(top["metrics"])
+                    and set(failed_checks(row["metrics"], ref)) >= set(failed_checks(top["metrics"], ref))):
+                row["same_as_seed"] = True                 # the same numbers and nothing passed the elite fails: a copy
         rows.append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "code"})[:400], flush=True)
     return rows
@@ -712,24 +751,80 @@ def check_qualified(ledger_dir, source, code):
     sys.exit("no passing leave-one-site-out receipt for this candidate's exact code (run openproblems_qualify)")
 
 
+def loso_note(receipt, same_program=True):
+    """The seed's held-out-site misses, for the brief: which sites and metrics it lost on, with the numbers; None without
+    a complete receipt. `same_program` False: the receipt is another candidate's that scored exactly like this one on
+    validation, and the note says so (Codex 20261101T175436698449Z f4). The writer never saw this (2026-10-29..31: the same seed lost rmse at normal sites 2 and 3 three days
+    running while every ask was told only its validation scores)."""
+    if not receipt or not receipt_complete(receipt):      # no rows, or a fold missing: nothing to call a pass
+        return None
+    misses = []
+    for d, rows in (receipt.get("rows") or {}).items():
+        for r in rows:
+            if r.get("error") is not None:
+                misses.append(f"{d} direction, held-out site {r['site']}: did not run ({str(r['error'])[:80]})")
+                continue
+            lost = [f"{k} {r['cand'][k]:.4f} vs {r['ref'][k]:.4f}" for k, better in
+                    (("rmse", lambda c, f: c < f), ("mean_pearson_per_cell", lambda c, f: c > f))
+                    if not better(r["cand"][k], r["ref"][k])]
+            if lost:
+                misses.append(f"{d} direction, held-out site {r['site']}: " + ", ".join(lost))
+    whose = ("This one's held-out-site run" if same_program else
+             "A different candidate with exactly these validation scores ran the held-out sites")
+    head = ("Before any test scoring a candidate must beat the reference on rmse and Pearson per cell with every "
+            f"training site held out in turn, both directions. {whose} (" + receipt.get("at", "")[:10] + ") ")
+    if not misses:
+        return head + "passed every site."
+    return head + "missed at: " + "; ".join(misses) + ". Fix that without losing the rest."
+
+
+def seed_receipt(receipts, seed, rows_by_file):
+    """(receipt, same_program) for the seed: the latest receipt for the same program (code hash or parsed code), else the
+    latest for a candidate scoring exactly like it on validation, flagged as another's; (None, None) without either."""
+    if not seed:
+        return None, None
+    fp, sha, tree = metrics_fp(seed["metrics"]), hashlib.sha256(seed["code"].encode()).hexdigest(), code_ast(seed["code"])
+    rows = [(r, _source_row(r, rows_by_file) or {}) for r in receipts]
+    same = [r for r, src in rows if r.get("code_sha") == sha or (tree and code_ast(src.get("code") or "") == tree)]
+    alike = [r for r, src in rows if metrics_fp(src.get("metrics") or {}) == fp]
+    for hits, flag in ((same, True), (alike, False)):
+        if hits:
+            return max(hits, key=lambda r: r.get("at", "")), flag
+    return None, None
+
+
+def _source_row(receipt, rows_by_file):
+    src = receipt.get("source") or {}
+    return next((r for r in rows_by_file.get(src.get("evolve_file"), []) if r.get("round") == src.get("round")), None)
+
+
 def next_qualify(rows_by_file, receipts):
     """The scheduled qualify's pick (2026-10-28): across every evolve file, the best candidate by best()'s rule against
     its own run's reference, whose exact code no qualify receipt names yet; None when nothing is new. One pick a day:
     the receipt (pass or miss) is what stops it being picked again, so a miss is never re-run and a pass is reserved
-    by hand (the final shots stay a person's call)."""
-    import hashlib
+    by hand (the final shots stay a person's call). A candidate that is the same program as a measured one (code_ast:
+    comments and spacing aside) is never picked; one scoring exactly like a measured one on validation (metrics_fp) is
+    picked only when nothing fresh is waiting, since site 1 alone cannot prove it behaves the same on the other held-out
+    sites (Codex 20261101T175033685665Z f1)."""
     done = {r.get("code_sha") for r in receipts}
-    cands = []
+    measured = [_source_row(r, rows_by_file) for r in receipts]
+    done_ast = {code_ast(m["code"]) for m in measured if m and m.get("code")} - {None}   # the same program: never again
+    done_fp = {metrics_fp(m["metrics"]) for m in measured if m and m.get("metrics")}     # the same numbers: last in line
+    fresh, lookalike = [], []
     for f, rows in rows_by_file.items():
         for r in rows:
-            if "metrics" not in r or not r.get("code") or hashlib.sha256(r["code"].encode()).hexdigest() in done:
+            if ("metrics" not in r or not r.get("code") or hashlib.sha256(r["code"].encode()).hexdigest() in done
+                    or code_ast(r["code"]) in done_ast):
                 continue
             ref = next(iter((r.get("reference") or {}).values()), None)
-            if ref and best([r], ref):
-                cands.append((r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"], f, r["round"]))
+            if ref and passes_bar(r, ref):
+                (lookalike if metrics_fp(r["metrics"]) in done_fp else fresh).append(
+                    (r["metrics"]["mean_pearson_per_cell"], -r["metrics"]["rmse"], f, r["round"]))
+    cands = fresh or lookalike
     if not cands:
         return None
-    _, _, f, rnd = max(cands)
+    top = max(c[:2] for c in cands)
+    _, _, f, rnd = min(c for c in cands if c[:2] == top)        # equal scores: the earliest row, the one others copied
     return {"evolve_file": f, "round": rnd}
 
 
@@ -1196,8 +1291,15 @@ def main():
     if a.seed_upto:                        # an A/B's arms start from the same seed, whichever run publishes first
         prior = [r for r in prior if r.get("at", "") < a.seed_upto]
     seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
+    seed_note = None
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
+        led = Path(a.out).parent
+        by_file = {str(f.relative_to(ROOT)) if f.is_relative_to(ROOT) else str(f):
+                   [json.loads(l) for l in f.read_text().splitlines() if l.strip()] for f in sorted(led.glob("evolve-*.jsonl"))}
+        seed_note = loso_note(*seed_receipt([json.loads(f.read_text()) for f in led.glob("qualify-*.json")], seed, by_file))
+        if seed_note:
+            print("the seed's held-out-site receipt: " + seed_note, flush=True)
     score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
     screen = None
     if a.repairs >= 0:
@@ -1205,7 +1307,7 @@ def main():
                 for name, src in (("normal", val), ("swap", work / "val-swap"))]
         screen = screener(dirs, cand)
     rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs),
-                  max_asks=a.max_asks or None)
+                  max_asks=a.max_asks or None, seed_note=seed_note)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

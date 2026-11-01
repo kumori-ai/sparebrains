@@ -580,9 +580,6 @@ class Final(unittest.TestCase):
                 op.candidate_from(f, 7)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class NextQualify(unittest.TestCase):
     """The scheduled qualify (2026-10-28): the best candidate by the bar's own rule, across every evolve file, whose
@@ -614,3 +611,95 @@ class NextQualify(unittest.TestCase):
         rows = {"ledger/openproblems/evolve-3.jsonl": [{"round": 0, "code": "z", "reference": {"knnr_py": self.REF},
                                                         "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.80}}]}
         self.assertIsNone(op.next_qualify(rows, []))
+
+
+M = {"rmse": 0.9259, "mae": 0.6437, "mean_pearson_per_cell": 0.8238, "swap": {"rmse": 0.3115, "mae": 0.1566, "mean_pearson_per_cell": 0.7688}}
+REF = {"rmse": 0.9688, "mean_pearson_per_cell": 0.7856, "swap": {"rmse": 0.3229, "mean_pearson_per_cell": 0.7497}}
+
+
+class SameMethod(unittest.TestCase):
+    """2026-10-29..31: three daily qualify runs measured one method three times (identical validation metrics, code
+    differing by comments and max(1, ...) guards) because the receipt was keyed on the exact code; evolve had re-emitted
+    its own seed each day. The method's behavior on validation is the identity, not its text."""
+
+    def rows(self, code_b="b", metrics_b=M):
+        a = {"round": 7, "code": "a", "metrics": M, "reference": {"knnr": REF}}
+        b = {"round": 2, "code": code_b, "metrics": metrics_b, "reference": {"knnr": REF}}
+        return {"ledger/openproblems/evolve-1.jsonl": [a], "ledger/openproblems/evolve-2.jsonl": [b]}
+
+    def test_qualify_never_remeasures_the_same_program_and_takes_a_lookalike_only_when_nothing_is_fresh(self):
+        import hashlib
+        receipt = {"source": {"evolve_file": "ledger/openproblems/evolve-1.jsonl", "round": 7},
+                   "code_sha": hashlib.sha256(b"x = 1").hexdigest(), "policy": op.QUALIFY_POLICY}
+        rows = self.rows(code_b="x = 1  # the seed again, in other words")
+        rows["ledger/openproblems/evolve-1.jsonl"][0]["code"] = "x = 1"
+        self.assertIsNone(op.next_qualify(rows, [receipt]), "the same program with a new comment is not new")
+        rows = self.rows(code_b="x = max(1, 1)")           # another program, the same numbers on site 1
+        rows["ledger/openproblems/evolve-1.jsonl"][0]["code"] = "x = 1"
+        self.assertEqual(op.next_qualify(rows, [receipt]), {"evolve_file": "ledger/openproblems/evolve-2.jsonl", "round": 2},
+                         "a lookalike stays eligible: site 1 alone cannot prove it behaves the same on the other sites")
+        rows["ledger/openproblems/evolve-3.jsonl"] = [{"round": 0, "code": "y", "reference": {"knnr": REF},
+                                                      "metrics": dict(M, mean_pearson_per_cell=0.8000)}]
+        self.assertEqual(op.next_qualify(rows, [receipt]), {"evolve_file": "ledger/openproblems/evolve-3.jsonl", "round": 0},
+                         "a fresh method, even a weaker one, goes before a lookalike")
+        self.assertEqual(op.next_qualify(self.rows(), []), {"evolve_file": "ledger/openproblems/evolve-1.jsonl", "round": 7},
+                         "equal scores: the earliest row")
+
+    def test_a_row_that_only_reproduces_the_seed_is_marked_told_and_never_the_elite(self):
+        asked = []
+        seed = {"round": 6, "code": "def predict(*a):\n    return SEED\n", "metrics": M}
+
+        def ask(prompt):
+            asked.append(prompt)
+            return GOOD
+        rows = op.evolve(2, ask, lambda code: dict(M), REF, writer="fake", seed=seed)
+        self.assertTrue(rows[0].get("same_as_seed"))
+        self.assertIn("same method", asked[1])
+        self.assertIs(op.best_or_closest(rows + [seed], REF), seed, "a copy never replaces the seed as the elite")
+        self.assertIsNone(op.best(rows, REF))
+        for r in rows:
+            r.update(code="x = max(1, 1)", reference={"knnr": REF})      # another program, flagged a copy by its numbers
+        by_file = {"f": [dict(seed, code="x = 1", reference={"knnr": REF})], "g": rows}
+        import hashlib
+        receipt = {"source": {"evolve_file": "f", "round": 6}, "code_sha": hashlib.sha256(b"x = 1").hexdigest()}
+        self.assertEqual(op.next_qualify(by_file, [receipt]), {"evolve_file": "g", "round": 0},
+                         "a flagged lookalike with its own program is still eligible for the held-out sites")
+        ci_fail = dict(M, ci={"rmse": [-0.01, 0.01], "mean_pearson_per_cell": [0.03, 0.04]})
+        ci_pass = dict(M, ci={"rmse": [-0.03, -0.01], "mean_pearson_per_cell": [0.03, 0.04]})
+        rows = op.evolve(1, lambda p: GOOD, lambda code: ci_pass, dict(REF, bootstrap=True), writer="fake",
+                         seed=dict(seed, metrics=ci_fail))
+        self.assertFalse(rows[0].get("same_as_seed"), "the same numbers but a bootstrap the seed fails: not a copy")
+
+    def test_the_brief_shows_where_the_seed_missed_the_held_out_site_bar(self):
+        receipt = {"at": "2026-10-31T19:05:00+00:00", "source": {"evolve_file": "f", "round": 7}, "code_sha": "x",
+                   "rows": {"normal": [{"site": 1, "error": None, "cand": {"rmse": 0.9259, "mean_pearson_per_cell": 0.8238},
+                                        "ref": {"rmse": 0.9692, "mean_pearson_per_cell": 0.7857}},
+                                       {"site": 2, "error": None, "cand": {"rmse": 0.5453, "mean_pearson_per_cell": 0.737},
+                                        "ref": {"rmse": 0.5095, "mean_pearson_per_cell": 0.7077}}],
+                            "swap": [{"site": 1, "error": None, "cand": {"rmse": 0.30, "mean_pearson_per_cell": 0.77},
+                                      "ref": {"rmse": 0.31, "mean_pearson_per_cell": 0.75}}]}}
+        receipt["expected_sites"] = {"normal": [1, 2], "swap": [1, 2]}
+        receipt["rows"]["swap"].append({"site": 2, "error": None, "cand": {"rmse": 0.30, "mean_pearson_per_cell": 0.77},
+                                        "ref": {"rmse": 0.31, "mean_pearson_per_cell": 0.75}})
+        note = op.loso_note(receipt)
+        self.assertIn("site 2", note)
+        self.assertIn("0.5453", note)
+        self.assertIn("rmse", note)
+        self.assertNotIn("site 1", note, "only the misses are named")
+        asked = []
+        seed = {"round": 7, "code": "def predict(*a):\n    return SEED\n", "metrics": M}
+        op.evolve(1, lambda p: asked.append(p) or "no code", lambda code: {}, REF, writer="fake", seed=seed, seed_note=note)
+        self.assertIn("site 2", asked[0])
+        self.assertIsNone(op.loso_note(None))
+        self.assertIsNone(op.loso_note(dict(receipt, rows={})), "no folds is not a pass")
+        self.assertIn("different candidate", op.loso_note(receipt, same_program=False))
+        self.assertNotIn("different candidate", op.loso_note(receipt))
+        rows = {"f": [{"round": 7, "code": "x = 1", "metrics": M}]}
+        self.assertEqual(op.seed_receipt([receipt], {"code": "x = 1  # same program", "metrics": M}, rows), (receipt, True))
+        self.assertEqual(op.seed_receipt([receipt], {"code": "x = 2", "metrics": M}, rows), (receipt, False))
+        self.assertEqual(op.seed_receipt([receipt], {"code": "x = 2", "metrics": dict(M, rmse=0.5)}, rows), (None, None))
+        self.assertIsNone(op.loso_note(dict(receipt, rows={"normal": receipt["rows"]["normal"]})), "a missing direction is not a pass")
+
+
+if __name__ == "__main__":
+    unittest.main()

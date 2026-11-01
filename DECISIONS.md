@@ -3,6 +3,28 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-01
+
+- **The biology loop measured one method three days running; identity is the program and its numbers, not its text
+  (task #477).** The qualify receipts of 10-29, 10-30 and 10-31 (`qualify-40945772523`, `-41118585275`, `-41232691922`)
+  carry the same mean Pearson delta to 15 digits (+0.016150): three evolve rows (`evolve-40904285869` r7,
+  `-41080457387` r2, `-41212190018` r7) with identical validation metrics (rmse 0.9259, Pearson 0.8238, swap
+  0.3115/0.7688) whose code differs by comments and `max(1, ...)` guards. `next_qualify` keyed "already measured" on
+  the exact code hash, and evolve, seeded each day from its own best, had Leanstral hand the seed back; 36 asks since
+  10-29 produced nothing above it. Three changes, all tested first (`SameMethod`, 56 OK): a candidate that is the same
+  program as a measured one (parsed code, `code_ast`) is never picked again; one with the same six validation numbers
+  (`metrics_fp`) is picked only when nothing fresh passes the bar, since site 1 alone cannot show it behaves the same
+  on the other held-out sites; an evolve row scoring exactly like the elite and passing no check the elite fails is
+  marked `same_as_seed`, never becomes the elite, and the next ask is told it was a copy; and the brief now shows the
+  seed's held-out-site receipt (`loso_note`): as of 10-31 the seed misses rmse at normal sites 2 (0.5453 vs 0.5095)
+  and 3 (0.5143 vs 0.4557) and Pearson at site 3 (0.5966 vs 0.6040), which no writer had been shown. Dry run on the
+  ledger: the next pick is `evolve-41080457387` round 6 (rmse 0.9309, Pearson 0.8237), a different method. Codex
+  three rounds (20261101T175033685665Z DISAGREE: metric equality is not qualification, and a copy that clears a
+  bootstrap the seed fails is not a copy; 20261101T175436698449Z DISAGREE: eligibility and elite preference were one
+  function; 20261101T175638160351Z AGREE). Residual: two different programs with identical six numbers on site 1 are
+  measured in the order fresh-first, so a lookalike that would pass the sites waits behind fresh methods, never
+  forever.
+
 ## 2026-10-30
 
 - **Lane-written repair pass, second cohort: a miss on lean3_syntax (kumori #573; rules the 2026-10-28 entry).** Run
