@@ -1,0 +1,195 @@
+{
+ "at": "2026-11-01T20:41:44+00:00",
+ "policy": "loso-v1 (2026-10-22): every training site held out in turn, both directions; the candidate must beat knnr_chunked (random_state 0) on that site on rmse (lower) and Pearson per cell (higher), every site, no execution error; mean and worst-site deltas reported",
+ "source": {
+  "evolve_file": "ledger/openproblems/evolve-41080457387.jsonl",
+  "round": 6
+ },
+ "code_sha": "c7d3df74cb1a0409dbce2c7d68dfddbe3f15aaf834db68b3ce5e01e56de8da21",
+ "rows": {
+  "normal": [
+   {
+    "site": 1,
+    "n_train": 51506,
+    "n_held": 14669,
+    "error": null,
+    "cand": {
+     "rmse": 0.9309,
+     "mae": 0.6464,
+     "mean_pearson_per_cell": 0.8237
+    },
+    "ref": {
+     "rmse": 0.9692,
+     "mae": 0.6672,
+     "mean_pearson_per_cell": 0.7857
+    },
+    "seconds": 1028.6,
+    "host_peak_rss_gb": 5.4,
+    "host_rss_gb_during_candidate": 2.48,
+    "container": {
+     "mem_peak_gb_seen": 4.2,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   },
+   {
+    "site": 2,
+    "n_train": 43590,
+    "n_held": 22585,
+    "error": null,
+    "cand": {
+     "rmse": 0.5516,
+     "mae": 0.4298,
+     "mean_pearson_per_cell": 0.7368
+    },
+    "ref": {
+     "rmse": 0.5095,
+     "mae": 0.3741,
+     "mean_pearson_per_cell": 0.7077
+    },
+    "seconds": 1073.8,
+    "host_peak_rss_gb": 5.47,
+    "host_rss_gb_during_candidate": 2.46,
+    "container": {
+     "mem_peak_gb_seen": 4.22,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   },
+   {
+    "site": 3,
+    "n_train": 37254,
+    "n_held": 28921,
+    "error": null,
+    "cand": {
+     "rmse": 0.519,
+     "mae": 0.3951,
+     "mean_pearson_per_cell": 0.6014
+    },
+    "ref": {
+     "rmse": 0.4557,
+     "mae": 0.3407,
+     "mean_pearson_per_cell": 0.604
+    },
+    "seconds": 1102.5,
+    "host_peak_rss_gb": 5.48,
+    "host_rss_gb_during_candidate": 2.47,
+    "container": {
+     "mem_peak_gb_seen": 4.19,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   }
+  ],
+  "swap": [
+   {
+    "site": 1,
+    "n_train": 51506,
+    "n_held": 14669,
+    "error": null,
+    "cand": {
+     "rmse": 0.3119,
+     "mae": 0.1575,
+     "mean_pearson_per_cell": 0.7679
+    },
+    "ref": {
+     "rmse": 0.323,
+     "mae": 0.1554,
+     "mean_pearson_per_cell": 0.7496
+    },
+    "seconds": 404.2,
+    "host_peak_rss_gb": 11.32,
+    "host_rss_gb_during_candidate": 4.05,
+    "container": {
+     "mem_peak_gb_seen": 6.24,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   },
+   {
+    "site": 2,
+    "n_train": 43590,
+    "n_held": 22585,
+    "error": null,
+    "cand": {
+     "rmse": 0.3569,
+     "mae": 0.1686,
+     "mean_pearson_per_cell": 0.723
+    },
+    "ref": {
+     "rmse": 0.3623,
+     "mae": 0.1626,
+     "mean_pearson_per_cell": 0.7111
+    },
+    "seconds": 484.2,
+    "host_peak_rss_gb": 11.32,
+    "host_rss_gb_during_candidate": 4.88,
+    "container": {
+     "mem_peak_gb_seen": 5.09,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   },
+   {
+    "site": 3,
+    "n_train": 37254,
+    "n_held": 28921,
+    "error": null,
+    "cand": {
+     "rmse": 0.3793,
+     "mae": 0.1718,
+     "mean_pearson_per_cell": 0.6884
+    },
+    "ref": {
+     "rmse": 0.3835,
+     "mae": 0.1751,
+     "mean_pearson_per_cell": 0.6827
+    },
+    "seconds": 550.9,
+    "host_peak_rss_gb": 11.56,
+    "host_rss_gb_during_candidate": 5.55,
+    "container": {
+     "mem_peak_gb_seen": 5.6,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   }
+  ]
+ },
+ "expected_sites": {
+  "normal": [
+   1,
+   2,
+   3
+  ],
+  "swap": [
+   1,
+   2,
+   3
+  ]
+ },
+ "verdict": {
+  "passed": false,
+  "sites": 6,
+  "mean_pearson_delta": 0.01673333333333336,
+  "worst_pearson_delta": -0.0025999999999999357
+ }
+}
