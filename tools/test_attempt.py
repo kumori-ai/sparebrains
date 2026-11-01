@@ -101,6 +101,19 @@ class RetryPacingTests(unittest.TestCase):
                 self.assertEqual(env['bench']['told']['test-lane'], 1000+wait)
         self.assertEqual(env['state']['calls'], 0)
 
+    def test_a_pacing_refusal_parks_the_lane_for_the_routers_window_and_is_no_try(self):
+        """2026-11-01: 106 of one day's 353 pre-kernel errors were groq-qwen3-8-27b's "is pacing to the provider limit
+        (tokens:batch_day_sp...)", kumori's daily-budget refusal with retry_after_s set, scored here as lost tries
+        (kumori-96, kumori #316: re-asking inside the window cannot succeed)."""
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 : test-lane is pacing to the provider limit (tokens:batch_day_sp 1,000,000); retry in 5400s',
+            status_code=503, retry_after=5400)
+        with patch.object(attempt.time, 'monotonic', return_value=1000):
+            self.assertEqual(env['run_one']('demo', lane, 1), 'defer')
+            self.assertEqual(env['bench']['told']['test-lane'], 1000 + 5400, "parked exactly as long as the router says")
+        self.assertEqual((env['state']['calls'], env['bench']['streak'].get('test-lane')), (0, 1), "no try spent, one refusal counted")
+
     def test_real_response_resets_refusal_streak_before_verification(self):
         env,lane = self.runner();env['bench']['streak']['test-lane'] = 5
         env['llm_chat'].return_value = ('answer','test-lane',{})

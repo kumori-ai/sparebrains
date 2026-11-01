@@ -40,6 +40,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   #461 read below; 20261101T180816309622Z DISAGREE on pairing without a control; 20261101T181026090576Z AGREE).
   The replication (alone vs lessons by conclusion, mistral-ministral-8b-2512, the 30 problems of 40733385091,
   4 calls) is dispatched on this code once it is on main.
+- **A pacing refusal parks the lane for the router's window; it is no try (kumori #316, read with the kumori session).**
+  kumori's quota_paced refusal (503, Retry-After, "<lane> is pacing to the provider limit (<why>); retry in <rest>s")
+  matched none of the ladder's park phrases, so it fell through as a lost try: an error row, one of the job's calls,
+  and after three a 60 s doubling park, while re-asking inside the window cannot succeed. 294 such rows since 10-30,
+  276 of them the ladder on groq-qwen3-8-27b (a daily token budget, so the window runs to the UTC reset); they were
+  106 of the 353 pre-kernel errors on the day to 11-01 13:44 UTC. Now the "is benched" branch takes it too: the
+  lane is parked for the router's window (bench_delay keeps that as the floor at any length), the cell is deferred,
+  no call spent, no row. The relay's 18 rows in two days are left as they are. The rest of that day's losses are
+  the kumori side's to trace: 50 fast 503s from one dead lane (openrouter-flint-v1-0) and 187 Cloudflare-page 502/504s
+  that App Engine's log shows only a fraction of. Test fails first; 490 OK. Codex DISAGREE on my own misreading of
+  bench_delay's cap (the router minimum wins, which is the behavior wanted), then AGREE 20261101T183256843612Z_codex.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa

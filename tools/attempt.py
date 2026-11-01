@@ -589,7 +589,9 @@ def main():
                         with lock:                        # the router's fair-share or pool gate: done for today
                             exhausted[lane["provider"]] = msg.split(" : ", 1)[-1][:120]
                         return "exhausted"
-                    if "is benched" in msg:              # the router's gate refused: wait as long as it says
+                    if "is benched" in msg or "is pacing to the provider limit" in msg:
+                        # the router's gate refused, or its pacing holds the lane to a provider budget (a daily token
+                        # budget can run to the UTC reset; 106 lost tries on 2026-11-01 before this): wait as long as it says
                         with lock:
                             count = bench["streak"].get(lane["backend"], 0) + 1
                             bench["streak"][lane["backend"]] = count
