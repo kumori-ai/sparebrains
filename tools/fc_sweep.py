@@ -158,8 +158,10 @@ def _capped(r):
 
 
 def _decided(rows):
-    """Rows that say something: a check that ran out of memory or time (verdict resource) decided nothing."""
-    return [r for r in rows if r.get("verdict") != "resource"]
+    """Rows that say something: a check that ran out of memory or time (verdict resource) decided nothing, and
+    neither did a call that never answered (verdict error: a 429 on the shared key, a timeout; Codex 2026-11-01,
+    #478: such a row retired the declaration for good)."""
+    return [r for r in rows if r.get("verdict") not in ("resource", "error")]
 
 
 def effort(w, rows):

@@ -115,6 +115,12 @@ class Prover(unittest.TestCase):
         self.assertEqual(fc.effort(work[0], mixed), "none", "a resource row neither counts as an answer nor as asked")
         self.assertEqual([w[2]["name"] for w in fc.owed(work[:1], mixed, 5)], ["x"])
 
+    def test_a_call_that_never_answered_leaves_the_declaration_owed(self):
+        work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"})]
+        rows = [{"file": "a.lean", "name": "x", "verdict": "error", "reason": "KumoriAPIError: HTTP 429"},
+                {"file": "a.lean", "name": "y", "verdict": "reject"}]
+        self.assertEqual([w[2]["name"] for w in fc.owed(work, rows, 5)], ["x"], "a 429 is not a verdict")
+
     def test_a_declaration_cut_off_at_the_cap_comes_back_first_without_long_reasoning(self):
         work = [("a.lean", "", {"name": "x"}), ("a.lean", "", {"name": "y"}), ("b.lean", "", {"name": "z"})]
         rows = [{"file": "a.lean", "name": "x", "verdict": "no_proof", "finish": "length", "tokens": fc.leanstral_cap()},
