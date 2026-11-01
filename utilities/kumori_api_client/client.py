@@ -281,8 +281,8 @@ def _request(method, path, body=None, timeout=(5, 60), retry_on_5xx=True,
             reset = data.get('reset_in_human')
             if reset:
                 parts.append(f'resets in {reset}')
-            # 'raw' is a body that was not JSON. Cloudflare swaps an origin 502/504 body for
-            # 'error code: 50x', and before 2026-10-15 that read as "unknown".
+            # 'raw' is a body that was not JSON: an error Cloudflare generated itself (its 502/504/524 page);
+            # before 2026-10-15 that read as "unknown".
             verbatim = data.get('error') or data.get('detail') or data.get('raw') or 'unknown'
             parts.append(f': {verbatim}')
             msg = ' '.join(parts)
@@ -303,17 +303,31 @@ def llm_generate(prompt, max_tokens=500, temperature=1.0):
     return data.get('text'), data.get('backend')
 
 
-RECOVER_WAIT_S = 200    # after a cut-off at 100 s: the router's bound is 140 s from the start, 260 s for a long_call
+RECOVER_WAIT_S = 200    # after a cut-off at 125 s: the router's bound is 140 s from the start, 260 s for a long_call
 RECOVER_POLL_S = 10
 
 
+def _edge_cut(e):
+    """Recovery heuristic: treat the call as cut off by the edge on a 524, a dropped connection, or a 502/504 whose
+    body was not JSON. kumori.ai's zone cuts at 125 s (proxy_read_timeout, read 2026-11-01) with Cloudflare's own
+    HTML 504, while origin 5xx bodies pass through untouched (Cloudflare docs, 2026-05-05), and kumori's own 502/504
+    is JSON, so those stay final. Residual (Codex 20261101T194616265258Z f1): a rare non-JSON origin 502 (an instance
+    dying) also polls, up to RECOVER_WAIT_S, then raises 524 'no saved answer'."""
+    if e.status_code == 524:
+        return True
+    if e.status_code is None:
+        return str(e).startswith('Network error')
+    return e.status_code in (502, 504) and isinstance(e.payload, dict) and 'raw' in e.payload
+
+
 def _chat_recoverable(body, request_id, timeout):
-    """POST /llm/chat; if Cloudflare cuts it off (524) or the connection drops, fetch the saved answer."""
+    """POST /llm/chat; if Cloudflare cuts it off (524, or its own HTML 502/504) or the connection drops, fetch the
+    saved answer."""
     import time as _time
     try:
         return _request('POST', '/api/v1/llm/chat', body, timeout=timeout, retry_on_5xx=False)
     except KumoriAPIError as e:
-        if not (e.status_code == 524 or (e.status_code is None and str(e).startswith('Network error'))):
+        if not _edge_cut(e):
             raise
         logger.info(f"kumori llm/chat {request_id}: cut off ({e.status_code or 'network'}), fetching the saved answer")
     deadline = _time.monotonic() + RECOVER_WAIT_S
@@ -334,9 +348,9 @@ def llm_chat(backend_name, messages, max_tokens=500, temperature=0.3, system=Non
              substitute=False, spread_key=None, long_call=False, reasoning_effort=None):
     """Pinned-backend multi-turn chat. Returns (text, backend_name).
 
-    request_id: for calls that may outlast Cloudflare's 100 s cutoff (long proofs); 16-64 chars of
+    request_id: for calls that may outlast Cloudflare's 125 s cutoff (long proofs); 16-64 chars of
     A-Z a-z 0-9 _ -, unique per call (uuid4().hex). kumori saves any answer that took 85 s+, and if the
-    call comes back 524 (or the connection drops) this polls /api/v1/llm/result/<id> until that answer
+    call comes back cut off by Cloudflare (524, or its HTML 502/504) or the connection drops, this polls /api/v1/llm/result/<id> until that answer
     lands, then returns or raises exactly as the direct answer would have. No blind client-side
     retry in this mode: a retried cut-off call would run the whole proof twice.
 
