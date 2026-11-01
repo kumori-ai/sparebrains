@@ -98,6 +98,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   the timing; 20261101T193701724209Z: this entry owed, skipped rows, a duplicated test), the first two fixed in code,
   the third settled here by the three-round rule: the receipt is above, the contract is narrowed and said, the test
   is one. 495 tests OK.
+- **What is next, ranked with Codex and deep-search (2026-11-01 evening; receipts 20261101T195946443871Z).** Six
+  candidates were put up with today's numbers; the order that survived: (1) make the edge-cut recovery visible on the
+  ledger (kumori #597: the shared client rescues answers after Cloudflare's 125 s cut but returns them unmarked, so
+  tomorrow's 504 line cannot be attributed), (2) evolve from an archive of diverse elites instead of one seed (#598:
+  36 asks, 24 distinct behaviors, 6 copies, no gain in 3 days; MAP-Elites and islands are what OpenEvolve and the
+  AlphaEvolve paper do; equal-budget trial, judged on qualify outcomes), (3) the GPU after #461's grade goes to the
+  charter's own receipt, 3B/8B x tool-off/tool-on paired on identical problems and budgets (#480 re-scoped: a model
+  race measures models), then (4) a cheap rejection screen on the losing training-site folds before a full
+  qualify (#477). Knocked down: ordering lanes from the daily JSON (it aggregates answered lanes only, so an untried
+  lane and a dead one look alike), parallel qualify folds (one candidate a day is dispatched, so halving its runtime
+  yields nothing until candidates queue), and GPU batches with plans or lessons as context (the one local receipt,
+  plans 10-30, is a null). Deep-search behind it (research profile via work ask --research): OpenEvolve's README and
+  the AlphaEvolve paper for the archive; LeanDojo/ReProver for retrieval lift on small provers.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
