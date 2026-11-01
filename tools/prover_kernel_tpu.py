@@ -119,9 +119,16 @@ def _beat(event, **kw):
 
 
 def pulse():
+    # Best-effort liveness: one beat a minute while vLLM loads (the sleep is stepped by the minute, so the cadence
+    # changes within a minute of the phase), BEAT_S otherwise. tpu32-20261023T1659's telemetry stopped inside a
+    # 5-minute pulse in the loading phase; a beat says the kernel was alive then, never when it died (task #534).
+    waited = 0
     while True:
-        time.sleep(BEAT_S)
-        beat("alive")
+        time.sleep(60)
+        waited += 60
+        if phase == "loading" or waited >= BEAT_S:
+            beat("alive")
+            waited = 0
 
 
 T_START = time.time()
@@ -195,7 +202,10 @@ versions = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; print(
                            "huggingface_hub.__version__, 'vllm': vllm.__version__}))"], capture_output=True, text=True)
 stamp(download_s=round(time.time() - t_dl, 1), model_revision=PINS[MODEL])
 beat("downloaded", download_s=timing["download_s"], files=len(man), bytes=sum(man.values()), restarts=restarts,
-     revision=PINS[MODEL], versions=(versions.stdout.strip() or versions.stderr.strip())[:300])
+     revision=PINS[MODEL], versions=versions.stdout.strip()[:300] if versions.returncode == 0 else
+     f"import failed (exit {versions.returncode}): " + (versions.stderr.strip() or versions.stdout.strip())[-1200:])
+# the probe's traceback used to be cut to its first 300 chars, the useless head, and a startup line on stdout hid it
+# (smoke-tpu32-20261024T2034, task #534; Codex f2 2026-11-01: the exit code decides, not which stream spoke)
 for p in parts(man):
     beat("manifest", **p)
 

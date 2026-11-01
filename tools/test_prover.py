@@ -126,7 +126,10 @@ class ProverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
             prover.build(d, [(t, 32)], "tpu32-20261023T0000", tpu=True, budget_h=8.5, model=prover.PROVER_32B["model"])
-            self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', (Path(d) / "prover_kernel.py").read_text())
+            text = (Path(d) / "prover_kernel.py").read_text()
+            self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', text)
+            self.assertIn('if versions.returncode == 0 else', text, "a failed import probe keeps the tail of its traceback by exit code, not by stream")
+            self.assertIn('if phase == "loading" or waited >= BEAT_S', text, "one beat a minute while vLLM loads, stepped by the minute")
 
     def test_a_tpu_kernel_gets_its_budget_less_the_load_and_one_chunk(self):
         with tempfile.TemporaryDirectory() as d:

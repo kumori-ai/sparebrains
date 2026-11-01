@@ -62,6 +62,21 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   53 report), read by that rule, reopen iff a row has `tune_turned` >= 1. Dispatched once this is on main. Tests
   fail first; 492 OK. Codex DISAGREE 20261101T183921570786Z (repair refusals bypassed the record; zero turns beside an error
   is not zero lift), then AGREE 20261101T184119659474Z.
+- **The 32B TPU lane's failures are lost telemetry, not a diagnosed cause; the next smoke records more (kumori #534,
+  still parked).** Read again today: tpu32-20261023T1659's last heartbeat is "alive" in the loading phase at 4,501 s
+  (cgroup 149.7 of 354.3 GB, no OOM event), then nothing; the kernel's "failed" beat fires only when the generation
+  child exits, so a kernel that dies as a whole leaves no record, and that the parent died is a hypothesis, not a
+  finding. smoke-tpu32-20261024T2034's version probe recorded a vLLM import traceback cut to its first 300
+  characters, the exception lost. Deep-search (local_ai profile; Reddit via the custom scraper, DDG harvest and
+  Arctic Shift, two phrasings, empty; GitHub release notes only; web generic) found no community receipt for this
+  shape. Changed in the kernel template, observability only: the probe keeps the last 1,200 characters of the
+  failing stream by exit code (a startup line on stdout no longer hides it), and liveness beats every minute while
+  vLLM loads, stepped by the minute from the phase change; a beat says the kernel was alive then, never when it
+  died. Still owed before any cause is claimed, for the next smoke: the probe's exit code and both streams, the
+  child's error tail exported while it runs rather than at exit, per-worker memory peaks, and whether unprivileged
+  dmesg exists on the runner. The smoke itself spends Kaggle TPU quota and is Andy's call. Codex DISAGREE
+  20261101T185014 (a death-time guarantee that the code did not give; stdout hiding a failed import),
+  DISAGREE 20261101T185413714105Z (this entry was promised and absent), then AGREE 20261101T185605304327Z.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
