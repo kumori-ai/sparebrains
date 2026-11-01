@@ -112,6 +112,13 @@ def lane_max_tokens(lane, default):
 
 
 LADDER_CALL_S = 120                 # a cold try's long_call bound: twice the old 60 s ceiling, half the relay's 240
+# Not raised past this (2026-11-01, kumori session): kumori.ai sits behind Cloudflare's 125 s proxy read timeout (Free
+# plan, not editable), so nothing slower than ~125 s comes back whatever timeout_s asks; a 240 s cold try for the slow
+# 27-31B lanes was drafted that day and dropped before it ran. The lever for those lanes is kumori's (#316).
+
+
+def ladder_call_s(lane):
+    return LADDER_CALL_S
 
 
 def bench_delay(retry_after, consecutive):
@@ -484,12 +491,14 @@ def main():
                 "quality_tier": lane["tier"], "tier_rank": lane["rank"], "attempt_no": attempt_no, "mode": mode,
                 "capability": lane.get("capability", {}),
                 "request_config": {"max_tokens": sent_tokens(lane), "temperature": 0.2,
-                                   "reasoning_effort": lane_effort(lane), "router_timeout_s": LADDER_CALL_S,
+                                   "reasoning_effort": lane_effort(lane), "router_timeout_s": ladder_call_s(lane),
                                    "client_read_timeout_s": args.call_timeout,
                                    "lean_timeout_s": args.lean_timeout}}
 
     def skip(name, lane, attempt_no, why, tset=None, tdir_=None):
-        """A pair the router would refuse: recorded honestly, no model call, no Lean."""
+        """A pair the router would refuse: recorded honestly, no Lean. No `upstream_seconds` on these rows: the field
+        is the timing contract of rows that record a call's verdict (accept, reject, error); a skip after a refused
+        call (too_big) does not carry that call's time (Codex f5, 2026-11-01, narrowed on purpose)."""
         target_text = ((tdir_ or tdir) / f"{name}.lean").read_text()
         prefix = target_text[:PROOF_SEP.search(target_text).end()]
         row = {**base_row(name, lane, attempt_no, hashlib.sha256(prefix.encode()).hexdigest(), tset),
@@ -528,13 +537,14 @@ def main():
         # kumori's upstream timeout (1,935 of 5,621 sparebrains calls in 3 days, kumori #572; sealion 27B 223 of 290,
         # iteracompute qwen3 27B 202 of 227), each a 504 after 30-60 s with no answer to recover.
         long_or_not = ({"timeout_s": relay.LONG_CALL_S, "long_call": True} if relay_ctx
-                       else {"timeout_s": LADDER_CALL_S, "long_call": True})
+                       else {"timeout_s": ladder_call_s(lane), "long_call": True})
         if lane_effort(lane):
             long_or_not["reasoning_effort"] = lane_effort(lane)
         t0 = time.monotonic()
         reply, err = "", None
         returned_backend, inference = None, {}
-        with provider_lock[lane["provider"]]:
+        upstream_s = 0.0                                 # time inside llm_chat only, summed over the tries: call_seconds
+        with provider_lock[lane["provider"]]:            # also holds the provider-lock wait and the parks (Codex f1, 2026-11-01)
             # Another worker may have benched this lane while we waited for the provider.
             if benched(lane["backend"]):
                 return "defer"
@@ -549,11 +559,15 @@ def main():
                 tries += 1
                 sent = sent_tokens(lane)
                 try:
-                    reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
+                    t_up = time.monotonic()
+                    try:
+                        reply, returned_backend, inference = llm_chat(lane["backend"], [{"role": "user", "content": prompt}],
                                         max_tokens=sent, temperature=0.2, system=SYSTEM,
                                         app_name="sparebrains", timeout=(10, args.call_timeout),
                                         include_metadata=True, **long_or_not,
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
+                    finally:                             # the call alone: no retry sleep, no lock wait (Codex f1 x2)
+                        upstream_s += time.monotonic() - t_up
                     with lock:
                         bench["streak"].pop(lane["backend"], None)
                         bench["told"].pop(lane["backend"], None)
@@ -664,7 +678,7 @@ def main():
                "failure_kind": failure_kind(verdict, reason, proof),
                "try_mode": "repair" if repair else "cold", "prev_id": previous_id(prev) if repair else None,
                **({k: meta[k] for k in ("try_mode", "prev_id", "comment_ids", "dossier_sha")} if meta else {}),
-               "call_seconds": round(call_s, 1), "lean_seconds": round(lean_s, 1),
+               "call_seconds": round(call_s, 1), "upstream_seconds": round(upstream_s, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
         row["request_config"] = {**row.get("request_config", {}), "max_tokens": sent,

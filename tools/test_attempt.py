@@ -78,7 +78,7 @@ class RetryPacingTests(unittest.TestCase):
                    planned_per_target=1, previous_id=Mock(return_value=None),
                    benched=Mock(return_value=False), llm_chat=Mock(),
                    args=SimpleNamespace(max_tokens=256, call_timeout=60, max_calls=99, stop_on_accept=False),
-                   state={'calls': 0, 'errors': 0, 'accepts': 0}, exhausted={}, too_big={}, fit_cap={}, skip=Mock(),
+                   state={'calls': 0, 'errors': 0, 'accepts': 0, 'waits': 0}, exhausted={}, too_big={}, fit_cap={}, skip=Mock(),
                    order=[{'backend': 'test-lane', 'provider': 'test'}, {'backend': 'test-sibling', 'provider': 'test'},
                           {'backend': 'other-lane', 'provider': 'other'}],
                    extract_proof=Mock(side_effect=RuntimeError('verifier boundary')))
@@ -267,6 +267,34 @@ class DeadLaneTests(RetryPacingTests):
         row = env['record'].call_args[0][0]
         self.assertEqual((row['request_config']['router_timeout_s'], row['request_config']['long_call']), (attempt.LADDER_CALL_S, True))
         self.assertEqual(attempt.LADDER_CALL_S, 120)
+        self.assertLessEqual(row['upstream_seconds'], row['call_seconds'], "time inside the call alone, apart from lock waits and parks")
+
+    def test_every_cold_try_asks_the_same_bound_which_stays_under_the_edges_125_s(self):
+        """2026-11-01: a 240 s bound for the slow lanes was drafted and dropped the same day: kumori.ai's Cloudflare
+        zone cuts any response at 125 s, so a longer ask cannot bring an answer back (kumori session, #316)."""
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)
+        for backend in ('sealion-qwen-sea-lion-v4-5-27b-it', 'test-lane'):
+            env['run_one']('demo', dict(lane, backend=backend), 1)
+            self.assertEqual(env['llm_chat'].call_args.kwargs['timeout_s'], attempt.LADDER_CALL_S)
+        self.assertLessEqual(attempt.LADDER_CALL_S, 125)
+
+    def test_upstream_seconds_sums_the_calls_alone_and_leaves_out_the_retry_sleep(self):
+        env, lane = self.runner()
+        clock = [0.0]
+        def chat(*a, **k):
+            clock[0] += 10                                  # each call takes 10 s on the controlled clock
+            if env['llm_chat'].call_count == 1:
+                raise attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 429 : RPM spacing', status_code=429, retry_after=60)
+            raise attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)   # the row is written without Lean
+        env['llm_chat'].side_effect = chat
+        with patch.object(attempt.time, 'monotonic', lambda: clock[0]), \
+             patch.object(attempt.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)):
+            env['run_one']('demo', lane, 1)
+        row = env['record'].call_args[0][0]
+        self.assertEqual(env['llm_chat'].call_count, 2)
+        self.assertEqual(row['upstream_seconds'], 20.0, "two calls of 10 s; the 60.5 s retry sleep is not upstream time")
+        self.assertGreaterEqual(row['call_seconds'], 80.0, "call_seconds still holds the whole interval")
 
     def test_a_timeout_on_this_target_is_the_lanes_own_error(self):
         env, lane = self.runner()

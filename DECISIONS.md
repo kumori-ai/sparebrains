@@ -77,6 +77,27 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   dmesg exists on the runner. The smoke itself spends Kaggle TPU quota and is Andy's call. Codex DISAGREE
   20261101T185014 (a death-time guarantee that the code did not give; stdout hiding a failed import),
   DISAGREE 20261101T185413714105Z (this entry was promised and absent), then AGREE 20261101T185605304327Z.
+- **A longer cold try cannot help the slow lanes: the edge cuts at ~125 s; every ladder row now carries the call's own
+  time (kumori #316, read with the kumori session).** Since 10-29 the three slow lanes (sealion 27B, iteracompute
+  qwen3 27B, gemma 31B) lost 51-64% of their ladder tries as 504s at the 120 s line while accepting two thirds of what
+  they answered (sealion 108 of 159), and a 240 s cold try for them was drafted today. Dropped before it ran: the
+  kumori session found kumori.ai's Cloudflare zone holds a 125 s proxy read timeout (Free plan, not editable), and one
+  raw request from this machine settled which layer answers. Receipt, 2026-11-01 19:34:12Z, one POST to
+  /api/v1/llm/chat, timeout_s 120, long_call, max_tokens 16000, no request_id: iteracompute-qwen3-8-27b returned
+  HTTP 504 after 121.6 s wall with `server: cloudflare`, `content-type: text/html; charset=UTF-8`, `retry-after: 120`,
+  `cf-ray: a53d55e96e8ffaae-SJC`, no `cf-cache-status`, no `x-cloud-trace-context`, body "<!DOCTYPE html> <!--[if lt
+  IE 7]> <html class=\"no-js ie6 oldie\"..."; the parallel request kumori itself answered (sealion, HTTP 503 benched,
+  JSON, 0.8 s) carried `x-cloud-trace-context: 81a446cf9b28f1493af5df4907ecfe58` and `cf-cache-status: DYNAMIC`. So
+  the 504 the ladder sees at ~122 s is Cloudflare's own page, not the origin's, and nothing slower comes back whatever
+  timeout_s asks. `LADDER_CALL_S` stays 120, with that reason beside it and a test pinning it at or under 125; the
+  lever for those lanes is kumori's (an early 503 with Retry-After, under #316). The round-1 latency read was
+  confounded (Codex): `call_seconds` holds the provider-lock wait and the retry sleeps too, so rows now also carry
+  `upstream_seconds`, the time inside the HTTP call alone, summed over the tries, on every row that records a call's
+  verdict (skipped rows carry none, on purpose). Codex three rounds, DISAGREE each (20261101T191820018886Z: timing
+  confounded, the sample was a sample, the park cost understated; 20261101T192138033624Z: the retry sleep was inside
+  the timing; 20261101T193701724209Z: this entry owed, skipped rows, a duplicated test), the first two fixed in code,
+  the third settled here by the three-round rule: the receipt is above, the contract is narrowed and said, the test
+  is one. 495 tests OK.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
