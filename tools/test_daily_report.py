@@ -66,6 +66,35 @@ class DailyReport(unittest.TestCase):
         self.assertEqual((t["judged"], t["answered"], t["accepted"]), (6, 5, 3))
         self.assertEqual(t["errors"], {"upstream timeout (504)": 1})
 
+    def test_recovered_answers_are_counted_apart_with_their_verdicts(self):
+        """#597 (2026-11-01): kumori's shared client rescues an answer after Cloudflare's 125 s cut by polling
+        /result/<id>, and marks it inference["recovery"] (kumori-96). The report counts those rows apart, by what
+        Lean said of them and how many rescues failed, so the 504 line's change can be attributed."""
+        rec = lambda ok, orig="http_504_html": {"attempted": True, "succeeded": ok, "original": orig, "cut_at_s": 121.6, "wait_s": 40.2}
+        write(self.ledger / "minif2f" / "test" / "r.jsonl", [
+            {**row("2026-10-28T06:00:00+00:00", "t9", "accept", backend="slow-a"), "inference": {"recovery": rec(True)}},
+            {**row("2026-10-28T06:05:00+00:00", "t9", "reject", backend="slow-a"), "inference": {"recovery": rec(True)}},
+            {**row("2026-10-28T06:10:00+00:00", "t9", "error", backend="slow-b"), "reason": "KumoriAPIError: HTTP 524 : no saved answer",
+             "inference": {"recovery": rec(False, "524")}},
+            {**row("2026-10-20T06:00:00+00:00", "t9", "accept", backend="slow-a"), "inference": {"recovery": rec(True)}},   # outside the window
+            {**row("2026-10-28T06:20:00+00:00", "t9", "accept", backend="slow-c"), "upstream_answer_s": 161.3},  # no marker: the clock says it
+            {**row("2026-10-28T06:25:00+00:00", "t9", "reject", backend="slow-c"), "upstream_answer_s": 70.0, "upstream_seconds": 140.0},  # two short tries: direct
+            {**row("2026-10-28T06:30:00+00:00", "t9", "error", backend="slow-c"), "upstream_answer_s": None, "upstream_seconds": 181.0,
+             "reason": "ReadTimeout"},                                                                  # a slow error says nothing about a rescue
+            {**row("2026-10-28T06:35:00+00:00", "t9", "accept", backend="slow-c"), "upstream_answer_s": 200.0,
+             "inference": {"recovery": {"attempted": False}}},                                          # the marker's no beats the clock
+            {**row("2026-10-28T06:40:00+00:00", "t9", "accept", backend="slow-c"), "upstream_answer_s": 90.0},  # an early-drop rescue under 125 s: missed by the clock (residual)
+            {**row("2026-10-28T06:45:00+00:00", "t9", "accept", backend="slow-c"), "upstream_answer_s": 90.0,
+             "inference": {"recovery": rec(True, "network")}},                                         # the same row with the marker: counted
+        ])
+        d = daily_report.build(self.ledger, NOW)
+        self.assertEqual(d["totals"]["recovered"], {"attempted": 5, "answers": 4, "accepted": 3, "failed": 1, "estimated": 1,
+                                                    "by_original": {"http_504_html": 2, "524": 1, "clock>125s": 1, "network": 1}})
+        text = daily_report.render(d)
+        self.assertIn("Recovered after an edge cut: 4 answers (3 accepted) of 5 rescues tried", text)
+        self.assertIn("1 read from the row's clock alone, an estimate", text)
+        self.assertNotIn("Recovered after", daily_report.render(self.report), "no line when nothing was rescued")
+
     def test_first_solves_name_the_target_the_lane_and_the_mode(self):
         self.assertEqual(self.report["first_solves"], [{"grade": "high school", "key": "minif2f/test/new", "lane": "lane-b",
                                                         "tier": "tiny", "mode": "prover", "ts": "2026-10-28T02:00:00+00:00"},

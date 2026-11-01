@@ -269,6 +269,17 @@ class DeadLaneTests(RetryPacingTests):
         self.assertEqual(attempt.LADDER_CALL_S, 120)
         self.assertLessEqual(row['upstream_seconds'], row['call_seconds'], "time inside the call alone, apart from lock waits and parks")
 
+    def test_a_failed_rescue_leaves_its_marker_on_the_error_row(self):
+        """#597: kumori's client raises a failed edge-cut rescue with payload["recovery"]; the ledger row keeps it, so the
+        daily report counts rescues tried, not only the ones that came back."""
+        env, lane = self.runner()
+        rec = {"attempted": True, "succeeded": False, "original": "http_504_html", "cut_at_s": 121.6, "wait_s": 200}
+        env['llm_chat'].side_effect = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 524: cut off by the proxy and no saved answer',
+                                                             status_code=524, payload={"recovery": rec})
+        env['run_one']('demo', lane, 1)
+        row = env['record'].call_args[0][0]
+        self.assertEqual((row['verdict'], row['inference']['recovery']), ('error', rec))
+
     def test_every_cold_try_asks_the_same_bound_which_stays_under_the_edges_125_s(self):
         """2026-11-01: a 240 s bound for the slow lanes was drafted and dropped the same day: kumori.ai's Cloudflare
         zone cuts any response at 125 s, so a longer ask cannot bring an answer back (kumori session, #316)."""
@@ -294,6 +305,24 @@ class DeadLaneTests(RetryPacingTests):
         row = env['record'].call_args[0][0]
         self.assertEqual(env['llm_chat'].call_count, 2)
         self.assertEqual(row['upstream_seconds'], 20.0, "two calls of 10 s; the 60.5 s retry sleep is not upstream time")
+        self.assertEqual(row['upstream_answer_s'], None, "no call answered")
+
+    def test_the_answering_calls_own_time_is_recorded_not_a_slow_failed_try(self):
+        """#597 (Codex f1, round 2): a slow failed try then a short direct answer is not a rescue; the tell is the
+        answering call's clock alone."""
+        env, lane = self.runner()
+        clock = [0.0]
+        def chat(*a, **k):
+            if env['llm_chat'].call_count == 1:
+                clock[0] += 130                              # a slow 429 (the only retried failure)
+                raise attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 429 : RPM spacing', status_code=429, retry_after=1)
+            clock[0] += 10
+            raise attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)
+        env['llm_chat'].side_effect = chat
+        with patch.object(attempt.time, 'monotonic', lambda: clock[0]), patch.object(attempt.time, 'sleep', lambda s: None):
+            env['run_one']('demo', lane, 1)
+        row = env['record'].call_args[0][0]
+        self.assertEqual((row['upstream_seconds'], row['upstream_answer_s']), (140.0, None))
         self.assertGreaterEqual(row['call_seconds'], 80.0, "call_seconds still holds the whole interval")
 
     def test_a_timeout_on_this_target_is_the_lanes_own_error(self):

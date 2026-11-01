@@ -178,11 +178,45 @@ def build(ledger, now, hours=24):
                      for r in judged if r["verdict"] == "error")
     return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours,
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
-                       "errors": dict(errors),
+                       "errors": dict(errors), "recovered": recovered(judged),
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
                        "solved_ever": sum(x["solved"] for x in g), "open": sum(x["open"] for x in g)},
             "first_solves": sorted(firsts, key=lambda f: f["ts"]), "grades": g, "speed": speed(ledger),
             "kaggle": kaggle(ledger, since), "relay": relay_state(ledger), "rungs": rungs(ledger, rows, now, since)}
+
+
+EDGE_CUT_S = 125       # kumori.ai's Cloudflare zone's proxy_read_timeout as read on 2026-11-01 (one raw 504 at 121.6 s); an estimate's line
+
+
+def recovery_of(r):
+    """How a row's answer got past the edge cut, or None. kumori's marker inference["recovery"] when the client carries
+    it; until then (Andy, 2026-11-01, via the kumori session: do not wait on kumori) the row's own clock, an estimate:
+    an answering call that ran past EDGE_CUT_S and still ended in a verdict is read as having come back through the
+    /result/<id> fetch."""
+    m = (r.get("inference") or {}).get("recovery")
+    if isinstance(m, dict):                                   # the marker is authoritative either way (Codex f2)
+        return m if m.get("attempted") else None
+    if (r.get("upstream_answer_s") or 0) > EDGE_CUT_S and r.get("verdict") in ("accept", "reject"):
+        # an estimate from the answering call's own clock (a failed earlier try is not it): a verdict that arrived
+        # after the cut can only have come through the fetch. Residuals: a rescue after an early network drop ends
+        # sooner and is missed; the edge's 125 s is read, not proven for every path (Codex f1 x2, f3)
+        return {"attempted": True, "succeeded": True, "original": "clock>125s", "estimate": True}
+    return None
+
+
+def recovered(rows):
+    """Answers rescued after an edge cut (#597, 2026-11-01), by recovery_of(). Counted apart, by what Lean said of them
+    and how many rescues failed, so the lost-before-the-kernel line can be attributed to the rescue, not the weather.
+    {} when no row shows one."""
+    rec = [(r, recovery_of(r)) for r in rows]
+    rec = [(r, m) for r, m in rec if m]
+    if not rec:
+        return {}
+    ok = [r for r, m in rec if m.get("succeeded") and r["verdict"] in ("accept", "reject")]
+    return {"attempted": len(rec), "answers": len(ok), "accepted": sum(r["verdict"] == "accept" for r in ok),
+            "failed": sum(not m.get("succeeded") for _, m in rec),
+            "estimated": sum(bool(m.get("estimate")) for _, m in rec),
+            "by_original": dict(Counter(str(m.get("original")) for _, m in rec))}
 
 
 def render(d):
@@ -192,6 +226,11 @@ def render(d):
             f"{t['solved_ever']} problems solved ever, {t['open']} open.", ""]
     if t.get("errors"):
         out += ["Lost before the kernel: " + ", ".join(f"{n} {k}" for k, n in sorted(t["errors"].items(), key=lambda x: -x[1])), ""]
+    if t.get("recovered"):
+        rc = t["recovered"]
+        out += [f"Recovered after an edge cut: {rc['answers']} answers ({rc['accepted']} accepted) of {rc['attempted']} rescues tried, "
+                f"{rc['failed']} failed; by cause: " + ", ".join(f"{k} {n}" for k, n in sorted(rc["by_original"].items(), key=lambda x: -x[1]))
+                + (f" ({rc['estimated']} read from the row's clock alone, an estimate until kumori's marker lands)" if rc.get("estimated") else ""), ""]
     for f in d["first_solves"]:
         out.append(f"- first solve: `{f['key']}` by {f['lane']} ({f['tier']}, {f['mode']})")
     if d["first_solves"]:

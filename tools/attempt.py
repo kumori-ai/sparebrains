@@ -543,7 +543,7 @@ def main():
         t0 = time.monotonic()
         reply, err = "", None
         returned_backend, inference = None, {}
-        upstream_s = 0.0                                 # time inside llm_chat only, summed over the tries: call_seconds
+        upstream_s, upstream_answer = 0.0, None         # time inside llm_chat only, summed over the tries: call_seconds
         with provider_lock[lane["provider"]]:            # also holds the provider-lock wait and the parks (Codex f1, 2026-11-01)
             # Another worker may have benched this lane while we waited for the provider.
             if benched(lane["backend"]):
@@ -568,6 +568,7 @@ def main():
                                         request_id=uuid.uuid4().hex)  # a proof cut off at 100 s is fetched, not lost
                     finally:                             # the call alone: no retry sleep, no lock wait (Codex f1 x2)
                         upstream_s += time.monotonic() - t_up
+                    upstream_answer = time.monotonic() - t_up    # the call that answered, alone (#597: the edge-cut tell)
                     with lock:
                         bench["streak"].pop(lane["backend"], None)
                         bench["told"].pop(lane["backend"], None)
@@ -575,6 +576,8 @@ def main():
                     break
                 except KumoriAPIError as e:
                     msg = str(e)
+                    if isinstance((e.payload or {}).get("recovery"), dict):     # a rescue that failed says so on the row (#597)
+                        inference = {**(inference or {}), "recovery": e.payload["recovery"]}
                     if (e.payload or {}).get("reason") == "held_for_others":
                         # kumori 9dfd540: the pool's rest is held for tenants still owed their share, and the
                         # hold shrinks through the day, so park this provider's lanes only as long as it says
@@ -678,7 +681,8 @@ def main():
                "failure_kind": failure_kind(verdict, reason, proof),
                "try_mode": "repair" if repair else "cold", "prev_id": previous_id(prev) if repair else None,
                **({k: meta[k] for k in ("try_mode", "prev_id", "comment_ids", "dossier_sha")} if meta else {}),
-               "call_seconds": round(call_s, 1), "upstream_seconds": round(upstream_s, 1), "lean_seconds": round(lean_s, 1),
+               "call_seconds": round(call_s, 1), "upstream_seconds": round(upstream_s, 1),
+               "upstream_answer_s": None if upstream_answer is None else round(upstream_answer, 1), "lean_seconds": round(lean_s, 1),
                "response_chars": len(reply or ""),
                "proof_sha": hashlib.sha256(proof.encode()).hexdigest() if proof else None}
         row["request_config"] = {**row.get("request_config", {}), "max_tokens": sent,

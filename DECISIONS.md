@@ -138,6 +138,20 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   taken as designed; then this fold rule, taken as worded), settled by this record under the three-round rule.
   Archive occupancy is never the measure. Live today the archive holds 4 distinct bar-passers (rounds 6, 2, 3, 15 of
   earlier runs). Tests `Archive` (4, failed first); 499 OK.
+- **Rescued answers are counted apart in the daily report (kumori #597).** The shared client's edge-cut rescue
+  (b626ec26) returns an answer with nothing on it to say so; kumori has a marker built (`inference["recovery"]`,
+  uncommitted until its own deploy), and Andy's word through the kumori session was not to wait. So each ladder row
+  now carries `upstream_answer_s`, the answering HTTP call's own time (a failed earlier try is not it; None when
+  nothing answered), beside `upstream_seconds`; a failed rescue's marker, when kumori raises one, lands on the error
+  row. The report reads `recovery_of(row)`: the marker when present (a negative marker is final), else the clock as a
+  labeled estimate: a verdict whose answering call ran past 125 s is read as fetched after the cut; a slow error says
+  nothing. Line: "Recovered after an edge cut: A answers (B accepted) of C rescues tried, D failed; by cause ...
+  (N read from the row's clock alone, an estimate until kumori's marker lands)". Residuals, stated: a rescue after an
+  early network drop ends under 125 s and the clock misses it; the 125 s figure is read, not proven for every path;
+  the successful-retry case has no unit test because the harness stops at the Lean boundary on a success (Codex f4).
+  Rows before today carry no answer time and are never counted. Codex DISAGREE twice (a clock reading is an estimate
+  and may not claim failed rescues; a negative marker must not fall to the clock; the longest call could be a failed
+  try) then AGREE 20261101T202432949984Z. 502 tests OK.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
