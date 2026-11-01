@@ -50,7 +50,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   no call spent, no row. The relay's 18 rows in two days are left as they are. The rest of that day's losses are
   the kumori side's to trace: 50 fast 503s from one dead lane (openrouter-flint-v1-0) and 187 Cloudflare-page 502/504s
   that App Engine's log shows only a fraction of. Test fails first; 490 OK. Codex DISAGREE on my own misreading of
-  bench_delay's cap (the router minimum wins, which is the behavior wanted), then AGREE 20261101T183256843612Z_codex.
+  bench_delay's cap (the router minimum wins, which is the behavior wanted), then AGREE 20261101T183256843612Z.
+- **The lane-repair ledger says which writer refused and why, and a run of refusals is inconclusive, never a miss
+  (kumori #573).** Run 40990511371's 12 rounds all went to the second writer; the first, requesty-leanstral-1-5, was
+  skipped on a refusal nothing recorded, and a repair ask the router refused was dropped the same way. Now every row
+  names the writers that refused before the one that answered (`refused_by`), a refused repair ask is on its row
+  (`repair_refused`) and ends a lone writer's run, and the run's last line reads the rows: a miss only when at least
+  one pass scored cleanly and none turned a tune reject; turns below the keep threshold said as such; refusals,
+  scoring errors or cut-off tune runs are inconclusive. The park's own second condition, a stronger writer in a dry
+  screen, is then testable: `lane_repair.yml` with requesty-leanstral-1-5 alone on the lean3_syntax cohort (45 tune,
+  53 report), read by that rule, reopen iff a row has `tune_turned` >= 1. Dispatched once this is on main. Tests
+  fail first; 492 OK. Codex DISAGREE 20261101T183921570786Z (repair refusals bypassed the record; zero turns beside an error
+  is not zero lift), then AGREE 20261101T184119659474Z.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa

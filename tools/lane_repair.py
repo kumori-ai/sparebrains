@@ -231,11 +231,15 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
     deadline = time.time() + 60 * max_minutes if max_minutes else None
 
     def ask_any(prompt):
+        """(lane, reply, {lane: why} for the writers that refused before it). Run 40990511371 (2026-10-30): every round
+        went to the second writer and nothing recorded what the first had answered."""
+        refusals = {}
         for lane, ask in writers:
             reply = ask(prompt)
             if not refused(reply):
-                return lane, reply
-        return None, reply
+                return lane, reply, refusals
+            refusals[lane] = str(reply.get("error"))[:200]
+        return None, reply, refusals
     exs = examples(cohort, cls, half)
     tune, report = items(cohort, cls, still_rejected, half, "tune"), items(cohort, cls, still_rejected, half, "report")
     ours = our_pass_source(cls) if cls in OUR_PASS else "(no pass of ours targets this class yet)"
@@ -256,15 +260,17 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
             prompt += ("\n\nYour last attempt " + (f"crashed: {last['error'][-800:]}" if "error" in last
                        else f"turned {last['tune_turned']} of {last['tune_n']} rejects on our side") + ". Do better.")
         t = time.time()
-        writer, reply = ask_any(prompt)
+        stop = False
+        writer, reply, refusals = ask_any(prompt)
         if writer is None:
             emit({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": None,
-                  "round": len(rows), "refused": f"every writer refused: {reply.get('error')}"[:300]})
+                  "round": len(rows), "refused": f"every writer refused: {reply.get('error')}"[:300], "refused_by": refusals})
             break
         ask = dict(writers)[writer]
         asks += 1
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": writer,
-               "round": len(rows), "ask_s": round(time.time() - t, 1), "repair_asks": 0, "screen_errors": []}
+               "round": len(rows), "ask_s": round(time.time() - t, 1), "repair_asks": 0, "screen_errors": [],
+               **({"refused_by": refusals} if refusals else {})}
         code = extract_code(reply) if isinstance(reply, str) else None
         if code is None:
             row["error"] = "no code in the reply" if isinstance(reply, str) else f"no reply: {reply.get('error')}"
@@ -276,6 +282,10 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
                 row["screen_errors"].append(why[-300:])
                 reply = ask(f"Your repair pass failed on the examples: {why[-800:]}\n\nThe code:\n```python\n{code}```\n"
                             "Reply with the fixed ```python block.")
+                if refused(reply):                       # the router refused the repair ask: the row says so, and a
+                    row["repair_refused"] = str(reply.get("error"))[:200]      # lone writer ends the run (Codex f1, 2026-11-01)
+                    stop = len(writers) == 1
+                    break
                 asks += 1
                 row["repair_asks"] += 1
                 fixed = extract_code(reply) if isinstance(reply, str) else None
@@ -305,6 +315,8 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
                     except Exception as e:                                # the row says so; earlier rows are already out
                         row["error"] = f"report: {type(e).__name__}: {e}"[-500:]
         emit(row)
+        if stop:
+            break
         last = row
     return rows
 
@@ -350,11 +362,28 @@ def main(argv=None):
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     rows = run(a.cls, writers, cohort, still, problem_half, container_runner, lean_tools.judge_text, prefix_of,
                rounds=a.rounds, log=lambda s: print(s, flush=True), max_minutes=a.max_minutes, sink=sink)
+    print(f"{a.cls}: " + verdict_line(rows))
+    return 0
+
+
+def verdict_line(rows):
+    """Rows, kept passes with their held-out result (no winner, Codex f6), and the reading: a miss only when at least
+    one pass scored cleanly and none turned a tune reject; turns below the keep threshold are said; a run of refusals,
+    scoring errors or cut-off tune runs is inconclusive, never a miss (Codex f2/f3, 2026-11-01)."""
     kept = [r for r in rows if r.get("kept")]
     each = "; ".join(f"{r['writer']} r{r['round']}: report {r.get('report_problems_turned', '?')} of {r.get('report_problems', '?')} problems"
-                     for r in kept)                       # every kept pass, its own held-out result; no winner (Codex f6)
-    print(f"{a.cls}: {len(rows)} rows, {len(kept)} kept" + (f"; {each}" if kept else "; a miss"))
-    return 0
+                     for r in kept)
+    clean = [r for r in rows if "tune_turned" in r and not r.get("error") and not r.get("tune_pending")]
+    turned = sum(r.get("tune_turned") or 0 for r in rows)
+    head = f"{len(rows)} rows, {len(kept)} kept"
+    if kept:
+        return f"{head}; {each}"
+    if turned:
+        return f"{head}; {turned} tune turn(s) below the keep threshold, not a miss"
+    if clean:
+        return f"{head}; a miss ({len(clean)} pass(es) scored cleanly, none turned)"
+    why = sorted({k for r in rows for k in ("refused", "refused_by", "repair_refused", "error", "tune_pending") if r.get(k)})
+    return f"{head}; inconclusive ({', '.join(why) or 'nothing scored'})"
 
 
 if __name__ == "__main__":

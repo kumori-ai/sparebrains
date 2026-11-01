@@ -80,6 +80,9 @@ class Loop(unittest.TestCase):
         rows = lr.run("unknown_name", [("benched", refuse), ("lane-w", lambda p: next(it))], self.cohort,
                       set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=1)
         self.assertEqual((rows[0]["writer"], rows[0]["kept"]), ("lane-w", True))
+        self.assertEqual(list(rows[0]["refused_by"]), ["benched"], "the row says which writers refused it first")
+        self.assertIn("is benched", rows[0]["refused_by"]["benched"], "and why (run 40990511371: 12 rounds went to the "
+                      "second writer and the log never said what the first answered)")
 
     def test_every_writer_refused_is_one_row_and_the_end(self):
         refuse = lambda p: {"error": "x is benched: rate limited"}
@@ -87,6 +90,7 @@ class Loop(unittest.TestCase):
                       in_process_runner, self.judge, self.prefix, rounds=4)
         self.assertEqual(len(rows), 1)
         self.assertIn("every writer refused", rows[0]["refused"])
+        self.assertEqual(sorted(rows[0]["refused_by"]), ["a", "b"])
 
     def test_rows_reach_the_sink_as_they_finish_and_a_report_crash_is_on_its_row(self):
         seen = []
@@ -128,6 +132,22 @@ class Loop(unittest.TestCase):
         (r,) = self.run_loop([CRASH, GOOD])
         self.assertEqual((r["repair_asks"], r["kept"]), (1, True))
         self.assertIn("ZeroDivisionError", r["screen_errors"][0])
+
+    def test_a_refused_repair_ask_is_on_the_row_and_ends_a_lone_writers_run(self):
+        refuse = {"error": "KumoriAPIError: lane-w is benched: rate limited"}
+        rows = self.run_loop([CRASH, refuse, GOOD, GOOD])
+        self.assertEqual(len(rows), 1, "a lone writer the router refuses has no next round")
+        self.assertIn("is benched", rows[0]["repair_refused"])
+        self.assertEqual((rows[0]["repair_asks"], rows[0].get("kept")), (0, False))
+        self.assertTrue(rows[0]["error"].startswith("screen:"))
+
+    def test_the_summary_says_miss_only_when_a_pass_scored_cleanly_and_none_turned(self):
+        self.assertIn("a miss (1 pass", lr.verdict_line([{"tune_turned": 0, "tune_pending": []}]))
+        self.assertIn("inconclusive (error, refused_by)", lr.verdict_line([{"refused_by": {"a": "benched"}, "error": "no reply: x"}]))
+        self.assertIn("inconclusive (tune_pending", lr.verdict_line([{"tune_turned": 0, "tune_pending": [3]}]))
+        self.assertIn("1 tune turn(s) below", lr.verdict_line([{"tune_turned": 1, "tune_pending": [], "kept": False}]))
+        self.assertIn("1 kept; w r0: report 2 of 9", lr.verdict_line([{"kept": True, "writer": "w", "round": 0,
+                                                                        "report_problems_turned": 2, "report_problems": 9}]))
 
     def test_the_brief_names_the_contract_and_the_pass_to_beat_and_no_report_row(self):
         text = lr.brief("unknown_name", lr.examples(self.cohort, "unknown_name", self.half, n=8), "def names(): ...")
