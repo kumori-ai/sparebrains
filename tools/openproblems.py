@@ -499,6 +499,40 @@ def failed_checks(m, ref):
     return out
 
 
+def archive(rows, ref, size=4):
+    """The elites a run may take a parent from (#598, 2026-11-01): distinct behaviors (metrics_fp), never a copy of the
+    seed, bar-passers first then by the bar's own order, at most one per region (rmse and Pearson to 0.01) so the
+    archive spans the space rather than crowding the best cell. OpenEvolve and the AlphaEvolve paper keep such an
+    archive and sample parents from it; the single-seed loop produced 24 behaviors and no gain in 36 asks."""
+    ran = [r for r in rows if "metrics" in r and r.get("code") and not r.get("same_as_seed")]
+    seen, distinct = set(), []
+    for r in sorted(ran, key=lambda r: (not passes_bar(r, ref), -r["metrics"]["mean_pearson_per_cell"], r["metrics"]["rmse"])):
+        fp = metrics_fp(r["metrics"])
+        if fp not in seen:
+            seen.add(fp)
+            distinct.append(r)
+    out, cells = [], set()
+    for r in distinct:
+        cell = (round(r["metrics"]["rmse"], 2), round(r["metrics"]["mean_pearson_per_cell"], 2))
+        if cell not in cells:
+            cells.add(cell)
+            out.append(r)
+        if len(out) >= size:
+            break
+    return out
+
+
+def pick_parent(arch, rnd):
+    """Round 0 takes the best; after that a rank-weighted draw (1, 1/2, 1/3, ...) seeded by the round, so a run's
+    parents are reproducible from its ledger."""
+    import random
+    if not arch:
+        return None
+    if rnd == 0:
+        return arch[0]
+    return random.Random(f"archive/{rnd}").choices(arch, weights=[1 / (i + 1) for i in range(len(arch))])[0]
+
+
 def best_or_closest(rows, ref):
     """The best candidate by the bar's rule, else the highest validation Pearson among those that ran (rmse breaks
     ties), the same order best() uses."""
@@ -558,7 +592,8 @@ def screened(code, ask, screen, repairs):
         code = fixed
 
 
-def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None, seed_note=None):
+def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None, seed_note=None,
+           parents=None):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
     beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
     `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
@@ -567,19 +602,31 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
     `seed_note`: where the seed missed the held-out-site bar (loso_note), shown under it. A round whose validation
     metrics equal the elite's, passing no check the elite fails, is the same method again: marked same_as_seed, never
     the elite, and the next ask says so (Codex 20261101T175033685665Z f2: equal metrics with a bootstrap the elite
-    fails is not a copy)."""
+    fails is not a copy). `parents` (#598): an archive() of prior elites; each round's parent is pick_parent() over it,
+    refreshed with this run's rows, shown instead of the single best (the best so far is still named), and the row
+    records parent and arm, so the A/B against the single seed is read from the ledger."""
     rows, asks = [], 0
     for i in range(rounds):
         if max_asks is not None and asks >= max_asks:
             break
         prompt = BRIEF.format(ref=_fmt(ref))
         top = best_or_closest(rows + ([seed] if seed else []), ref)
-        if top:          # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
-            standing = ("the best so far, past every check" if best([top], ref)
-                        else f"the closest so far; it does not yet pass: {', '.join(failed_checks(top['metrics'], ref))}")
-            prompt += (f"\n\nThis is {standing}: {_fmt(top['metrics'])}. Beat the reference on both:"
-                       f"\n```python\n{top['code']}```")
-            if seed_note and top is seed:
+        parent = None
+        if parents is not None:
+            arch = archive(rows + list(parents), ref, size=max(4, len(parents)))
+            parent = pick_parent(arch, i)
+        shown = parent or top
+        if shown:        # the closest so far, shown even below the reference's Pearson (run 39519234354: 3 ran, none at it)
+            standing = ("the best so far, past every check" if best([shown], ref)
+                        else f"the closest so far; it does not yet pass: {', '.join(failed_checks(shown['metrics'], ref))}")
+            if parent is not None:
+                standing = (f"a parent from the archive of {len(arch)} distinct methods"
+                            + ("" if best([shown], ref) else f"; it does not yet pass: {', '.join(failed_checks(shown['metrics'], ref))}"))
+            prompt += (f"\n\nThis is {standing}: {_fmt(shown['metrics'])}. Beat the reference on both:"
+                       f"\n```python\n{shown['code']}```")
+            if parent is not None and top and top is not parent:
+                prompt += f"\n\nThe best so far scores {_fmt(top['metrics'])}; a different approach from this parent may pass where it stalls."
+            if seed_note and shown is seed:
                 prompt += "\n\n" + seed_note
         if rows:
             last = rows[-1]
@@ -596,7 +643,9 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
         t = time.time()
         reply = ask(prompt)
         asks += 1                                          # ask_s: the round's first ask only, not its repairs
-        row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1), "brief_assist": BRIEF_ASSIST}
+        row = {"round": i, "writer": writer, "ask_s": round(time.time() - t, 1), "brief_assist": BRIEF_ASSIST,
+               "arm": "archive" if parents is not None else "single",          # on every row, drawn parent or not (Codex f2)
+               **({"parent": {"round": parent.get("round"), "fp": list(metrics_fp(parent["metrics"]))}} if parent is not None else {})}
         code = extract_code(reply) if isinstance(reply, str) else None
         if code is None:
             row["error"] = "no code in the reply" if isinstance(reply, str) else f"no reply: {reply.get('error')}"
@@ -609,8 +658,8 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
                 row.update(repair_asks=extra, screen_errors=seen)
             r = {"error": "screen: " + failed} if failed else score(code)
             row.update(code=code, **({"error": r["error"]} if "error" in r else {"metrics": r}))
-            if ("metrics" in row and top and metrics_fp(row["metrics"]) == metrics_fp(top["metrics"])
-                    and set(failed_checks(row["metrics"], ref)) >= set(failed_checks(top["metrics"], ref))):
+            if ("metrics" in row and shown and metrics_fp(row["metrics"]) == metrics_fp(shown["metrics"])
+                    and set(failed_checks(row["metrics"], ref)) >= set(failed_checks(shown["metrics"], ref))):
                 row["same_as_seed"] = True                 # the same numbers and nothing passed the elite fails: a copy
         rows.append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "code"})[:400], flush=True)
@@ -1238,6 +1287,8 @@ def main():
     ap.add_argument("--rounds", type=int, default=12)
     ap.add_argument("--max-asks", type=int, default=0, help="evolve: stop at this many writer asks, repairs included")
     ap.add_argument("--seed-upto", default="", help="evolve: seed only from earlier rows stamped before this time")
+    ap.add_argument("--parents", default="single", choices=["single", "archive"],
+                    help="evolve: the arm (#598): the single best as the parent, or a draw from an archive of distinct elites")
     ap.add_argument("--repairs", type=int, default=REPAIRS,
                     help="evolve: repair asks a round after a small-slice screen crash; -1 turns the screen off")
     ap.add_argument("--lane", default="leanstral")
@@ -1306,8 +1357,11 @@ def main():
         dirs = [(name, cand / f"screen-{name}", screen_inputs(src, cand / f"screen-{name}"))
                 for name, src in (("normal", val), ("swap", work / "val-swap"))]
         screen = screener(dirs, cand)
+    parents = archive(prior, ref) if a.parents == "archive" else None
+    if parents is not None:
+        print(f"archive arm: {len(parents)} distinct elites: " + "; ".join(f"r{p['round']} {_fmt(p['metrics'])[:60]}" for p in parents), flush=True)
     rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs),
-                  max_asks=a.max_asks or None, seed_note=seed_note)
+                  max_asks=a.max_asks or None, seed_note=seed_note, parents=parents)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

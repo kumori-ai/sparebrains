@@ -701,5 +701,55 @@ class SameMethod(unittest.TestCase):
         self.assertIsNone(op.loso_note(dict(receipt, rows={"normal": receipt["rows"]["normal"]})), "a missing direction is not a pass")
 
 
+
+class Archive(unittest.TestCase):
+    """#598 (2026-11-01): 10-29..10-31 the loop hill-climbed from one seed, 36 asks, 24 distinct behaviors, 6 copies, no
+    gain. OpenEvolve and the AlphaEvolve paper keep an archive of diverse elites and sample parents from it. An A/B at
+    equal budgets against the single seed; the ledger says which arm each run was."""
+    def rows(self):
+        def r(n, rmse, pe, code, **kw):
+            return {"round": n, "code": code, "metrics": dict(M, rmse=rmse, mean_pearson_per_cell=pe), **kw}
+        return [r(0, 0.9259, 0.8238, "best"),                  # passes the bar
+                r(1, 0.9259, 0.8238, "best again", same_as_seed=True),
+                r(2, 0.9262, 0.8236, "same region as best"),   # same 0.01 cell: not a second slot
+                r(3, 0.9400, 0.8200, "another region"),       # passes the bar, other cell
+                r(4, 0.9800, 0.7900, "below the bar"),        # below the reference's Pearson
+                r(5, 0.9100, 0.8100, "low rmse region"),      # passes, third cell
+                {"round": 6, "code": "crash", "error": "x"}]
+
+    def test_the_archive_holds_distinct_behaviors_one_per_region_bar_passers_first(self):
+        arch = op.archive(self.rows(), REF, size=3)
+        self.assertEqual([a["code"] for a in arch], ["best", "another region", "low rmse region"])
+        self.assertEqual([a["code"] for a in op.archive(self.rows(), REF, size=5)],
+                         ["best", "another region", "low rmse region", "below the bar"], "a copy of the elite never sits in it")
+
+    def test_the_parent_is_the_best_on_round_0_then_a_seeded_rank_weighted_draw(self):
+        arch = op.archive(self.rows(), REF, size=3)
+        self.assertIs(op.pick_parent(arch, 0), arch[0])
+        picks = [op.pick_parent(arch, i)["code"] for i in range(1, 40)]
+        self.assertEqual(picks, [op.pick_parent(arch, i)["code"] for i in range(1, 40)], "seeded: the same draw every time")
+        self.assertGreater(picks.count("best"), picks.count("low rmse region"), "rank-weighted")
+        self.assertTrue(set(picks) > {"best"}, "other regions are drawn too")
+
+    def test_an_archive_run_shows_the_parent_and_records_it_on_the_row(self):
+        asked = []
+        arch = op.archive(self.rows(), REF, size=3)
+        rows = op.evolve(3, lambda p: asked.append(p) or GOOD, lambda code: {"rmse": 0.99, "mae": 0.7, "mean_pearson_per_cell": 0.70},
+                         REF, writer="fake", seed=arch[0], parents=arch)
+        self.assertIn("best", asked[0])
+        self.assertTrue(all("parent" in r and r["arm"] == "archive" for r in rows))
+        empty = op.evolve(1, lambda p: GOOD, lambda code: {"error": "x"}, REF, writer="fake", seed=None, parents=[])
+        self.assertEqual((empty[0]["arm"], "parent" in empty[0]), ("archive", False), "the arm is on the row even with nothing to draw")
+        self.assertEqual(rows[0]["parent"]["round"], 0)
+        self.assertTrue(all("the best so far" in p or "This is" in p for p in asked))
+
+    def test_without_parents_the_single_seed_path_is_unchanged(self):
+        asked = []
+        seed = {"round": 7, "code": "def predict(*a):\n    return SEED\n", "metrics": M}
+        rows = op.evolve(1, lambda p: asked.append(p) or "no code", lambda c: {}, REF, writer="fake", seed=seed)
+        self.assertIn("SEED", asked[0])
+        self.assertEqual((rows[0]["arm"], "parent" in rows[0]), ("single", False))
+
+
 if __name__ == "__main__":
     unittest.main()

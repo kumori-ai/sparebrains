@@ -17,10 +17,13 @@ on:
         description: "leanstral (Mistral's Labs API), or a Kumori router lane"
         default: "leanstral"
       max_asks:
-        description: "stop at this many writer asks, repairs included (0 = no cap); an A/B gives each arm the same"
-        default: "0"
+        description: "stop at this many writer asks, repairs included; both A/B arms get the same (24 = 12 rounds with up to 2 repairs each, the cap the cron uses)"
+        default: "24"
       seed_upto:
         description: "seed only from evolve rows stamped before this UTC time (an A/B's arms share it); empty = all"
+        default: ""
+      parents:
+        description: "single (the best so far is the parent) or archive (a draw from distinct elites, #598); empty = the cron's A/B, by UTC day parity"
         default: ""
 
 permissions:
@@ -76,9 +79,20 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
+          # The arm (#598, 2026-11-01): by hand as given; the daily cron alternates by UTC day of year, odd = single,
+          # even = archive, so each arm gets the same asks on alternate days and the ledger row says which it was.
+          parents="${{ inputs.parents }}"; seed_upto="${{ inputs.seed_upto }}"
+          if [ -z "$parents" ]; then
+            # A pair is an odd day (single) and the even day after it (archive); both seed from the rows published
+            # before the pair's first run (09:00 UTC of the odd day), so the arms start equal and the cutoff still
+            # advances with every pair (Codex 20261101T2xxx f3). A by-hand run passes its own seed_upto or none.
+            if [ $(( $(date -u +%-j) % 2 )) -eq 0 ]; then parents=archive; pair_day=$(date -u -d yesterday +%F); else parents=single; pair_day=$(date -u +%F); fi
+            [ -z "$seed_upto" ] && seed_upto="${pair_day}T09:00:00+00:00"
+          fi
+          echo "arm: $parents; seed_upto: ${seed_upto:-all}"
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py evolve --work "$RUNNER_TEMP/op" --rounds "${{ inputs.rounds || 12 }}" \
-            --lane "${{ inputs.lane || 'leanstral' }}" --max-asks "${{ inputs.max_asks || 0 }}" --seed-upto "${{ inputs.seed_upto || '' }}" \
-            --out "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+            --lane "${{ inputs.lane || 'leanstral' }}" --max-asks "${{ inputs.max_asks || 24 }}" --seed-upto "$seed_upto" \
+            --parents "$parents" --out "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
       - name: publish the ledger

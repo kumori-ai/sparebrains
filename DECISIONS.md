@@ -111,6 +111,33 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   yields nothing until candidates queue), and GPU batches with plans or lessons as context (the one local receipt,
   plans 10-30, is a null). Deep-search behind it (research profile via work ask --research): OpenEvolve's README and
   the AlphaEvolve paper for the archive; LeanDojo/ReProver for retrieval lift on small provers.
+- **The biology writer gets an archive of parents, and the single seed stays as the control (kumori #598; rules
+  written before the first archive run).** 10-29 to 10-31: 36 asks, 30 scored, 24 distinct behaviors, 6 exact copies
+  of the elite, the best unchanged: single-parent hill climbing stalled. OpenEvolve and the AlphaEvolve paper keep an
+  archive of diverse elites and sample parents from it. Built: `archive()` (distinct behaviors by validation
+  fingerprint, never a copy, bar-passers first in the bar's order, one per 0.01 region of rmse and Pearson, 4 at
+  most), `pick_parent()` (round 0 the best, then a rank-weighted draw seeded by the round), `evolve(parents=...)`
+  shows the drawn parent and names the best so far beside it; every row carries `arm` (single or archive) and, when
+  drawn, `parent`. The protocol: the 09:00 UTC cron alternates arms by UTC day of year (odd single, even archive),
+  same lane, same 12 rounds, the same total ask cap of 24 (rounds and repairs together; the cap was 0 before, so the
+  arms would not have been equal); a by-hand run names its arm. The two days of a pair share one seed cutoff, the
+  rows published before the pair's first run (09:00 UTC of the odd day, passed as `--seed-upto`), so both arms start
+  from the same pool and neither inherits the other's output inside a pair; the cutoff advances with every pair, so
+  the loop keeps learning between pairs (Codex: counting each arm's own rows does not undo an unequal start). Read
+  after 4 pairs with both runs non-void (a void run, every round crashed or refused, voids its pair, replaced by the
+  next): primary, new bar-passing fingerprints per run (not in any file before the pair's cutoff) and rounds
+  crashed, summed over the 4 pairs per arm; secondary, qualify: for each arm, the candidates next-qualify picked from
+  that arm's rows in the window, each scored by its receipt's mean Pearson delta, comparable only when all six folds
+  ran (a receipt with a failed or missing fold scores nothing), the arm's figure the mean over its comparable
+  candidates, "no observation" when it has none. Decision: the archive arm becomes the only arm if it produced
+  strictly more new bar-passers than single over the 4 pairs AND the qualify condition holds: both arms observed and
+  archive's figure not below single's, or neither observed; one arm observed and the other not is insufficient
+  evidence. Equal or fewer bar-passers, insufficient qualify evidence, or fewer than 4 clean pairs after 10 cron days
+  retain single and stop the archive arm; the read is written here either way. Codex three rounds
+  (20261101T200941081204Z, 20261101T201232341823Z, 20261101T201354761046Z: ask caps unequal, arm unlabeled, no rule for missing observations; then the paired seed cutoff,
+  taken as designed; then this fold rule, taken as worded), settled by this record under the three-round rule.
+  Archive occupancy is never the measure. Live today the archive holds 4 distinct bar-passers (rounds 6, 2, 3, 15 of
+  earlier runs). Tests `Archive` (4, failed first); 499 OK.
 - **The goal closer's disposition before its bar is graded (kumori #461).** The weekly sweep ran today
   (41297192520, `--new-only`): 103 goals x 5 recipes (3 literal, 2 templated), 399 rows, 0 closes; the sweeps'
   lifetime closes stay the three of 10-19 (aime_1990_p4 and amc12b_2021_p3 by `grind`, algebra_absapbon1pabsapbleqsumabsaon1pabsa
