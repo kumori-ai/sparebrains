@@ -3,6 +3,28 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-02
+
+- **The goal closer's GPU bar is MISSED (kumori #461); the Kaggle GPU goes back to whole problems.** The bar
+  (the 2026-10-24 entry: at least 3 first-time solves through goals within 7 days of the first goal batch) ran from
+  goals-20261026T1324 to 2026-11-02 13:24 UTC: 16 goal batches, 544 answers (`ledger/prover-batches.jsonl`). Solves
+  recorded inside the window: 1 (aime_1991_p9, 2026-10-28 16:50 UTC, goals-20261028T1301). A second, amc12a_2021_p14,
+  came from goals-20261102T0955, a batch that finished on Kaggle at 12:02 UTC inside the window but was judged at
+  15:23 UTC after it; counting it is a sensitivity reading (2 of 3), not the score. Either way, missed. The same-window
+  whole-problem comparison the 10-24 entry asked for is **unavailable: zero whole-problem prover samples ran in the
+  window** (every batch was a goal batch), so this is a miss of the absolute bar, not evidence that goals do worse
+  than whole problems. For the record, the prover's earlier whole-problem cohorts, each on a different set and none
+  concurrent: GPU bar problems 10-17..10-19, 3 batches, 960 answers, 12 problems solved (11 by the prover alone, 1 by
+  the loop); TPU outside the bar, tpu-20261020T2225, 640 answers, 1 solved; the plan experiment's alone arm (#433),
+  123 judged samples, 2 accepts. The goal batches ran on the survivors of those passes (40 open today), so per-answer
+  rates across cohorts are not like for like. Disposition: repository variable `PROVER_MODE` deleted today, so
+  `prover.yml` builds whole-problem batches again and the GPU finishes the 280 samples still owed on 10 bar problems
+  (`prover.todo`, bar=True); those results are post-window coverage, never a retrospective control. The 31 untried
+  goals (248 samples, 21 problems) stay in `ledger/goal-queue.json` unpushed: draining them would decide nothing
+  named, so they wait for a hypothesis. The weekly tactic sweep (`tactics.yml`, $0) keeps running; its lifetime
+  closes stay the three of 10-19. #461 closes on this entry. Codex 20261102T195907930585Z (MISSED and option A
+  supported; the pooled 12/1600 baseline in my first draft split into the cohorts above, f1; "losing arm" withdrawn, f2).
+
 ## 2026-11-01
 
 - **The biology loop measured one method three days running; identity is the program and its numbers, not its text
