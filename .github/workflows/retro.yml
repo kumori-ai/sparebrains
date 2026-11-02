@@ -1,11 +1,16 @@
 # The weekly retro (Kumori task #460; tools/retro.py): last week's tries and accepts by mode, first-time solves,
-# and where the loop stopped, as ledger/retro/<year>-W<week>.md; and the daily school report, ledger/daily/<day>.md. Read from the ledger only, no model, $0. Daily,
-# because GitHub's schedule drops events here (attempt.yml, 2026-10-09): a day whose page exists publishes nothing.
+# and where the loop stopped, as ledger/retro/<year>-W<week>.md; and the daily school report, ledger/daily/<day>.md.
+# Read from the ledger only, no model, $0.
+# Hourly, with a gate that lets one run a day through (the day's page already on main ends the run): GitHub
+# starts a daily schedule hours late (2026-10-22..11-02: "40 6 * * *" ran at 11:31-16:29 UTC, 5-10 h late every
+# day, so kumori's 07:00 PT mail rendered the day before on 11-02). Same shape as kumori-code-nightly eb4a28c.
+# Whether hourly events arrive within an hour or two is a hypothesis to measure here, not a GitHub guarantee.
+# A dispatch by hand always runs.
 name: retro
 
 on:
   schedule:
-    - cron: "40 6 * * *"
+    - cron: "40 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -25,20 +30,35 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: once a day
+        id: gate
+        run: |
+          page="ledger/daily/$(date -u +%F).json"
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ] && [ -f "$page" ]; then
+            echo "$page is on main already; nothing to do until tomorrow (UTC)"
+            echo "go=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=1" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: last week's page
+        if: steps.gate.outputs.go == '1'
         run: python3 tools/retro.py | tee "$RUNNER_TEMP/out.txt"
 
       # The failure triage (DECISIONS.md 2026-10-24): which answered failures, across every lane, are worth a tool
       - name: last week's failure triage
+        if: steps.gate.outputs.go == '1'
         run: python3 tools/triage.py | tee -a "$RUNNER_TEMP/out.txt"
 
       # The daily school report (tools/daily_report.py): the last 24 hours by grade, lane and tool, as
       # ledger/daily/<day>.{json,md}; the issues workflow posts the same text on the log issue and kumori's
       # morning mail renders the JSON, so the public log and the mail are one text from one source.
       - name: today's school report
+        if: steps.gate.outputs.go == '1'
         run: python3 tools/daily_report.py | tee -a "$RUNNER_TEMP/out.txt"
 
       - name: publish the page
+        if: steps.gate.outputs.go == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -320,26 +320,52 @@ def _edge_cut(e):
     return e.status_code in (502, 504) and isinstance(e.payload, dict) and 'raw' in e.payload
 
 
+def _cut_label(e):
+    if e.status_code == 524:
+        return '524'
+    if e.status_code is None:
+        return 'network'
+    return f'http_{e.status_code}_html'
+
+
 def _chat_recoverable(body, request_id, timeout):
     """POST /llm/chat; if Cloudflare cuts it off (524, or its own HTML 502/504) or the connection drops, fetch the
-    saved answer."""
+    saved answer. A rescued answer carries inference['recovery'] (attempted, succeeded, original, cut_at_s, wait_s),
+    and a failed rescue raises with the same dict on the error's payload['recovery'] (sparebrains #597 asked
+    2026-11-01, to count rescued answers apart from the lanes' own weather)."""
     import time as _time
+    started = _time.monotonic()
     try:
         return _request('POST', '/api/v1/llm/chat', body, timeout=timeout, retry_on_5xx=False)
     except KumoriAPIError as e:
         if not _edge_cut(e):
             raise
+        cut_at = _time.monotonic()
+        recovery = {'attempted': True, 'succeeded': False, 'original': _cut_label(e),
+                    'cut_at_s': round(cut_at - started, 1), 'wait_s': 0.0}
         logger.info(f"kumori llm/chat {request_id}: cut off ({e.status_code or 'network'}), fetching the saved answer")
-    deadline = _time.monotonic() + RECOVER_WAIT_S
+    deadline = cut_at + RECOVER_WAIT_S
     while True:
         try:
-            return _request('GET', f'/api/v1/llm/result/{request_id}', timeout=(5, 30), retry_on_5xx=False)
+            data = _request('GET', f'/api/v1/llm/result/{request_id}', timeout=(5, 30), retry_on_5xx=False)
+            recovery.update(succeeded=True, wait_s=round(_time.monotonic() - cut_at, 1))
+            if isinstance(data, dict):
+                data['inference'] = dict(data.get('inference') or {}, recovery=recovery)
+            return data
         except KumoriAPIError as e:
-            if not (e.status_code == 404 and (e.payload or {}).get('pending')):
-                raise                        # the saved answer was itself an error: raise it as the call would have
+            recovery['wait_s'] = round(_time.monotonic() - cut_at, 1)
+            pending = e.status_code == 404 and isinstance(e.payload, dict) and e.payload.get('pending')
+            if not pending:      # a non-dict 404 body (an HTML error page) is an error, not 'not saved yet' (Codex f1)
+                recovery['saved_status'] = e.status_code   # the saved answer was itself an error: raise it as is
+                if isinstance(e.payload, dict):
+                    e.payload['recovery'] = recovery
+                else:
+                    e.payload = {'raw': e.payload, 'recovery': recovery}
+                raise
             if _time.monotonic() >= deadline:
                 raise KumoriAPIError(f'kumori /api/v1/llm/chat HTTP 524: cut off by the proxy and no saved answer '
-                                     f'within {RECOVER_WAIT_S}s (request_id {request_id})', status_code=524)
+                                     f'within {RECOVER_WAIT_S}s (request_id {request_id})', status_code=524,
+                                     payload={'recovery': recovery})
         _time.sleep(RECOVER_POLL_S)
 
 
@@ -556,7 +582,10 @@ def llm_usage():
 def llm_registry():
     """Full backend_registry snapshot. Returns dict with keys: backends, models,
     fallback_order, cloud_run_only, litellm_backends, cloud_run_worker_url,
-    available_backends, backend_naming, free_model_count, models_source."""
+    available_backends, backend_naming, free_model_count, models_source.
+    'backends' is a LIST of entry dicts (name, model, url, secret, is_reasoning, ...), not a dict keyed by
+    name, and has been since the endpoint shipped (2026-05-10); 'ok' is stripped here. kindness' registry
+    shim expected a dict and required 'ok', so it rejected every reply 2026-05-13..11-01."""
     data = _request('GET', '/api/v1/llm/registry')
     # Strip 'ok' key, return the rest
     return {k: v for k, v in data.items() if k != 'ok'}
