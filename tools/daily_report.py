@@ -255,7 +255,8 @@ def render(d):
         extra = ""
         if r["rung"] == "openproblems.bio":
             q = r.get("qualify")
-            bar = (f"last qualify {'PASSED' if q['passed'] else 'missed'} {q['at'][:10]} (Pearson delta {q['mean_pearson_delta']:+.3f} over {q['sites']} sites)"
+            delta = f"{q['mean_pearson_delta']:+.3f}" if q and q.get("mean_pearson_delta") is not None else "unavailable"
+            bar = (f"last qualify {'PASSED' if q['passed'] else 'missed'} {q['at'][:10]} (Pearson delta {delta} over {q['sites']} site{'s' if q['sites'] != 1 else ''})"
                    if q else "no qualify run yet")
             extra = f" ({r['scored']} candidates scored, {r['crashed']} crashed; {bar})"
         if r["rung"] == "formal-conjectures":

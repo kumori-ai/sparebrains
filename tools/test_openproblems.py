@@ -467,6 +467,113 @@ class Qualify(unittest.TestCase):
     def test_the_container_is_not_auto_removed_before_its_exit_is_read(self):
         self.assertNotIn("--rm", op.docker_cmd("n", Path("/c.py"), Path("/in")))
 
+    def _fold(self, site, lost=None, error=None):
+        """A receipt row; `lost` names the metric(s) the candidate did not win at this site."""
+        lost = lost or ()
+        cand = {"rmse": 0.95 if "rmse" in lost else 0.9, "mean_pearson_per_cell": 0.7 if "pearson" in lost else 0.8}
+        return {"site": site, "error": error, "cand": None if error else cand,
+                "ref": {"rmse": 0.92, "mean_pearson_per_cell": 0.75}}
+
+    def _receipt(self, normal, swap, code_sha="s", at="2026-11-01"):
+        return {"at": at, "code_sha": code_sha, "source": {"evolve_file": "f", "round": 1}, "policy": op.QUALIFY_POLICY,
+                "rows": {"normal": normal, "swap": swap}, "expected_sites": {"normal": [1, 2, 3], "swap": [1, 2, 3]}}
+
+    def test_the_screen_runs_the_folds_recent_receipts_lost_first(self):
+        """2026-10-22..11-01: all 8 receipts lost normal/site 2 (rmse), run second of six, after 7-19 min of folds."""
+        full = lambda *lost_at: [self._fold(s, lost=("rmse",) if ("normal", s) in lost_at else ()) for s in (1, 2, 3)]
+        swap_ok = [self._fold(s) for s in (1, 2, 3)]
+        r1 = self._receipt(full(("normal", 2), ("normal", 3)), swap_ok, "a", "2026-10-30")
+        r2 = self._receipt(full(("normal", 2)), swap_ok, "b", "2026-10-31")
+        r3 = self._receipt(full(("normal", 2), ("normal", 3)), [self._fold(1), self._fold(2, error="exit 137"), self._fold(3)], "c", "2026-11-01")
+        old = self._receipt(full(("normal", 1)), swap_ok, "d", "2026-10-22")
+        self.assertEqual(op.screen_folds([old, r1, r2, r3], n=3), [("normal", 2), ("normal", 3), ("swap", 2)],
+                         "most often lost first, from the latest three complete receipts only")
+        self.assertEqual(op.screen_folds([], n=3), [])
+        partial = dict(r1, rows={"normal": r1["rows"]["normal"]})
+        self.assertEqual(op.screen_folds([partial], n=3), [], "an incomplete receipt does not choose the screen")
+
+    def test_a_lost_screen_fold_ends_the_direction_and_the_order_is_the_screens(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(60, 6)); Y = X[:, :3]
+        batches = np.array([f"s{1 + i % 3}d1" for i in range(60)])
+        import tempfile
+        ref = lambda a, b, c: np.zeros((c.shape[0], b.shape[1]))
+        def loses_at_2(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None, diag=None):
+            site = int(Path(inputs).parent.name[4:])
+            return (np.ones(shape, dtype=np.float32) if site == 2 else np.zeros(shape, dtype=np.float32)), None, ""
+        rows = op.qualify_direction(X, Y, batches, Path(tempfile.mkdtemp()), Path("c.py"), predict=loses_at_2,
+                                    reference=ref, sites=[2, 3, 1], stop_on_loss=True)
+        self.assertEqual([r["site"] for r in rows], [2], "stopped at the first lost fold")
+        def wins(code_file, inputs, shape, timeout, dir_mode=0o755, mem=None, diag=None):   # the answer itself: Y = X[:, :3]
+            from scipy import sparse
+            return sparse.load_npz(Path(inputs) / "X_test.npz").toarray()[:, :3].astype(np.float32), None, ""
+        rows = op.qualify_direction(X, Y, batches, Path(tempfile.mkdtemp()), Path("c.py"), predict=wins,
+                                    reference=ref, sites=[2, 3, 1], stop_on_loss=True)
+        self.assertEqual([r["site"] for r in rows], [2, 3, 1], "no loss: every fold, in the screen's order")
+        rows = op.qualify_direction(X, Y, batches, Path(tempfile.mkdtemp()), Path("c.py"), predict=loses_at_2, reference=ref)
+        self.assertEqual([r["site"] for r in rows], [1, 2, 3], "defaults unchanged: every site ascending, no stop")
+
+    def test_a_screened_out_receipt_can_never_pass_and_is_still_measured(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        rows = {"normal": [self._fold(2, lost=("rmse",))]}
+        r = op.write_receipt(d / "qualify-1.json", {"evolve_file": "f", "round": 1}, "code", rows,
+                             expected={"normal": [1, 2, 3], "swap": [1, 2, 3]},
+                             screen={"folds": [["normal", 2], ["normal", 3]], "stopped_at": "normal/2"})
+        self.assertFalse(r["verdict"]["passed"])
+        self.assertEqual(r["screen"]["stopped_at"], "normal/2")
+        self.assertFalse(op.receipt_complete(r))
+        with self.assertRaises(SystemExit):
+            op.check_qualified(d, {"evolve_file": "f", "round": 1}, "code")
+        by_file = {"f": [{"round": 1, "code": "code", "metrics": M, "reference": {"normal": REF}}]}
+        self.assertIsNone(op.next_qualify(by_file, [r]), "a screened-out candidate is measured: never picked again")
+        with self.assertRaises(AssertionError):
+            op.write_receipt(d / "qualify-2.json", {"evolve_file": "f", "round": 1}, "code", {"normal": [self._fold(2)]},
+                             expected={"normal": [1, 2, 3], "swap": [1, 2, 3]}, screen={"folds": [["normal", 2]], "stopped_at": "normal/2"})
+
+    def test_the_brief_still_names_the_misses_of_a_screened_out_seed(self):
+        r = self._receipt([self._fold(2, lost=("rmse",))], [])
+        r["screen"] = {"folds": [["normal", 2], ["normal", 3]], "stopped_at": "normal/2"}
+        note = op.loso_note(r)
+        self.assertIn("site 2", note)
+        self.assertIn("rmse", note)
+        self.assertIn("stopped at that fold", note)
+        self.assertNotIn("passed every site", note)
+        self.assertIsNone(op.loso_note(dict(r, screen=None, rows={"normal": r["rows"]["normal"]})), "incomplete without a screen: not a verdict")
+
+    def test_qualify_holds_one_directions_matrices_at_a_time_and_stops_the_run_on_a_lost_screen_fold(self):
+        """Codex 20261102T201458287126Z f4: X and Y of the normal direction must be collectable before the swap files load."""
+        import gc, sys, tempfile, types, weakref
+        from unittest import mock
+        alive, calls = [], []
+        class Fake:
+            def __init__(self, n):
+                self.obs = {"batch": types.SimpleNamespace(astype=lambda t: types.SimpleNamespace(values=np.array([f"s{1 + i % 3}d1" for i in range(n)])))}
+                self.layers = {"normalized": np.zeros((n, 4))}
+        def read_h5ad(path):
+            if "swap" in str(path):
+                gc.collect()
+                self.assertTrue(all(r() is None for d, r in alive if d == "normal"), "the normal direction's matrices are still alive at the swap read")
+            f = Fake(30)
+            alive.append(("swap" if "swap" in str(path) else "normal", weakref.ref(f.layers["normalized"])))
+            return f
+        def direction(X, Y, b, work, code_file, sites=None, stop_on_loss=False, **kw):
+            calls.append((str(work)[-12:], list(sites) if sites is not None else None, stop_on_loss))
+            lost = stop_on_loss and sites == [2] and "swap" in str(work)
+            return [{"site": s, "error": None, "cand": {"rmse": 0.95 if lost else 0.9, "mean_pearson_per_cell": 0.8},
+                     "ref": {"rmse": 0.92, "mean_pearson_per_cell": 0.75}} for s in (sites or [1, 2, 3])]
+        d = Path(tempfile.mkdtemp())
+        with mock.patch.dict(sys.modules, {"anndata": types.SimpleNamespace(read_h5ad=read_h5ad)}), \
+                mock.patch.object(op, "download", lambda *a, **k: None), \
+                mock.patch.object(op, "qualify_direction", direction):
+            op.qualify(d, "code", {"evolve_file": "f", "round": 1}, d / "r.json", screen=[("normal", 2), ("swap", 2)])
+        r = json.loads((d / "r.json").read_text())
+        self.assertEqual(calls, [("normal-folds", [2], True), ("normal-folds", [1, 3], False), ("q-swap-folds", [2], True)])
+        self.assertEqual(r["screen"], {"folds": [["normal", 2], ["swap", 2]], "stopped_at": "swap/2"})
+        self.assertFalse(r["verdict"]["passed"]); self.assertFalse(op.receipt_complete(r))
+        self.assertEqual([x["site"] for x in r["rows"]["normal"]], [2, 1, 3])
+        self.assertEqual([x["site"] for x in r["rows"]["swap"]], [2])
+
     def test_a_shot_needs_a_passing_receipt_for_this_exact_code_and_policy(self):
         import tempfile
         led = Path(tempfile.mkdtemp())

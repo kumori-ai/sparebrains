@@ -13,6 +13,7 @@ never touched here. Needs anndata, scikit-learn and pyyaml; `reproduce` also nee
 correlation metric in its own image. Validation uses `metrics`, which matches the R script on the same prediction.
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time, urllib.request
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -699,8 +700,7 @@ def sites_of(batches):
 
 def qualify_verdict(rows):
     """Passed only if there are sites and every one ran and won on both metrics, strictly."""
-    ok = bool(rows) and all(r.get("error") is None and r["cand"]["rmse"] < r["ref"]["rmse"]
-                            and r["cand"]["mean_pearson_per_cell"] > r["ref"]["mean_pearson_per_cell"] for r in rows)
+    ok = bool(rows) and all(fold_won(r) for r in rows)
     d = [r["cand"]["mean_pearson_per_cell"] - r["ref"]["mean_pearson_per_cell"] for r in rows if r.get("error") is None]
     return {"passed": ok, "sites": len(rows), "mean_pearson_delta": float(np.mean(d)) if d else None,
             "worst_pearson_delta": float(min(d)) if d else None}
@@ -735,14 +735,22 @@ def host_rss_watch(every=1.0):
     return done
 
 
-def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=None):
-    """Each training site held out in turn: the reference and the candidate (in its container) on that site."""
+def fold_won(r):
+    """The fold's rule, one place: ran, and strictly better than the reference on rmse and Pearson per cell."""
+    return (r.get("error") is None and r["cand"]["rmse"] < r["ref"]["rmse"]
+            and r["cand"]["mean_pearson_per_cell"] > r["ref"]["mean_pearson_per_cell"])
+
+
+def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=None, sites=None, stop_on_loss=False):
+    """Each training site held out in turn: the reference and the candidate (in its container) on that site.
+    `sites`: the order (default every site ascending); `stop_on_loss`: return after the first fold the candidate did
+    not win, the rejection screen (#477, 2026-11-02: all 8 receipts to date lost normal/site 2, run second of six)."""
     import shutil
     predict = predict or sandboxed_predict
     reference = reference or (lambda a, b, c: knnr_chunked(a, b, c, random_state=0))
     import resource
     rows = []
-    for s in sites_of(batches):
+    for s in (sites_of(batches) if sites is None else sites):
         t0 = time.monotonic()
         v = np.array([re.fullmatch(rf"s{s}d\d+", str(b)) is not None for b in batches])
         inp = Path(work) / f"site{s}" / "in"
@@ -766,16 +774,24 @@ def qualify_direction(X, Y, batches, work, code_file, predict=None, reference=No
         del p, y                                     # nothing of this fold is held while the next one runs
         shutil.rmtree(inp.parent, ignore_errors=True)
         print(f"qualify site {s}: {rows[-1]['cand'] or err} vs {rows[-1]['ref']}", flush=True)
+        if stop_on_loss and not fold_won(rows[-1]):
+            print(f"qualify: lost the screen fold site {s}; a miss is certain under the policy, the other folds do not run", flush=True)
+            break
     return rows
 
 
-def write_receipt(out, source, code, rows_by_direction, expected=None):
-    """`expected`: the sites discovered in each direction's training data, so a receipt missing a fold can be seen."""
+def write_receipt(out, source, code, rows_by_direction, expected=None, screen=None):
+    """`expected`: the sites discovered in each direction's training data, so a receipt missing a fold can be seen.
+    `screen`: {"folds": [[direction, site], ...], "stopped_at": "normal/2" | None, "exempt": why | absent}, the
+    rejection screen's record; a stopped receipt is incomplete by construction, so it can never pass."""
     allrows = [r for rows in rows_by_direction.values() for r in rows]
     expected = expected or {d: [r["site"] for r in rows] for d, rows in rows_by_direction.items()}
+    verdict = qualify_verdict(allrows)
+    if screen and screen.get("stopped_at"):
+        assert not verdict["passed"] and any(not fold_won(r) for r in allrows), "a stop needs a lost fold"
     receipt = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": QUALIFY_POLICY,
                "source": source, "code_sha": hashlib.sha256(code.encode()).hexdigest(), "rows": rows_by_direction,
-               "expected_sites": expected, "verdict": qualify_verdict(allrows)}
+               "expected_sites": expected, "verdict": verdict, **({"screen": screen} if screen else {})}
     Path(out).write_text(json.dumps(receipt, indent=1) + "\n")
     return receipt
 
@@ -805,7 +821,10 @@ def loso_note(receipt, same_program=True):
     a complete receipt. `same_program` False: the receipt is another candidate's that scored exactly like this one on
     validation, and the note says so (Codex 20261101T175436698449Z f4). The writer never saw this (2026-10-29..31: the same seed lost rmse at normal sites 2 and 3 three days
     running while every ask was told only its validation scores)."""
-    if not receipt or not receipt_complete(receipt):      # no rows, or a fold missing: nothing to call a pass
+    if not receipt:
+        return None
+    stopped = (receipt.get("screen") or {}).get("stopped_at")
+    if not stopped and not receipt_complete(receipt):      # no rows, or a fold missing: nothing to call a pass
         return None
     misses = []
     for d, rows in (receipt.get("rows") or {}).items():
@@ -824,7 +843,8 @@ def loso_note(receipt, same_program=True):
             f"training site held out in turn, both directions. {whose} (" + receipt.get("at", "")[:10] + ") ")
     if not misses:
         return head + "passed every site."
-    return head + "missed at: " + "; ".join(misses) + ". Fix that without losing the rest."
+    tail = " The run stopped at that fold; the other folds did not run." if stopped else ""
+    return head + "missed at: " + "; ".join(misses) + ". Fix that without losing the rest." + tail
 
 
 def seed_receipt(receipts, seed, rows_by_file):
@@ -877,12 +897,27 @@ def next_qualify(rows_by_file, receipts):
     return {"evolve_file": f, "round": rnd}
 
 
-def qualify(work, code, source, out):
-    """Leave-one-site-out on the training data only (the test files are never downloaded here), both directions."""
+SCREEN_RECEIPTS = 3
+
+
+def screen_folds(receipts, n=SCREEN_RECEIPTS):
+    """The rejection screen's folds: those the latest `n` complete receipts lost (fold_won False), most often lost
+    first, ties by (direction, site). [] without receipts, so the run is today's order with no early stop."""
+    recent = sorted((r for r in receipts if receipt_complete(r)), key=lambda r: r.get("at", ""))[-n:]
+    lost = Counter((d, x["site"]) for r in recent for d, rows in r["rows"].items() for x in rows if not fold_won(x))
+    return sorted(lost, key=lambda k: (-lost[k], k))
+
+
+def qualify(work, code, source, out, screen=None, exempt=None):
+    """Leave-one-site-out on the training data only (the test files are never downloaded here), both directions.
+    `screen`: folds to run first in each direction, a loss ending the whole run (screen_folds); `exempt`: why the
+    screen was not applied to this candidate (recorded, so the receipt says which rule it ran under)."""
     import anndata as ad
     Path(work).mkdir(parents=True, exist_ok=True)
     code_file = Path(work) / "qualify-cand.py"
     code_file.write_text(code)
+    screen = list(screen or [])
+    record = {"folds": [list(f) for f in screen], "stopped_at": None, **({"exempt": exempt} if exempt else {})}
     rows, expected = {}, {}
     for name, ds in (("normal", DATASET), ("swap", SWAP)):
         data = Path(work) / f"q-{name}"
@@ -890,11 +925,17 @@ def qualify(work, code, source, out):
         m1, m2 = (ad.read_h5ad(data / f"{f}.h5ad") for f in ("train_mod1", "train_mod2"))
         b = m1.obs["batch"].astype(str).values
         expected[name] = sites_of(b)
-        rows[name] = qualify_direction(m1.layers["normalized"], m2.layers["normalized"], b,
-                                       Path(work) / f"q-{name}-folds", code_file)
-        del m1, m2
-    r = write_receipt(out, source, code, rows, expected)
-    print(json.dumps({"source": source, "verdict": r["verdict"]}), flush=True)
+        first = [site for d, site in screen if d == name and site in expected[name]]
+        X, Y, folds = m1.layers["normalized"], m2.layers["normalized"], Path(work) / f"q-{name}-folds"
+        rows[name] = qualify_direction(X, Y, b, folds, code_file, sites=first, stop_on_loss=True) if first else []
+        if rows[name] and not fold_won(rows[name][-1]):
+            record["stopped_at"] = f"{name}/{rows[name][-1]['site']}"
+            del m1, m2, X, Y
+            break
+        rows[name] += qualify_direction(X, Y, b, folds, code_file, sites=[x for x in expected[name] if x not in first])
+        del m1, m2, X, Y                              # one direction's matrices in memory at a time (Codex 20261102T201458287126Z f4)
+    r = write_receipt(out, source, code, rows, expected, screen=record if (screen or exempt) else None)
+    print(json.dumps({"source": source, "verdict": r["verdict"], **({"screen": record} if (screen or exempt) else {})}), flush=True)
     return 0
 
 
@@ -931,15 +972,20 @@ def check_reservation(out, source, code):
         sys.exit(f"{f.name} reserves a different candidate")
 
 
-def candidate_from(ledger_file, round_no):
-    """A candidate's code, as its evolve row recorded it; only a candidate that ran on validation qualifies."""
+def candidate_row(ledger_file, round_no):
+    """A candidate's evolve row; only a candidate that ran on validation qualifies."""
     for line in Path(ledger_file).read_text().splitlines():
         r = json.loads(line)
         if r.get("round") == round_no:
             if "metrics" not in r or not r.get("code"):
                 raise ValueError(f"round {round_no} did not run on validation")
-            return r["code"]
+            return r
     raise ValueError(f"no round {round_no} in {ledger_file}")
+
+
+def candidate_from(ledger_file, round_no):
+    """A candidate's code, as its evolve row recorded it."""
+    return candidate_row(ledger_file, round_no)["code"]
 
 
 def fetch_script(path, sha):
@@ -1307,8 +1353,14 @@ def main():
         print(json.dumps(pick) if pick else "none")
         return 0
     if a.cmd == "qualify":
-        return qualify(Path(a.work), candidate_from(a.evolve_file, a.round), {"evolve_file": a.evolve_file, "round": a.round},
-                       a.out)
+        # The rejection screen (#477): the folds recent receipts lost run first and a loss ends the run. Not applied to
+        # #598's trial rows (every row with an "arm"): its registered read scores a candidate by its receipt's mean
+        # Pearson delta over all six folds, so those keep the full run until that trial is read (Codex 20261102T200554177276Z f1).
+        row = candidate_row(a.evolve_file, a.round)
+        receipts = [json.loads(f.read_text()) for f in (ROOT / "ledger" / "openproblems").glob("qualify-*.json")]
+        exempt = f"#598 trial row, arm {row['arm']}: full run for its registered read" if row.get("arm") else None
+        return qualify(Path(a.work), row["code"], {"evolve_file": a.evolve_file, "round": a.round}, a.out,
+                       screen=None if exempt else screen_folds(receipts), exempt=exempt)
     if a.cmd == "reserve":                  # --out names the final-<run>.json this reservation is for
         run = Path(a.out).stem.split("-", 1)[1]
         f = reserve(Path(a.out).parent, run, {"evolve_file": a.evolve_file, "round": a.round},

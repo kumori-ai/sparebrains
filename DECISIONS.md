@@ -5,6 +5,26 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-02
 
+- **Qualify runs the folds recent candidates lost first, and a lost fold ends the run (kumori #477).** All 8
+  leave-one-site-out receipts to date (`ledger/openproblems/qualify-*.json`, 10-22..11-01) lost the normal-direction
+  site-2 fold on rmse (8 of 8 also normal site 3), a fold that ran second of six; the last five runs took 34, 65, 81,
+  85 and 77 min of folds, that one fold 7, 15, 18, 19 and 18 min. Under the policy a lost fold is a certain miss, so
+  the rest was spend with no verdict riding on it. From today `qualify` runs each direction's screen folds first
+  (`screen_folds`: the folds the latest 3 complete receipts lost, most often lost first) and stops the run at the
+  first one the candidate does not win; a candidate that wins them runs every remaining fold as before. The bar is
+  unchanged (`QUALIFY_POLICY`: every fold, both directions, strictly better on rmse and Pearson, no error): a stopped
+  receipt is incomplete by construction, so `check_qualified` can never accept it, `next_qualify` counts it as
+  measured, and the writer's brief (`loso_note`) still names the lost fold and says the run stopped there. Each receipt
+  records `screen` (folds, `stopped_at`, or `exempt`). **Exempt: #598's trial rows** (every evolve row carrying `arm`):
+  its registered read (the 2026-11-01 entry) scores a candidate by its receipt's mean Pearson delta over all six folds,
+  so those keep the full run until that trial is read and closed; the exemption ends with it. The projected saving,
+  77-78% of fold time on a miss that the screen predicts, is a hypothesis until the first screened receipts land; the
+  daily report renders a one-fold receipt without a delta ("Pearson delta unavailable") instead of crashing on None;
+  a stopped receipt's Pearson delta is over the folds it ran and is never comparable with a six-fold mean. Ending the
+  exemption is a code change in `qualify`'s CLI branch, not a date: void pairs can stretch the trial.
+  Tests fail first (4 in `test_openproblems.Qualify`, 1 in `test_daily_report`), 507 OK. Codex 20261102T200554177276Z
+  (design: f1 the #598 exemption, f2 the None delta, f3 the 8-of-8 count, all taken) and the ship review named in the commit.
+
 - **The goal closer's GPU bar is MISSED (kumori #461); the Kaggle GPU goes back to whole problems.** The bar
   (the 2026-10-24 entry: at least 3 first-time solves through goals within 7 days of the first goal batch) ran from
   goals-20261026T1324 to 2026-11-02 13:24 UTC: 16 goal batches, 544 answers (`ledger/prover-batches.jsonl`). Solves

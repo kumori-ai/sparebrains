@@ -116,6 +116,13 @@ class DailyReport(unittest.TestCase):
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["finished"]], ["goals-1"])
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["failed"]], ["tpu32-1"])
 
+    def test_a_qualify_stopped_at_its_first_fold_renders_without_a_delta(self):
+        """Codex 20261102T200554177276Z f2: a screened-out receipt whose one fold errored has mean_pearson_delta None."""
+        (self.ledger / "openproblems" / "qualify-2.json").write_text(json.dumps(
+            {"at": "2026-10-23T04:39:28+00:00", "verdict": {"passed": False, "sites": 1, "mean_pearson_delta": None}}))
+        md = daily_report.render(daily_report.build(self.ledger, NOW))
+        self.assertIn("missed 2026-10-23 (Pearson delta unavailable over 1 site", md)
+
     def test_rungs_report_days_idle_and_the_relay_backoff(self):
         r = {x["rung"]: x for x in self.report["rungs"]}
         self.assertAlmostEqual(r["openproblems.bio"]["idle_days"], 5.5, places=1)
