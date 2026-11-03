@@ -1079,16 +1079,23 @@ def write_inputs(d, X_train, Y_train, X_test, batch_train, batch_test):
     np.save(d / "batch_test.npy", np.asarray(batch_test))
 
 
+def write_val(data, val):
+    """The validation split's sandbox inputs (all of site 1 held out); returns (m1, m2, held-out mask, batches)."""
+    import anndata as ad
+    m1, m2 = ad.read_h5ad(data / "train_mod1.h5ad"), ad.read_h5ad(data / "train_mod2.h5ad")
+    b = m1.obs["batch"].astype(str).values
+    v = held_out(b)
+    write_inputs(val, m1.layers["normalized"][~v], m2.layers["normalized"][~v], m1.layers["normalized"][v], b[~v], b[v])
+    return m1, m2, v, b
+
+
 def prepare(data, val, answers):
     """Validation arrays (all of site 1 held out) where the sandbox can read them, the answers where it cannot,
     and the reference's validation scores from the task's own knnr_py script."""
     import anndata as ad
-    m1, m2 = ad.read_h5ad(data / "train_mod1.h5ad"), ad.read_h5ad(data / "train_mod2.h5ad")
-    v = held_out(m1.obs["batch"].astype(str).values)
     answers.mkdir(parents=True, exist_ok=True)
     dense = _dense
-    b = m1.obs["batch"].astype(str).values
-    write_inputs(val, m1.layers["normalized"][~v], m2.layers["normalized"][~v], m1.layers["normalized"][v], b[~v], b[v])
+    m1, m2, v, b = write_val(data, val)
     y_val = dense(m2.layers["normalized"][v]).astype(np.float32)
     np.save(answers / "Y_val.npy", y_val)
     h5 = answers / "h5"
@@ -1144,9 +1151,11 @@ def run_candidate(code_file, val, out):
         np.save(out, arr)
 
 
-def screen_inputs(val, d, rows=SCREEN_ROWS, seed=0):
+def screen_inputs(val, d, rows=SCREEN_ROWS, seed=0, answers=None):
     """A small slice for the screen, from the validation split's training cells only (no answer is read): test cells
-    from one training site, train cells from the others, so the row counts and the sites differ, as on the real run."""
+    from one training site, train cells from the others, so the row counts and the sites differ, as on the real run.
+    `answers`: a path outside the slice where the slice's own test labels (training cells, never validation) are saved,
+    so the slice can score a candidate as well as run it (screen_agreement)."""
     from scipy import sparse
     b = np.load(val / "batch_train.npy", allow_pickle=True).astype(str)
     site = np.array([re.match(r"s(\d+)", x).group(1) for x in b])
@@ -1157,7 +1166,97 @@ def screen_inputs(val, d, rows=SCREEN_ROWS, seed=0):
     X = sparse.load_npz(val / "X_train.npz").tocsr()
     Y = np.load(val / "Y_train.npy", mmap_mode="r")
     write_inputs(d, X[tr], np.asarray(Y[tr]), X[te], b[tr], b[te])
+    if answers is not None:
+        np.save(answers, np.asarray(Y[te], dtype=np.float32))
     return (rows[1], Y.shape[1])
+
+
+AGREE_SIZES = ((2000, 700), (8000, 2000))    # the screen's slice, and a larger one: the cost/agreement curve
+
+
+def scored_candidates(ledger_dir):
+    """Every distinct evolve candidate with full validation metrics, newest first: (code, row)."""
+    seen, out = set(), []
+    rows = [json.loads(l) for f in Path(ledger_dir).glob("evolve-*.jsonl") for l in f.read_text().splitlines() if l.strip()]
+    for r in sorted(rows, key=lambda r: r.get("at", ""), reverse=True):
+        m = r.get("metrics")
+        if not (r.get("code") and isinstance(m, dict) and "rmse" in m and "mean_pearson_per_cell" in m):
+            continue
+        h = hashlib.sha256(r["code"].encode()).hexdigest()
+        if h not in seen:
+            seen.add(h)
+            out.append((r["code"], r))
+    return out
+
+
+def agreement(pairs, k=10):
+    """pairs: [(screen metrics or None when the slice run failed, full metrics)], every candidate that has a full score.
+    Spearman of screen vs full on rmse and mean Pearson per cell over the pairs that ran (conditional on running:
+    n_ran beside n); top-k kept: of the full top-k by rmse over ALL pairs, how many the screen's top-k keeps, a slice
+    failure ranked last, so a full-score winner that fails the slice counts as lost (Codex 20261103T222334251794Z f2).
+    A constant ranking has no correlation: null with a reason, never NaN (f3)."""
+    from scipy.stats import spearmanr
+    ran = [(sc, f) for sc, f in pairs if sc is not None]
+    out = {"n": len(pairs), "n_ran": len(ran)}
+    kk = min(k, len(pairs))
+    if kk:              # retention needs no correlation, so it is computed however few ran (Codex f4)
+        full_top = set(sorted(range(len(pairs)), key=lambda i: pairs[i][1]["rmse"])[:kk])
+        screen_top = set(sorted((i for i in range(len(pairs)) if pairs[i][0] is not None), key=lambda i: pairs[i][0]["rmse"])[:kk])
+        out[f"top{kk}_kept"] = len(full_top & screen_top)
+    if len(ran) < 5:
+        return out
+    for m in ("rmse", "mean_pearson_per_cell"):
+        a, b = [sc[m] for sc, _ in ran], [f[m] for _, f in ran]
+        rho = float(spearmanr(a, b).statistic) if len(set(a)) > 1 and len(set(b)) > 1 else float("nan")
+        out[f"spearman_{m}"] = round(rho, 4) if rho == rho else None
+        if rho != rho:
+            out[f"spearman_{m}_why"] = "a constant ranking: no correlation is defined"
+    return out
+
+
+def screen_agreement(val, work, ledger_dir, out, sizes=AGREE_SIZES, limit=None, deadline=None):
+    """Does a small slice rank candidates the way the full validation fit does? Each distinct past candidate runs on
+    each slice size in its sandbox and is scored on the slice's own labels (training cells only); the receipt has
+    every pair, the seconds each took, and the rank agreement per size. A measurement for a cheap-score stage
+    (2026-11-03): a round costs ~20 min because only the full fit scores; no ask is spent here."""
+    cands = scored_candidates(ledger_dir)[:limit]
+    slices = {}
+    for tr, te in sizes:
+        d = Path(work) / f"agree-{tr}"
+        y = Path(work) / f"agree-{tr}-y.npy"
+        slices[(tr, te)] = (d, screen_inputs(val, d, (tr, te), answers=y), np.load(y))
+    pairs = {sz: [] for sz in sizes}
+    rec = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "candidates": len(cands),
+           "sizes": [list(sz) for sz in sizes], "screen_s": SCREEN_S, "rows": [], "stopped": None}
+    for i, (code, row) in enumerate(cands):
+        if deadline and time.monotonic() > deadline:
+            rec["stopped"] = f"deadline after {i} of {len(cands)} candidates"
+            break
+        f = Path(work) / f"agree-{i}.py"
+        f.write_text(code)
+        r = {"code_sha": hashlib.sha256(code.encode()).hexdigest()[:16], "round": row.get("round"), "at": row.get("at"),
+             "full": {m: row["metrics"][m] for m in ("rmse", "mean_pearson_per_cell")}, "screen": {}}
+        for sz, (d, shape, y) in slices.items():
+            t = time.monotonic()
+            p, err, _ = sandboxed_predict(f, d, shape, SCREEN_S)
+            took = round(time.monotonic() - t, 1)
+            if err is None and not np.isfinite(p).all():
+                err = "non-finite values in the prediction"
+            if err:
+                r["screen"][f"{sz[0]}"] = {"error": err[-200:], "s": took}
+                pairs[sz].append((None, r["full"]))
+                continue
+            m = {k: round(v, 4) for k, v in metrics(y, p).items() if k in ("rmse", "mean_pearson_per_cell")}
+            r["screen"][f"{sz[0]}"] = {**m, "s": took}
+            pairs[sz].append((m, r["full"]))
+        rec["rows"].append(r)
+        print(f"agree {i + 1}/{len(cands)}: full rmse {r['full']['rmse']}; " + "; ".join(
+            f"{k}: " + (f"rmse {v['rmse']}" if "rmse" in v else "error") + f" in {v['s']} s" for k, v in r["screen"].items()), flush=True)
+    rec["agreement"] = {f"{sz[0]}x{sz[1]}": agreement(pairs[sz]) for sz in sizes}
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(rec, indent=1) + "\n")
+    print("screen agreement: " + json.dumps(rec["agreement"]))
+    return rec
 
 
 def screener(dirs, work):
@@ -1408,7 +1507,7 @@ def final(work, code, source, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check", "next-qualify",
-                                   "qualify", "drift"])
+                                   "qualify", "drift", "screen-agreement"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -1447,6 +1546,13 @@ def main():
         exempt = f"#598 trial row, arm {row['arm']}: full run for its registered read" if row.get("arm") else None
         return qualify(Path(a.work), row["code"], {"evolve_file": a.evolve_file, "round": a.round}, a.out,
                        screen=None if exempt else screen_folds(receipts), exempt=exempt)
+    if a.cmd == "screen-agreement":         # training data only; no ask, no answer of the validation split read
+        work = Path(a.work)
+        download(work / "data", files=("train_mod1", "train_mod2"))      # training files only, as qualify
+        write_val(work / "data", work / "val")
+        screen_agreement(work / "val", work, ROOT / "ledger" / "openproblems", a.out,
+                         deadline=time.monotonic() + 60 * 290)
+        return 0
     if a.cmd == "reserve":                  # --out names the final-<run>.json this reservation is for
         run = Path(a.out).stem.split("-", 1)[1]
         f = reserve(Path(a.out).parent, run, {"evolve_file": a.evolve_file, "round": a.round},

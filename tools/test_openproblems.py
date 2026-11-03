@@ -1005,5 +1005,66 @@ class Archive(unittest.TestCase):
         self.assertEqual((rows[0]["arm"], "parent" in rows[0]), ("single", False))
 
 
+class ScreenAgreement(unittest.TestCase):
+    """2026-11-03: does a small slice rank candidates as the full validation fit does? Measured before any cheap-score
+    stage is built on it."""
+
+    def test_the_slice_labels_are_the_slice_test_cells_and_never_validation(self):
+        import tempfile
+        from scipy import sparse
+        rng = np.random.default_rng(0)
+        val, d = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp()) / "screen"
+        b = np.array([f"s{2 + i % 3}d1" for i in range(300)])
+        Y = rng.normal(size=(300, 4)).astype(np.float32)
+        op.write_inputs(val, sparse.random(300, 7, density=0.3, format="csr", random_state=0), Y,
+                        sparse.csr_matrix(np.ones((50, 7))), b, np.array(["s1d1"] * 50))
+        y = d.parent / "y.npy"
+        op.screen_inputs(val, d, rows=(120, 40), answers=y)
+        yt = np.load(y)
+        self.assertEqual(yt.shape, (40, 4))
+        self.assertTrue(all(any(np.array_equal(r, Y[j]) for j in np.flatnonzero(b == "s4d1")) for r in yt),
+                        "each label is a training cell of the slice's test site")
+        self.assertFalse((d / "Y_test.npy").exists(), "the labels never sit in the mounted slice")
+
+    def test_candidates_are_distinct_scored_code_newest_first(self):
+        import tempfile
+        led = Path(tempfile.mkdtemp())
+        m = lambda r: {"rmse": r, "mean_pearson_per_cell": 0.8}
+        (led / "evolve-1.jsonl").write_text("".join(json.dumps(x) + "\n" for x in [
+            {"at": "2026-10-01", "round": 0, "code": "a", "metrics": m(0.95)},
+            {"at": "2026-10-02", "round": 1, "code": "b", "error": "crash"},
+            {"at": "2026-10-03", "round": 2, "code": "a", "metrics": m(0.95)},      # the same code again
+            {"at": "2026-10-04", "round": 3, "code": "c", "metrics": {"rmse": 0.9}}]))   # no Pearson: not comparable
+        (led / "evolve-2.jsonl").write_text(json.dumps({"at": "2026-10-05", "round": 0, "code": "d", "metrics": m(0.93)}) + "\n")
+        got = op.scored_candidates(led)
+        self.assertEqual([(c, r["at"]) for c, r in got], [("d", "2026-10-05"), ("a", "2026-10-03")])
+
+    def test_agreement_is_rank_correlation_and_top_k_kept(self):
+        full = [{"rmse": 0.90 + i / 100, "mean_pearson_per_cell": 0.85 - i / 100} for i in range(12)]
+        same = [(dict(f), f) for f in full]
+        a = op.agreement(same, k=5)
+        self.assertEqual((a["n"], a["spearman_rmse"], a["spearman_mean_pearson_per_cell"], a["top5_kept"]), (12, 1.0, 1.0, 5))
+        flipped = [({"rmse": -f["rmse"], "mean_pearson_per_cell": -f["mean_pearson_per_cell"]}, f) for f in full]
+        b = op.agreement(flipped, k=5)
+        self.assertEqual((b["spearman_rmse"], b["top5_kept"]), (-1.0, 0))
+        self.assertEqual(op.agreement(same[:4], k=2), {"n": 4, "n_ran": 4, "top2_kept": 2}, "too few for a correlation")
+        few = [(None if i >= 4 else dict(f), f) for i, f in enumerate(full)]
+        self.assertEqual(op.agreement(few, k=5)["top5_kept"], 4, "Codex f4: retention even when under 5 ran")
+
+    def test_a_full_winner_that_fails_the_slice_counts_as_lost(self):
+        """Codex f2: the 10 best by full score all crash on the slice, the other 10 rank perfectly: 0 kept, not 10."""
+        full = [{"rmse": 0.90 + i / 100, "mean_pearson_per_cell": 0.85 - i / 100} for i in range(20)]
+        pairs = [(None if i < 10 else dict(f), f) for i, f in enumerate(full)]
+        a = op.agreement(pairs, k=10)
+        self.assertEqual((a["n"], a["n_ran"], a["top10_kept"], a["spearman_rmse"]), (20, 10, 0, 1.0))
+
+    def test_a_constant_ranking_is_null_with_a_reason_not_nan(self):
+        full = [{"rmse": 0.90 + i / 100, "mean_pearson_per_cell": 0.8} for i in range(6)]
+        a = op.agreement([(dict(f), f) for f in full])
+        self.assertIsNone(a["spearman_mean_pearson_per_cell"])
+        self.assertIn("constant", a["spearman_mean_pearson_per_cell_why"])
+        json.dumps(a, allow_nan=False)
+
+
 if __name__ == "__main__":
     unittest.main()
