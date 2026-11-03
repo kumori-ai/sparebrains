@@ -2,6 +2,7 @@
 who passed first, the top performers, the tool-lift series, the Kaggle batches and how long each rung has been
 idle. No network."""
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -68,6 +69,7 @@ class DailyReport(unittest.TestCase):
         t = self.report["totals"]
         self.assertEqual((t["judged"], t["answered"], t["accepted"]), (6, 5, 3))
         self.assertEqual(t["errors"], {"upstream timeout (504)": 1})
+        self.assertEqual(self.report["window"]["kind"], "ts", "no git checkout: the last 24 hours by row time")
 
     def test_recovered_answers_are_counted_apart_with_their_verdicts(self):
         """#597 (2026-11-01): kumori's shared client rescues an answer after Cloudflare's 125 s cut by polling
@@ -151,6 +153,131 @@ class DailyReport(unittest.TestCase):
         with self.assertRaises(SystemExit):
             daily_report.build(Path(self.tmp.name) / "nowhere", NOW)
 
+
+class Arrival(unittest.TestCase):
+    """#597 (2026-11-03): the window is the rows that reached the ledger since the last earlier-day report was built,
+    not the rows whose ts falls in the last 24 hours. Run 41564483444's rows (ts from 02:16Z) were committed at 07:34Z,
+    after the 11-03 report (02:37Z), so a ts window left them out of that report and the next."""
+
+    def git(self, *a):
+        return subprocess.run(["git", "-C", str(self.top), *a], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, msg):
+        self.git("add", "-A")
+        self.git("commit", "-qm", msg)
+        return self.git("rev-parse", "HEAD")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.top = Path(self.tmp.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.invalid")
+        self.git("config", "user.name", "t")
+        self.ledger, self.daily = self.top / "ledger", self.top / "ledger" / "daily"
+        self.rows = self.ledger / "minif2f" / "test" / "run.jsonl"
+        self.counted = row("2026-10-27T13:00:00+00:00", "a", "reject")          # in the ts window, but counted yesterday
+        write(self.rows, [self.counted])
+        self.base = self.commit("rows the 10-27 report saw")
+        write(self.daily / "2026-10-27.json", [])
+        (self.daily / "2026-10-27.json").write_text(json.dumps({"day": "2026-10-27", "window": {"built_from": self.base}}))
+        self.commit("the 10-27 report")
+        self.late = row("2026-10-26T20:00:00+00:00", "b", "accept")             # stamped before that report, landed after
+        self.fresh = row("2026-10-28T05:00:00+00:00", "c", "reject")
+        write(self.rows, [self.counted, self.late, self.fresh])
+        self.head = self.commit("a run that ended after the report")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_counts_what_arrived_since_the_last_report_once(self):
+        d = daily_report.build(self.ledger, NOW)
+        self.assertEqual(d["window"], {"kind": "arrived", "from": self.base, "from_report": "2026-10-27", "built_from": self.head})
+        self.assertEqual((d["totals"]["judged"], d["totals"]["accepted"]), (2, 1))
+        self.assertEqual([f["key"] for f in d["first_solves"]], ["minif2f/test/b"], "a late first solve is still reported")
+        self.assertIn("rows that reached the ledger since the 2026-10-27 report", daily_report.render(d))
+
+    def test_a_second_report_the_same_day_starts_from_the_earlier_day(self):
+        (self.daily / "2026-10-28.json").write_text(json.dumps({"day": "2026-10-28", "window": {"built_from": self.head}}))
+        self.commit("this morning's report")
+        d = daily_report.build(self.ledger, NOW)
+        self.assertEqual((d["window"]["from"], d["totals"]["judged"]), (self.base, 2))
+
+    def test_uncommitted_rows_wait_for_their_commit(self):
+        write(self.rows, [self.counted, self.late, self.fresh, row("2026-10-28T06:00:00+00:00", "d", "reject")])
+        self.assertEqual(daily_report.build(self.ledger, NOW)["totals"]["judged"], 2)
+
+    def test_the_transition_day_starts_from_the_parent_of_the_commit_that_wrote_the_last_page(self):
+        (self.daily / "2026-10-27.json").write_text(json.dumps({"day": "2026-10-27"}))     # a page from before built_from
+        wrote = self.commit("the 10-27 report, rewritten without built_from")
+        write(self.rows, [self.counted, self.late, self.fresh, row("2026-10-27T01:00:00+00:00", "d", "reject")])
+        self.commit("a run that ended after it")
+        d = daily_report.build(self.ledger, NOW)
+        self.assertEqual(d["window"]["kind"], "arrived")
+        self.assertEqual(d["window"]["from"], self.git("rev-parse", f"{wrote}^"))
+        self.assertIn("predates built_from", d["window"]["base"])
+        self.assertEqual(d["totals"]["judged"], 1, "what landed after that page, not before it")
+
+    def test_an_unreadable_checkpoint_stops_the_report_instead_of_skipping_rows(self):
+        """Codex f1: a ts fallback here would write built_from = HEAD and so skip, for good, every late row outside
+        its own ts window."""
+        (self.daily / "2026-10-27.json").write_text(json.dumps({"window": {"built_from": "f" * 40}}))
+        with self.assertRaises(SystemExit):
+            daily_report.build(self.ledger, NOW)
+        with tempfile.TemporaryDirectory() as td:
+            clone = Path(td) / "shallow"
+            subprocess.run(["git", "clone", "-q", "--depth=1", self.top.as_uri(), str(clone)], check=True)
+            (clone / "ledger" / "daily" / "2026-10-27.json").write_text(json.dumps({"window": {"built_from": self.base}}))
+            with self.assertRaises(SystemExit):
+                daily_report.build(clone / "ledger", NOW)
+
+    def test_a_late_row_is_counted_exactly_once_across_days(self):
+        first = daily_report.build(self.ledger, NOW)
+        (self.daily / "2026-10-28.json").write_text(json.dumps(first))
+        self.commit("the 10-28 report")
+        later = row("2026-10-28T11:00:00+00:00", "e", "accept")            # stamped before the 10-28 page, landed after
+        write(self.rows, [self.counted, self.late, self.fresh, later])
+        self.commit("another late run")
+        second = daily_report.build(self.ledger, datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual(second["window"]["from"], first["window"]["built_from"])
+        self.assertEqual((first["totals"]["judged"], second["totals"]["judged"]), (2, 1))
+        self.assertEqual([f["key"] for f in second["first_solves"]], ["minif2f/test/e"])
+
+    def test_identical_rows_count_by_occurrence(self):
+        """Codex f3: a row added that is byte-identical to an older one counts once, not twice."""
+        write(self.rows, [self.counted, self.late, self.fresh, self.counted])
+        self.commit("an identical row again")
+        self.assertEqual(daily_report.build(self.ledger, NOW)["totals"]["judged"], 3)
+
+    def test_an_old_accept_added_again_is_one_arrival_and_no_first_solve(self):
+        """Codex f3, round 2: yesterday's accept duplicated today counts once and is not a first solve again."""
+        first = daily_report.build(self.ledger, NOW)
+        (self.daily / "2026-10-28.json").write_text(json.dumps(first))
+        self.commit("the 10-28 report")
+        write(self.rows, [self.counted, self.late, self.fresh, self.late])
+        self.commit("the late accept, again")
+        second = daily_report.build(self.ledger, datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual([f["key"] for f in first["first_solves"]], ["minif2f/test/b"])
+        self.assertEqual((second["totals"]["judged"], second["totals"]["accepted"], second["first_solves"]), (1, 1, []))
+
+    def test_a_failed_diff_stops_the_report_and_a_retry_still_counts_the_late_row(self):
+        """Codex f1, round 2: a diff that fails must not fall back and move the checkpoint past the late row."""
+        real = daily_report.git
+        daily_report.git = lambda top, *a: None if a[:1] == ("diff",) else real(top, *a)
+        try:
+            with self.assertRaises(SystemExit):
+                daily_report.build(self.ledger, NOW)
+        finally:
+            daily_report.git = real
+        self.assertEqual([f["key"] for f in daily_report.build(self.ledger, NOW)["first_solves"]], ["minif2f/test/b"])
+
+    def test_main_warns_when_there_is_no_earlier_report(self):
+        (self.daily / "2026-10-27.json").unlink()
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            daily_report.main(["--ledger", str(self.ledger), "--out", str(self.daily), "--now", NOW.isoformat()])
+        self.assertIn("::warning::daily report counted by row time, not arrival: no earlier report", buf.getvalue())
+        self.assertEqual(json.loads((self.daily / "2026-10-28.json").read_text())["window"]["built_from"], self.git("rev-parse", "HEAD"))
 
 if __name__ == "__main__":
     unittest.main()

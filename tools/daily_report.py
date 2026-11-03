@@ -1,4 +1,4 @@
-"""The daily school report: what every student (lane) did in the last 24 hours, by grade, read from the ledger alone.
+"""The daily school report: what every student (lane) did since the last report, by grade, read from the ledger alone.
 
 Grades are the target sets the ladder climbs: kindergarten (primer), middle school (Mathematics in Lean), high school
 (miniF2F, by competition rung) and college (formal-conjectures, openproblems.bio). For each grade: who answered, who
@@ -10,7 +10,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
     python3 tools/daily_report.py                        # writes ledger/daily/<today>.{json,md}
     python3 tools/daily_report.py --now 2026-10-28T12:00:00+00:00 --out /tmp/daily
 """
-import argparse, json, sys
+import argparse, json, subprocess, sys
 import ledger_files
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -58,11 +58,85 @@ def tries(ledger):
     return sorted(rows, key=lambda r: r["ts"])
 
 
+def git(top, *args):
+    r = subprocess.run(["git", "-C", str(top), *args], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+def canon(r):
+    return json.dumps(r, sort_keys=True)
+
+
+def arrivals(ledger, daily, day):
+    """The ledger rows that reached main since the last report of an earlier day was built (#597, 2026-11-03).
+    A row's ts is when its run asked, not when it landed: an attempt run (up to 350 min) publishes its rows when it
+    ends, so a ts window loses every row stamped before a report and committed after it (run 41564483444: rows from
+    02:16Z, committed 07:34Z, the 11-03 report built 02:37Z). Each report records the commit it was built from; the
+    next one counts the lines added to the ledger from that commit to HEAD, so each committed row is counted once.
+    Returns (Counter of the added rows' canonical JSON, window). (None, reason) only when there is no checkpoint to
+    lose rows past: not a git checkout, or no earlier report at all; the caller then uses the ts window. An earlier
+    report whose checkpoint cannot be read stops the report (Codex f1, 20261103T212818516158Z): a ts fallback there
+    would advance the checkpoint over the rows it missed."""
+    top = git(ledger, "rev-parse", "--show-toplevel")
+    head = git(ledger, "rev-parse", "HEAD")
+    if not top or not head:
+        return None, "not a git checkout"
+    top, head = Path(top.strip()), head.strip()
+    prev = sorted(f for f in Path(daily).glob("*.json") if f.stem < day)
+    if not prev:
+        return None, "no earlier report"
+    win, how = {"kind": "arrived", "from_report": prev[-1].stem}, None
+    base = (json.loads(prev[-1].read_text()).get("window") or {}).get("built_from")
+    if not base:
+        # The transition (reports before 2026-11-04): the parent of the commit that wrote that page. Publish commits
+        # it onto a fresh fetch of main, so rows that landed between its checkout and its push sit in that parent but
+        # were not read: they are lost once, the residual of this one day.
+        wrote = (git(top, "log", "-1", "--format=%H", "--", str(prev[-1].resolve().relative_to(top.resolve()))) or "").strip()
+        if not wrote:
+            sys.exit(f"{prev[-1]} has no built_from and no commit: no checkpoint, and a ts window would skip rows")
+        base, how = f"{wrote}^", f"parent of {wrote[:12]}, the commit that wrote {prev[-1].name} (it predates built_from)"
+        base = (git(top, "rev-parse", base) or "").strip()
+    if not base or git(top, "merge-base", "--is-ancestor", base, head) is None:
+        sys.exit(f"{prev[-1].name}'s checkpoint {base[:12] or '?'} is not in this checkout's history (a shallow clone? "
+                 "check out with fetch-depth: 0); a ts window would skip rows, so no report")
+    diff = git(top, "diff", "--unified=0", "--no-renames", "--no-color", "--no-ext-diff", base, head, "--",
+               str(Path(ledger).resolve().relative_to(top.resolve())))
+    if diff is None:
+        sys.exit(f"git diff {base[:12]}..{head[:12]} failed: no report rather than one that skips rows (Codex f1, round 2)")
+    fresh = Counter()
+    for line in diff.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            try:
+                r = json.loads(line[1:])
+            except ValueError:
+                continue
+            if isinstance(r, dict):
+                fresh[canon(r)] += 1
+    return fresh, {**win, "from": base, **({"base": how} if how else {}), "built_from": head}
+
+
+def arrived(fresh):
+    """since() for an arrival window: a row is in it when an added line carries it. By occurrence, not content (Codex
+    f3): two identical rows with one of them added count once. Each row object is decided once and kept alive here, so
+    every caller that asks about the same row gets the same answer and an id is never reused."""
+    left, seen = Counter(fresh), {}
+    def since(r, k=None):
+        if id(r) not in seen:
+            c = canon(r)
+            seen[id(r)] = (r, left[c] > 0)
+            left[c] -= left[c] > 0
+        return seen[id(r)][1]
+    return since
+
+
 def grades(rows, since):
     """Per grade: the lanes of the window ranked by accepts then answered, first solves, solved and open counts."""
     first_ever, solved, seen = {}, defaultdict(set), defaultdict(set)
     lanes = defaultdict(lambda: defaultdict(lambda: {"answered": 0, "accepts": 0, "tier": "?"}))
     firsts = []
+    # A first solve is an accept in the window on a key no earlier-counted row accepted, whatever the ts order: an
+    # added row identical to an old accept is in the window by count but is no first solve (Codex f3, round 2)
+    before = {f"{r.get('target_set') or ''}/{r['target']}" for r in rows if r["verdict"] == "accept" and not since(r)}
     for r in rows:
         key, g = f"{r.get('target_set') or ''}/{r['target']}", grade_of(r.get("target_set"))
         seen[g].add(key)
@@ -70,10 +144,10 @@ def grades(rows, since):
             solved[g].add(key)
             if key not in first_ever:
                 first_ever[key] = r["ts"]
-                if r["ts"] > since:
+                if since(r) and key not in before:
                     firsts.append({"grade": g, "key": key, "lane": r.get("backend") or "?", "tier": r.get("quality_tier") or "?",
                                    "mode": r["mode"], "ts": r["ts"]})
-        if r["ts"] > since and r["verdict"] in ("accept", "reject"):
+        if since(r) and r["verdict"] in ("accept", "reject"):
             l = lanes[g][r.get("backend") or "?"]
             l["answered"] += 1
             l["accepts"] += r["verdict"] == "accept"
@@ -117,8 +191,8 @@ def speed(ledger):
 
 
 def kaggle(ledger, since):
-    fin = [b for b in _load_jsonl(Path(ledger) / "prover-batches.jsonl") if (b.get("finished_at") or "") > since]
-    failed = [b for b in _load_jsonl(Path(ledger) / "prover-beats" / "failed.jsonl") if (b.get("first_seen_at") or "") > since]
+    fin = [b for b in _load_jsonl(Path(ledger) / "prover-batches.jsonl") if since(b, "finished_at")]
+    failed = [b for b in _load_jsonl(Path(ledger) / "prover-beats" / "failed.jsonl") if since(b, "first_seen_at")]
     return {"finished": [{"batch": b["batch"], "answers": b.get("answers"), "finished_at": b["finished_at"]} for b in fin],
             "failed": [{"batch": b["batch"], "status": b.get("status"), "first_seen_at": b["first_seen_at"]} for b in failed]}
 
@@ -148,7 +222,7 @@ def rungs(ledger, rows, now, since):
     fc = _load_jsonl(Path(ledger) / "fc")
     fc_last = max((_ts(r) for r in fc), default=None)
     out.append({"rung": "formal-conjectures", "last": fc_last, "idle_days": _days(now, fc_last),
-                "tries_24h": sum(_ts(r) > since for r in fc), "accepts_ever": sum(r.get("verdict") == "accept" for r in fc)})
+                "tries_24h": sum(map(since, fc)), "accepts_ever": sum(r.get("verdict") == "accept" for r in fc)})
     ev = [r for r in _load_jsonl(Path(ledger) / "openproblems") if r.get("round") is not None and not r.get("rescore")]
     ev_last = max((_ts(r) for r in ev), default=None)
     scored = [r for r in ev if isinstance(r.get("metrics"), dict) and "rmse" in r["metrics"]]
@@ -158,7 +232,7 @@ def rungs(ledger, rows, now, since):
     q = quals[-1] if quals else None
     drifts = sorted((json.loads(f.read_text()) for f in Path(ledger).glob("openproblems/drift-*.json")), key=_ts)
     dr = drifts[-1] if drifts else None      # upstream main checked against the pin (tools/openproblems.py drift)
-    out.append({"rung": "openproblems.bio", "last": ev_last, "idle_days": _days(now, ev_last), "rounds_24h": sum(_ts(r) > since for r in ev),
+    out.append({"rung": "openproblems.bio", "last": ev_last, "idle_days": _days(now, ev_last), "rounds_24h": sum(map(since, ev)),
                 "scored": len(scored), "crashed": sum("error" in r for r in ev), "qualify_runs": len(quals),
                 "qualify": {"at": q["at"], "passed": bool(q["verdict"].get("passed")), "sites": q["verdict"].get("sites"),
                             "mean_pearson_delta": q["verdict"].get("mean_pearson_delta")} if q and q.get("verdict") else None,
@@ -166,20 +240,29 @@ def rungs(ledger, rows, now, since):
     return out
 
 
-def build(ledger, now, hours=24):
+def build(ledger, now, hours=24, daily=None):
+    """The window is the rows that arrived since the last earlier-day report (arrivals()); outside a git checkout, or
+    with no earlier report at all, the last `hours` by row ts, labeled so in window.kind."""
     ledger = Path(ledger)
     rows = tries(ledger) if ledger.exists() else []
     if not rows:
         sys.exit(f"no ledger rows under {ledger}: a report of nothing would read as a quiet day")
-    since = (now - timedelta(hours=hours)).isoformat()
-    window = [r for r in rows if r["ts"] > since]
+    fresh, win = arrivals(ledger, daily or ledger / "daily", f"{now:%Y-%m-%d}")
+    if fresh is None:
+        cut = (now - timedelta(hours=hours)).isoformat()
+        head = git(ledger, "rev-parse", "HEAD")
+        win = {"kind": "ts", "reason": win, "since": cut, "built_from": head.strip() if head else None}
+        since = lambda r, k=None: ((r.get(k) if k else _ts(r)) or "") > cut
+    else:
+        since = arrived(fresh)
+    window = [r for r in rows if since(r)]
     judged = [r for r in window if r["verdict"] in ("accept", "reject", "error")]
     answered = [r for r in judged if r["verdict"] != "error"]
     g, firsts = grades(rows, since)
     errors = Counter("upstream timeout (504)" if "HTTP 504" in (r.get("reason") or "") else
                      "router 5xx" if "HTTP 5" in (r.get("reason") or "") else "other error"
                      for r in judged if r["verdict"] == "error")
-    return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours,
+    return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours, "window": win,
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
                        "errors": dict(errors), "recovered": recovered(judged),
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
@@ -224,7 +307,10 @@ def recovered(rows):
 
 def render(d):
     t, out = d["totals"], []
-    out += [f"**{d['day']}** (the {d['hours']} hours to {d['to'][11:16]} UTC): **{len(d['first_solves'])} first-time solves**, "
+    w = d.get("window") or {}
+    span = (f"rows that reached the ledger since the {w['from_report']} report" if w.get("kind") == "arrived" else
+            f"the {d['hours']} hours to {d['to'][11:16]} UTC by row time")
+    out += [f"**{d['day']}** ({span}): **{len(d['first_solves'])} first-time solves**, "
             f"{t['accepted']} accepts from {t['answered']} answered tries by {t['lanes']} lanes on {t['problems']} problems. "
             f"{t['solved_ever']} problems solved ever, {t['open']} open.", ""]
     if t.get("errors"):
@@ -281,7 +367,9 @@ def main(argv=None):
     ap.add_argument("--now", default=datetime.now(timezone.utc).isoformat())
     ap.add_argument("--hours", type=int, default=24)
     a = ap.parse_args(argv)
-    d = build(a.ledger, datetime.fromisoformat(a.now), a.hours)
+    d = build(a.ledger, datetime.fromisoformat(a.now), a.hours, a.out)
+    if d["window"]["kind"] != "arrived":
+        print(f"::warning::daily report counted by row time, not arrival: {d['window']['reason']}")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{d['day']}.json").write_text(json.dumps(d, indent=1, sort_keys=True) + "\n")

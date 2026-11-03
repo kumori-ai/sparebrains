@@ -146,6 +146,15 @@ class LedgerDayTests(unittest.TestCase):
 
 
 class DailyLogTests(unittest.TestCase):
+    def test_the_log_posts_the_saved_page_and_waits_for_it(self):
+        """Codex f2 (20261103T212818516158Z): the log renders the retro's saved JSON, the same page kumori's mail
+        renders, never a second build of its own."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(pi.saved_report("2026-10-17", tmp))
+            saved = {"day": "2026-10-17", "marker": "from the page"}
+            (Path(tmp) / "2026-10-17.json").write_text(json.dumps(saved))
+            self.assertEqual(pi.saved_report("2026-10-17", tmp), saved)
+
     def test_posts_the_school_report_and_the_actions_runs(self):
         import daily_report
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,17 +259,23 @@ class DailyFromMain(unittest.TestCase):
             self.writes.append((method, path, data))
             return {"number": 5, "id": 1}
 
-    def test_daily_posts_the_report_with_the_actions_line(self):
+    def daily(self, report):
         from unittest import mock
         gh_box = []
         make = lambda token: gh_box.append(self.GH(token)) or gh_box[-1]
-        report = {"day": "2026-10-29", "hours": 24}
         with mock.patch.object(pi, "GitHub", make), mock.patch.object(pi.relay, "fetch_json", return_value={"open": []}), \
-             mock.patch.object(pi.daily_report, "build", return_value=report), \
+             mock.patch.object(pi, "saved_report", return_value=report), \
+             mock.patch.object(pi.daily_report, "build", side_effect=AssertionError("the log posts the saved page")), \
              mock.patch.object(pi.daily_report, "render", return_value="report text"), \
              mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), mock.patch.object(sys, "argv", ["problem_issues.py", "--daily"]):
             self.assertEqual(pi.main(), 0)
-        (method, path, data), = gh_box[0].writes
+        return gh_box[0].writes
+
+    def test_daily_waits_for_the_saved_page(self):
+        self.assertEqual(self.daily(None), [])
+
+    def test_daily_posts_the_report_with_the_actions_line(self):
+        (method, path, data), = self.daily({"day": "2026-10-29", "hours": 24})
         self.assertEqual((method, path), ("POST", "/issues/5/comments"))
         self.assertIn("report text", data["body"])
         self.assertIn("**GitHub Actions runs:** attempt 1 success", data["body"])

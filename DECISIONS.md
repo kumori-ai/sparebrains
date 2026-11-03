@@ -5,6 +5,26 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-03
 
+- **The daily report counts the ledger rows that arrived since the last report, not the rows stamped in the last
+  24 hours (kumori #597).** A row's ts is when its run asked; an attempt run (timeout 350 min, one every 2 h) commits
+  its rows when it ends, so a ts window drops every row stamped before a report and committed after it, from that
+  report and the next. Measured: run 41564483444's rows (ts from 02:16Z) were committed 07:34Z, after the 11-03 report
+  (02:37Z, 72872cbe), so 8 rescue-marked rows were in no report. Each report now records `window.built_from` (its
+  checkout's HEAD); the next report counts the lines added under ledger/ from that commit to HEAD (`git diff`,
+  append-only files: 0 deleted lines in ledger/*.jsonl over the 10 days to 11-03), starting from the latest report of
+  an earlier UTC day, so a second same-day run does not shrink the window; rows count by occurrence, so an added row
+  identical to an older one counts once. Uncommitted rows wait for their commit. An earlier report whose checkpoint
+  cannot be read (missing from a shallow history; retro now checks out with `fetch-depth: 0`) stops the report: a ts
+  fallback there would move the checkpoint past the rows it missed (Codex f1). The row-time window, labeled
+  `window.kind = "ts"` with a `::warning`, is left only for no earlier report or no git checkout. The transition
+  (11-03 has no `built_from`) starts from the parent of the commit that wrote that page; rows that landed between that
+  run's checkout and its push are lost once (residual). The public daily log now posts the saved
+  `ledger/daily/<day>.json` and waits for it, instead of a second build in the issues checkout (Codex f2), so the log
+  and kumori's mail are one page. Replayed for 11-04 on the real ledger from 72872cbe^: 614 judged and 145 rescue rows
+  by arrival, 579 and 137 by ts. Codex 20261103T212818516158Z, 20261103T213548683379Z (DISAGREE: a fallback or a
+  failed diff that moved the checkpoint, the log rebuilding its own report, twins counted twice or as first solves
+  again; each fixed with a test that fails first), 20261103T213941558073Z AGREE.
+
 - **openproblems reads one pinned upstream commit, and a row counts only against the reference it was scored on
   (kumori #477).** Upstream bc9313f98a (14:12 UTC: `--seed` for every method, default 0 in
   `src/api/comp_method.yaml`; a CSR fix in the correlation metric) killed the 16:42 evolve run (41676849790,

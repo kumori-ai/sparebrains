@@ -193,6 +193,14 @@ def load_rows(since_day):
     return out
 
 
+def saved_report(day, daily=None):
+    """The day's school report as the retro workflow saved it (ledger/daily/<day>.json), or None until it lands. The
+    log posts that page rather than building its own (Codex f2, 20261103T212818516158Z): a second build in this
+    workflow's checkout could count a different window from the one kumori's mail renders."""
+    f = Path(daily or ROOT / "ledger" / "daily") / f"{day}.json"
+    return json.loads(f.read_text()) if f.exists() else None
+
+
 def daily_log(report, runs):
     """The daily log comment: the school report (tools/daily_report.py) plus the Actions runs behind it."""
     lines = [LOG_MARKER, daily_report.render(report).rstrip()]
@@ -439,11 +447,13 @@ def main():
               "judged by the Lean kernel, accepts, first-time solves and the GitHub Actions runs behind them. Counts "
               f"only, every one from the public ledger. The live view: {relay.SITE}."})
         today = [c for c in gh.comments(log["number"]) if c["created_at"][:10] == day and (c.get("user") or {}).get("type") == "Bot"]
+        report = None if today and not args.redo else saved_report(day)
         if today and not args.redo:
             print(f"daily log: {day} already posted on #{log['number']}")
+        elif report is None:
+            print(f"daily log: waiting for ledger/daily/{day}.json (the retro workflow writes it)")
         else:
             since = (now - timedelta(hours=24)).isoformat()
-            report = daily_report.build(ROOT / "ledger", now)
             try:
                 runs = gh.call("GET", f"/actions/runs?created=>={since[:19]}&per_page=100")["workflow_runs"]
             except Exception as e:                   # the Actions line is a nicety; the log posts without it
