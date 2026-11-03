@@ -1,0 +1,67 @@
+{
+ "at": "2026-11-03T21:04:54+00:00",
+ "policy": "loso-v1 (2026-10-22): every training site held out in turn, both directions; the candidate must beat knnr_chunked (random_state 0) on that site on rmse (lower) and Pearson per cell (higher), every site, no execution error; mean and worst-site deltas reported",
+ "source": {
+  "evolve_file": "ledger/openproblems/evolve-40904285869.jsonl",
+  "round": 3
+ },
+ "code_sha": "f26567d6ebaaf80d090eb6367eebf1cd521b06a5b79f6eae2f176647dcbe69ac",
+ "rows": {
+  "normal": [
+   {
+    "site": 2,
+    "n_train": 43590,
+    "n_held": 22585,
+    "error": null,
+    "cand": {
+     "rmse": 0.5518,
+     "mae": 0.4322,
+     "mean_pearson_per_cell": 0.7374
+    },
+    "ref": {
+     "rmse": 0.5095,
+     "mae": 0.3741,
+     "mean_pearson_per_cell": 0.7077
+    },
+    "seconds": 946.7,
+    "host_peak_rss_gb": 5.4,
+    "host_rss_gb_during_candidate": 2.45,
+    "container": {
+     "mem_peak_gb_seen": 4.76,
+     "cgroup_oom": 0,
+     "cgroup_oom_kill": 0,
+     "oom_killed": false,
+     "exit_code": 0,
+     "mem_cap": "12g"
+    }
+   }
+  ]
+ },
+ "expected_sites": {
+  "normal": [
+   1,
+   2,
+   3
+  ]
+ },
+ "verdict": {
+  "passed": false,
+  "sites": 1,
+  "mean_pearson_delta": 0.02970000000000006,
+  "worst_pearson_delta": 0.02970000000000006
+ },
+ "scorer": "local: knnr_chunked(random_state=0) reference and metrics(), no upstream script",
+ "screen": {
+  "folds": [
+   [
+    "normal",
+    2
+   ],
+   [
+    "normal",
+    3
+   ]
+  ],
+  "stopped_at": "normal/2"
+ }
+}
