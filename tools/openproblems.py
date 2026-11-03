@@ -656,8 +656,27 @@ def screened(code, ask, screen, repairs):
         code = fixed
 
 
+def round_timing(calls, entries, wall_s):
+    """A round's clock (DECISIONS 2026-11-03, C3): every writer ask (the round's own, then each repair), and the
+    screen, full fit and bootstrap seconds per direction from the scorer's and screener's clock entries."""
+    by = lambda kind: {d: round(sum(s for k, dd, s in entries if k == kind and dd == d), 1)
+                       for d in dict.fromkeys(dd for k, dd, _ in entries if k == kind)}
+    return {"ask_s": calls[0] if calls else None, "repair_ask_s": calls[1:], "calls": len(calls),
+            "client_calls": sum(k == "client_call" for k, _, _ in entries),
+            "screen_s": by("screen"), "fit_s": by("fit"), "bootstrap_s": by("bootstrap"), "wall_s": round(wall_s, 1)}
+
+
+def timed_seed(prior, ref, score, clock):
+    """seed_for(), with the rescore row's full fits timed like a round's (C3, Codex f2): it asks nothing."""
+    mark, t = len(clock), time.time()
+    seed, rescored = seed_for(prior, ref, score)
+    if rescored:
+        rescored["timing"] = round_timing([], clock[mark:], time.time() - t)
+    return seed, rescored
+
+
 def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None, seed_note=None,
-           parents=None):
+           parents=None, clock=None):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
     beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
     `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
@@ -670,9 +689,19 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
     refreshed with this run's rows, shown instead of the single best (the best so far is still named), and the row
     records parent and arm, so the A/B against the single seed is read from the ledger."""
     rows, asks = [], 0
+    clock = clock if clock is not None else []
+    raw_ask = ask
     for i in range(rounds):
         if max_asks is not None and asks >= max_asks:
             break
+        t_round, mark, calls = time.time(), len(clock), []
+
+        def ask(prompt):                                   # each writer call timed, the round's and its repairs'
+            t0 = time.time()
+            try:
+                return raw_ask(prompt)
+            finally:
+                calls.append(round(time.time() - t0, 1))
         prompt = BRIEF.format(ref=_fmt(ref))
         top = best_or_closest(rows + ([seed] if seed else []), ref)
         parent = None
@@ -725,6 +754,7 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
             if ("metrics" in row and shown and metrics_fp(row["metrics"]) == metrics_fp(shown["metrics"])
                     and set(failed_checks(row["metrics"], ref)) >= set(failed_checks(shown["metrics"], ref))):
                 row["same_as_seed"] = True                 # the same numbers and nothing passed the elite fails: a copy
+        row["timing"] = round_timing(calls, clock[mark:], time.time() - t_round)
         rows.append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "code"})[:400], flush=True)
     return rows
@@ -1214,6 +1244,48 @@ def agreement(pairs, k=10):
     return out
 
 
+GATE_TOP, GATE_SLICE_TOP, GATE_BEST_TOP, GATE_RHO, GATE_RAN = 10, 30, 10, 0.7, 90   # C1, frozen 2026-11-03
+
+
+def screen_gate(receipt, ledger_dir):
+    """C1 (DECISIONS 2026-11-03), per slice size of a screen-agreement receipt: (a) all of the 10 best bar-passers by
+    full mean Pearson (passes_bar against each row's own reference) rank in the slice's top 30 by slice mean Pearson,
+    slice failures last; (b) the best bar-passer ranks in its top 10; (c) Spearman on mean Pearson >= 0.7 with at
+    least 90 run. Not agreement()'s rmse summary: this protects what best() would pick."""
+    from scipy.stats import spearmanr
+    # Each receipt entry binds to the exact ledger row it measured (code sha, at, round) with the same full scores, so a
+    # later rescore of the same code can never change the verdict (Codex f5); anything unbound is "missing".
+    rows = [json.loads(l) for f in Path(ledger_dir).glob("evolve-*.jsonl") for l in f.read_text().splitlines() if l.strip()]
+    bound = {(hashlib.sha256(r["code"].encode()).hexdigest()[:16], r.get("at"), r.get("round")): r
+             for r in rows if r.get("code") and isinstance(r.get("metrics"), dict)}
+
+    def row_of(x):
+        r = bound.get((x["code_sha"], x.get("at"), x.get("round")))
+        ok = r is not None and all(r["metrics"].get(m) == v for m, v in (x.get("full") or {}).items()) and x.get("full")
+        return r if ok else None
+    out = {}
+    for tr, te in receipt["sizes"]:
+        key = str(tr)
+        missing = [x["code_sha"] for x in receipt["rows"] if row_of(x) is None]
+        items = [(row_of(x), x["screen"].get(key) or {}) for x in receipt["rows"] if row_of(x) is not None]
+        bar = [r for r, _ in items if passes_bar(r, r["reference"][METHOD])]
+        top = sorted(bar, key=lambda r: -r["metrics"]["mean_pearson_per_cell"])[:GATE_TOP]
+        order = sorted(range(len(items)), key=lambda i: (0, -items[i][1]["mean_pearson_per_cell"])
+                       if "mean_pearson_per_cell" in items[i][1] else (1, 0))
+        rank = {id(items[i][0]): k + 1 for k, i in enumerate(order)}
+        ran = [(sl["mean_pearson_per_cell"], r["metrics"]["mean_pearson_per_cell"]) for r, sl in items if "mean_pearson_per_cell" in sl]
+        rho = float(spearmanr(*zip(*ran)).statistic) if len(ran) >= 5 else float("nan")    # compared unrounded (Codex f1)
+        g = {"n": len(items), "n_ran": len(ran), "bar_passers": len(bar),
+             "top_ranks": [rank[id(r)] for r in top], "best_rank": rank[id(top[0])] if top else None,
+             "spearman_pearson": round(rho, 4) if rho == rho else None, "missing": missing}
+        g["a"] = bool(top) and all(k <= GATE_SLICE_TOP for k in g["top_ranks"]) and len(top) == GATE_TOP
+        g["b"] = g["best_rank"] is not None and g["best_rank"] <= GATE_BEST_TOP
+        g["c"] = rho == rho and rho >= GATE_RHO and len(ran) >= GATE_RAN
+        g["passed"] = g["a"] and g["b"] and g["c"] and not missing      # an incomplete join never passes (Codex f4)
+        out[f"{tr}x{te}"] = g
+    return out
+
+
 def screen_agreement(val, work, ledger_dir, out, sizes=AGREE_SIZES, limit=None, deadline=None):
     """Does a small slice rank candidates the way the full validation fit does? Each distinct past candidate runs on
     each slice size in its sandbox and is scored on the slice's own labels (training cells only); the receipt has
@@ -1259,7 +1331,7 @@ def screen_agreement(val, work, ledger_dir, out, sizes=AGREE_SIZES, limit=None, 
     return rec
 
 
-def screener(dirs, work):
+def screener(dirs, work, clock=None):
     """code -> None when it runs on every direction's slice and returns a finite prediction of the right shape, else
     the first error, naming its direction. dirs: [(name, slice dir, prediction shape)]."""
     n = [0]
@@ -1269,7 +1341,10 @@ def screener(dirs, work):
         f = work / f"screen{n[0]}.py"
         f.write_text(code)
         for name, d, shape in dirs:
+            t = time.time()
             p, err, _ = sandboxed_predict(f, d, shape, SCREEN_S)
+            if clock is not None:
+                clock.append(("screen", name, time.time() - t))
             if err is None and not np.isfinite(p).all():
                 err = "non-finite values in the prediction"
             if err:
@@ -1278,7 +1353,7 @@ def screener(dirs, work):
     return screen
 
 
-def scorer(val, answers, work):
+def scorer(val, answers, work, name="normal", clock=None):
     """Score one direction's candidates on its validation split, each in its own container (docker_cmd)."""
     import uuid
     y_val = np.load(answers / "Y_val.npy")
@@ -1288,14 +1363,20 @@ def scorer(val, answers, work):
         n[0] += 1
         code_file = work / f"cand{n[0]}.py"
         code_file.write_text(code)
+        t = time.time()
         p, err, _ = sandboxed_predict(code_file, val, y_val.shape, CAND_S + 60)
+        if clock is not None:
+            clock.append(("fit", name, time.time() - t))
         if err:
             return {"error": err}
         if not np.isfinite(p).all():
             return {"error": "non-finite values in the prediction"}
         m = {k: round(v, 4) for k, v in metrics(y_val, p).items()}
         if ref_pred is not None:
+            t = time.time()
             m["ci"] = gate_ci(y_val, p, ref_pred)
+            if clock is not None:
+                clock.append(("bootstrap", name, time.time() - t))
         return m
     ref_file = answers / "ref_pred.npy"
     ref_pred = np.load(ref_file) if ref_file.exists() else None
@@ -1330,8 +1411,13 @@ def sandboxed_predict(code_file, inputs, shape, timeout, dir_mode=0o755, mem=SAN
             diag.update(seen, mem_cap=mem)
 
 
-def writer_ask(lane):
-    """Leanstral (Mistral's Labs API, the free key) by default, or any Kumori router lane."""
+def writer_ask(lane, clock=None):
+    """Leanstral (Mistral's Labs API, the free key) by default, or any Kumori router lane. With `clock`, every call
+    sparebrains makes into the model client is logged ("client_call"): one per urlopen in Leanstral's loop (its
+    dropped-connection retry included) and one per llm_chat in the router ask (its retry_after retries included).
+    A client call is not proof an HTTP request left: one that fails locally still counts. Not counted: the shared
+    kumori client's own one 5xx retry and its /result rescue polls, inside kumori's file (C3, Codex f3 x2)."""
+    tick = (lambda: clock.append(("client_call", lane, 0.0))) if clock is not None else None
     if lane == "leanstral":
         import leanstral
         key = leanstral.key_from_env()
@@ -1339,12 +1425,20 @@ def writer_ask(lane):
 
         def ask(prompt):
             try:
-                return leanstral.reply(leanstral.call_prompt(key, prompt, pacer))
+                return leanstral.reply(leanstral.call_prompt(key, prompt, pacer, on_attempt=tick))
             except Exception as e:
                 return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
         return ask, f"leanstral ({leanstral.MODEL})"
     import decompose
-    return decompose.router_ask(lane)[0], f"router lane {lane}"
+    chat = None
+    if tick:
+        from utilities.kumori_api_client import init, llm_chat
+        init()
+
+        def chat(*a, **k):
+            tick()
+            return llm_chat(*a, **k)
+    return decompose.router_ask(lane, chat=chat)[0], f"router lane {lane}"
 
 
 def download(data, dataset=DATASET, files=FILES):
@@ -1507,7 +1601,7 @@ def final(work, code, source, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check", "next-qualify",
-                                   "qualify", "drift", "screen-agreement"])
+                                   "qualify", "drift", "screen-agreement", "screen-gate"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -1546,6 +1640,9 @@ def main():
         exempt = f"#598 trial row, arm {row['arm']}: full run for its registered read" if row.get("arm") else None
         return qualify(Path(a.work), row["code"], {"evolve_file": a.evolve_file, "round": a.round}, a.out,
                        screen=None if exempt else screen_folds(receipts), exempt=exempt)
+    if a.cmd == "screen-gate":              # --out: the receipt to read; prints the C1 verdict per slice size
+        print(json.dumps(screen_gate(json.loads(Path(a.out).read_text()), ROOT / "ledger" / "openproblems"), indent=1))
+        return 0
     if a.cmd == "screen-agreement":         # training data only; no ask, no answer of the validation split read
         work = Path(a.work)
         download(work / "data", files=("train_mod1", "train_mod2"))      # training files only, as qualify
@@ -1588,14 +1685,16 @@ def main():
     cand.mkdir(parents=True, exist_ok=True)
     for sub in ("normal", "swap"):
         (cand / sub).mkdir(exist_ok=True)
-    ask, writer = writer_ask(a.lane)
+    clock = []                                   # per-round timing (C3, DECISIONS 2026-11-03)
+    ask, writer = writer_ask(a.lane, clock)
     prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
     if a.seed_upto:                        # an A/B's arms start from the same seed, whichever run publishes first
         prior = [r for r in prior if r.get("at", "") < a.seed_upto]
-    score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
+    score = both_ways(scorer(val, answers, cand / "normal", "normal", clock),
+                      scorer(work / "val-swap", work / "answers-swap", cand / "swap", "swap", clock))
     # Earlier rows carry over as written only when they were scored against this same reference; else the best of them
     # is rescored here once (seed_for), and that rescore is a row of this run.
-    seed, rescored = seed_for(prior, ref, score)
+    seed, rescored = timed_seed(prior, ref, score, clock)
     if rescored:
         print("rescored an earlier candidate against this run's reference: "
               + (_fmt(rescored["metrics"]) if "metrics" in rescored else rescored["error"][-300:]), flush=True)
@@ -1613,12 +1712,13 @@ def main():
     if a.repairs >= 0:
         dirs = [(name, cand / f"screen-{name}", screen_inputs(src, cand / f"screen-{name}"))
                 for name, src in (("normal", val), ("swap", work / "val-swap"))]
-        screen = screener(dirs, cand)
+        screen = screener(dirs, cand, clock)
     parents = archive(prior, ref) if a.parents == "archive" else None
     if parents is not None:
         print(f"archive arm: {len(parents)} distinct elites: " + "; ".join(f"r{p['round']} {_fmt(p['metrics'])[:60]}" for p in parents), flush=True)
     rows = ([rescored] if rescored else []) + evolve(a.rounds, ask, score, ref, writer, seed, screen=screen,
-                  repairs=max(0, a.repairs), max_asks=a.max_asks or None, seed_note=seed_note, parents=parents)
+                  repairs=max(0, a.repairs), max_asks=a.max_asks or None, seed_note=seed_note, parents=parents,
+                  clock=clock)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

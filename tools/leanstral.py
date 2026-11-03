@@ -93,8 +93,9 @@ def call(key, target_text, pacer, effort=None):
     return call_prompt(key, PROMPT.format(target=target_text), pacer, effort)
 
 
-def call_prompt(key, prompt, pacer, effort=None):
-    """One Leanstral call with any prompt (tools/decompose.py asks for steps), paced, stopping at 402/429."""
+def call_prompt(key, prompt, pacer, effort=None, on_attempt=None):
+    """One Leanstral call with any prompt (tools/decompose.py asks for steps), paced, stopping at 402/429.
+    `on_attempt`: called once per urlopen attempt, the dropped-connection retry included, even one that fails locally (evolve's C3 client_calls)."""
     if pacer.stop:
         raise RuntimeError(f"stopped: {pacer.stop}")
     pacer.wait()
@@ -103,6 +104,8 @@ def call_prompt(key, prompt, pacer, effort=None):
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()
     for attempt in (0, 1):
+        if on_attempt:
+            on_attempt()
         try:
             with urllib.request.urlopen(req, timeout=1200) as r:
                 d = read_stream(r)

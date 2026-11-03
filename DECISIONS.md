@@ -30,7 +30,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   unseen-site generalization. Site 1 (validation) is reported apart as development feedback; the 3 test shots are never
   used to tune.
   *C3, accounting before any savings claim*. Each evolve row gets ask_s, repair_ask_s, screen_s and fit_s per direction,
-  bootstrap_s, router_calls and wall_s. Withdrawn: my "asks total 28 of 219 min" (run 41505253156) left out 7 repair
+  bootstrap_s, client_calls and wall_s. client_calls are the calls
+  sparebrains makes into the model client: one per urlopen in Leanstral's loop, one per llm_chat in a router ask,
+  retries included. A call that fails locally still counts, so this isn't a count of HTTP requests sent. The shared
+  kumori client's own 5xx retry and its /result rescue polls aren't counted (Codex f3, twice). Withdrawn: my "asks total 28 of 219 min" (run 41505253156) left out 7 repair
   asks (ask_s does not count them), and only 1 of its 3 unscored candidates was a full-fit timeout; the other 2 were
   slice shape/index errors.
   *C4*. Router-spending dispatches stay serialized. tools/lane_budget.py is a per-run preflight, not an allocation, and

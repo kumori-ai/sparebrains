@@ -1,5 +1,6 @@
 """tools/openproblems.py: the upstream script runs with only its VIASH block swapped, the published score is read
 from the maintainers' own results file, and the 1% gate fails a wrong run (the canary). No network, no data."""
+import hashlib
 import json
 import sys
 import unittest
@@ -1064,6 +1065,196 @@ class ScreenAgreement(unittest.TestCase):
         self.assertIsNone(a["spearman_mean_pearson_per_cell"])
         self.assertIn("constant", a["spearman_mean_pearson_per_cell_why"])
         json.dumps(a, allow_nan=False)
+
+
+class RoundTiming(unittest.TestCase):
+    """C3 (DECISIONS 2026-11-03): each round records every writer ask, and screen, fit and bootstrap seconds per
+    direction, so no savings claim rests on ask_s alone (it leaves repairs out)."""
+
+    def test_a_round_with_a_repair_records_every_part(self):
+        clock, seen = [], []
+        ref = {"rmse": 0.97, "mean_pearson_per_cell": 0.79}
+
+        def screen(code):
+            for d in ("normal", "swap"):
+                clock.append(("screen", d, 2.0))
+            seen.append(code)
+            return "normal direction: IndexError" if len(seen) == 1 else None
+
+        def score(code):
+            clock.extend([("fit", "normal", 600.0), ("bootstrap", "normal", 10.0), ("fit", "swap", 300.0)])
+            return {"rmse": 0.95, "mean_pearson_per_cell": 0.80}
+        rows = op.evolve(1, lambda p: GOOD, score, ref, writer="fake", screen=screen, repairs=2, clock=clock)
+        t = rows[0]["timing"]
+        self.assertEqual((t["calls"], len(t["repair_ask_s"])), (2, 1), "the round ask and one repair")
+        self.assertEqual(t["screen_s"], {"normal": 4.0, "swap": 4.0})
+        self.assertEqual((t["fit_s"], t["bootstrap_s"]), ({"normal": 600.0, "swap": 300.0}, {"normal": 10.0}))
+        self.assertGreaterEqual(t["wall_s"], 0)
+        self.assertEqual(rows[0]["repair_asks"], 1)
+
+    def test_entries_before_a_round_are_not_its_own(self):
+        clock = [("fit", "normal", 999.0)]                  # a rescore before round 0
+        rows = op.evolve(1, lambda p: GOOD, lambda c: {"rmse": 0.95, "mean_pearson_per_cell": 0.80},
+                         {"rmse": 0.97, "mean_pearson_per_cell": 0.79}, writer="fake", clock=clock)
+        self.assertEqual(rows[0]["timing"]["fit_s"], {})
+
+
+class ScreenGate(unittest.TestCase):
+    """C1 (DECISIONS 2026-11-03): the gate protects the selector's top bar-passers, not the rmse top-k."""
+
+    def ledger(self, n=100):
+        import tempfile
+        led = Path(tempfile.mkdtemp())
+        ref = {"rmse": 1.0, "mean_pearson_per_cell": 0.70}
+        rows = [{"at": f"2026-10-{1 + i % 28:02d}T{i % 24:02d}:00", "round": i, "code": f"c{i}",
+                 "reference": {op.METHOD: ref},
+                 "metrics": {"rmse": 0.99 if i < 40 else 1.01, "mean_pearson_per_cell": 0.80 - i / 1000}} for i in range(n)]
+        (led / "evolve-1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        sha = lambda c: hashlib.sha256(c.encode()).hexdigest()[:16]
+        return led, rows, sha
+
+    def receipt(self, rows, sha, slice_pearson):
+        return {"sizes": [[2000, 700]], "rows": [{"code_sha": sha(r["code"]), "at": r["at"], "round": r["round"],
+                                                    "full": {m: r["metrics"][m] for m in ("rmse", "mean_pearson_per_cell")},
+                                                    "screen": {"2000": s}} for r, s in zip(rows, slice_pearson)]}
+
+    def test_a_slice_that_ranks_like_the_full_fit_passes(self):
+        import hashlib  # noqa: F401
+        led, rows, sha = self.ledger()
+        g = op.screen_gate(self.receipt(rows, sha, [{"mean_pearson_per_cell": r["metrics"]["mean_pearson_per_cell"]} for r in rows]), led)["2000x700"]
+        self.assertEqual((g["bar_passers"], g["top_ranks"], g["best_rank"], g["passed"]), (40, list(range(1, 11)), 1, True))
+
+    def test_losing_one_top_bar_passer_past_30_fails_and_a_crash_ranks_last(self):
+        led, rows, sha = self.ledger()
+        sl = [{"mean_pearson_per_cell": r["metrics"]["mean_pearson_per_cell"]} for r in rows]
+        sl[3] = {"error": "IndexError"}                          # the 4th best bar-passer crashes on the slice
+        g = op.screen_gate(self.receipt(rows, sha, sl), led)["2000x700"]
+        self.assertEqual(g["top_ranks"][3], 100)
+        self.assertFalse(g["a"])
+        self.assertFalse(g["passed"])
+
+    def test_the_best_must_be_in_the_top_10_and_too_few_runs_fail_c(self):
+        led, rows, sha = self.ledger()
+        sl = [{"mean_pearson_per_cell": r["metrics"]["mean_pearson_per_cell"]} for r in rows]
+        sl[0] = {"mean_pearson_per_cell": 0.7885}                 # the best lands 12th on the slice
+        g = op.screen_gate(self.receipt(rows, sha, sl), led)["2000x700"]
+        self.assertEqual((g["best_rank"], g["b"], g["a"]), (12, False, True))
+        few = [x if i < 80 else {"error": "x"} for i, x in enumerate(sl)]
+        self.assertFalse(op.screen_gate(self.receipt(rows, sha, few), led)["2000x700"]["c"], "80 of 100 ran: under 90")
+
+
+class TimingAndGateFixes(unittest.TestCase):
+    """Codex 2026-11-03 round 1 on C3/C1: an unrounded threshold, a timed rescore, API attempts, a complete join."""
+
+    def test_a_rho_that_only_rounds_up_to_the_threshold_fails(self):
+        from scipy.stats import spearmanr
+        g = ScreenGate()
+        led, rows, sha = g.ledger()
+        rng = np.random.default_rng(0)
+        for _ in range(500):
+            noise = rng.normal(scale=0.02, size=len(rows))
+            sl = [r["metrics"]["mean_pearson_per_cell"] + e for r, e in zip(rows, noise)]
+            rho = float(spearmanr(sl, [r["metrics"]["mean_pearson_per_cell"] for r in rows]).statistic)
+            if round(rho, 4) > rho:
+                break
+        old = op.GATE_RHO
+        op.GATE_RHO = round(rho, 4)
+        try:
+            v = op.screen_gate(g.receipt(rows, sha, [{"mean_pearson_per_cell": x} for x in sl]), led)["2000x700"]
+        finally:
+            op.GATE_RHO = old
+        self.assertEqual(v["spearman_pearson"], round(rho, 4))
+        self.assertFalse(v["c"], f"rho {rho!r} is under {round(rho, 4)}")
+
+    def test_a_receipt_row_missing_from_the_ledger_never_passes(self):
+        g = ScreenGate()
+        led, rows, sha = g.ledger()
+        rec = g.receipt(rows, sha, [{"mean_pearson_per_cell": r["metrics"]["mean_pearson_per_cell"]} for r in rows])
+        rec["rows"].append({"code_sha": "f" * 16, "screen": {"2000": {"error": "x"}}})
+        for x, r in zip(rec["rows"], rows):
+            x.update(at=r["at"], round=r["round"], full={m: r["metrics"][m] for m in ("rmse", "mean_pearson_per_cell")})
+        v = op.screen_gate(rec, led)["2000x700"]
+        self.assertEqual((v["missing"], v["passed"]), (["f" * 16], False))
+
+    def test_the_seed_rescore_row_carries_its_fit_time(self):
+        ref = {"rmse": 0.97, "mean_pearson_per_cell": 0.79, "swap": {"rmse": 0.3, "mean_pearson_per_cell": 0.7}}
+        prior = [{"round": 3, "code": "c", "at": "2026-10-01", "metrics": {"rmse": 0.95, "mean_pearson_per_cell": 0.80},
+                  "reference": {op.METHOD: {"rmse": 0.96, "mean_pearson_per_cell": 0.78}}}]
+        clock = [("fit", "normal", 5.0)]                              # earlier work: not the rescore's
+
+        def score(code):
+            clock.append(("fit", "normal", 600.0))
+            return {"rmse": 0.95, "mean_pearson_per_cell": 0.80, "swap": {"rmse": 0.29, "mean_pearson_per_cell": 0.71}}
+        _, rescored = op.timed_seed(prior, ref, score, clock)
+        self.assertEqual(rescored["timing"]["fit_s"], {"normal": 600.0})
+        self.assertEqual(rescored["timing"]["calls"], 0)
+
+    def test_leanstral_counts_its_dropped_connection_retry(self):
+        import http.client, leanstral
+        from unittest import mock
+        n, ticks = [0], []
+
+        class R:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(req, timeout=None):
+            n[0] += 1
+            if n[0] == 1:
+                raise http.client.RemoteDisconnected("drop")
+            return R()
+        pacer = type("P", (), {"stop": None, "wait": lambda self: None})()
+        with mock.patch.object(leanstral.urllib.request, "urlopen", urlopen), \
+             mock.patch.object(leanstral, "read_stream", lambda r: {"usage": {}, "text": "x"}):
+            leanstral.call_prompt("k", "p", pacer, on_attempt=lambda: ticks.append(1))
+        self.assertEqual(len(ticks), 2)
+
+    def test_router_retries_are_each_an_api_attempt(self):
+        from unittest import mock
+        import utilities.kumori_api_client as kc
+        clock, n = [], [0]
+
+        class Wait(Exception):
+            retry_after = 0.01
+
+        def chat(*a, **k):
+            n[0] += 1
+            if n[0] < 3:
+                raise Wait("paced")
+            return ("```python\nx\n```", None, None)
+        with mock.patch.object(kc, "init", lambda *a, **k: None), mock.patch.object(kc, "llm_chat", chat):
+            ask, _ = op.writer_ask("some-lane", clock)
+            ask("prompt")
+        self.assertEqual(sum(k == "client_call" for k, _, _ in clock), 3)
+        self.assertEqual(op.round_timing([1.0], clock, 1.0)["client_calls"], 3)
+
+    def test_a_client_call_that_fails_locally_still_counts_as_a_client_call(self):
+        from unittest import mock
+        import utilities.kumori_api_client as kc
+        clock = []
+
+        def chat(*a, **k):
+            raise RuntimeError("not initialized")                  # no request left the machine
+        with mock.patch.object(kc, "init", lambda *a, **k: None), mock.patch.object(kc, "llm_chat", chat):
+            ask, _ = op.writer_ask("some-lane", clock)
+            self.assertIn("error", ask("prompt"))
+        self.assertEqual(op.round_timing([1.0], clock, 1.0)["client_calls"], 1, "a client call, labeled as such")
+
+    def test_a_later_rescore_of_the_same_code_cannot_change_the_verdict(self):
+        g = ScreenGate()
+        led, rows, sha = g.ledger()
+        sl = [{"mean_pearson_per_cell": r["metrics"]["mean_pearson_per_cell"]} for r in rows]
+        sl[0] = {"mean_pearson_per_cell": 0.70}                       # the best bar-passer ranks last on the slice
+        rec = g.receipt(rows, sha, sl)
+        for x, r in zip(rec["rows"], rows):
+            x.update(at=r["at"], round=r["round"], full={m: r["metrics"][m] for m in ("rmse", "mean_pearson_per_cell")})
+        before = op.screen_gate(rec, led)["2000x700"]
+        later = dict(rows[0], at="2026-12-01T00:00", round=-1, metrics={"rmse": 1.5, "mean_pearson_per_cell": 0.1})
+        with open(led / "evolve-1.jsonl", "a") as f:
+            f.write(json.dumps(later) + "\n")
+        after = op.screen_gate(rec, led)["2000x700"]
+        self.assertEqual((before["passed"], before["best_rank"]), (False, 100))
+        self.assertEqual((after["passed"], after["best_rank"], after["missing"]), (False, 100, []))
 
 
 if __name__ == "__main__":
