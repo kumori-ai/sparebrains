@@ -24,6 +24,13 @@ class Reproduce(unittest.TestCase):
         out = op.with_par(SCRIPT, {"n_pcs": 50}, {"name": "knnr_py"})
         self.assertEqual(out, "import x\npar = {'n_pcs': 50}\nmeta = {'name': 'knnr_py'}\nprint(par['n_pcs'])\n")
 
+    def test_params_cover_every_non_path_key_the_reference_reads(self):
+        # knnr_py's VIASH keys as of upstream bc9313f98a (2026-11-03), which added `seed` (comp_method.yaml default 0)
+        upstream = {"input_train_mod1", "input_train_mod2", "input_test_mod1", "distance_method", "output",
+                    "n_pcs", "n_neighbors", "seed"}
+        self.assertEqual(upstream - {k for k in upstream if k.startswith(("input_", "output"))}, set(op.PARAMS))
+        self.assertEqual(op.PARAMS["seed"], 0)
+
     def test_an_r_scripts_viash_block_becomes_an_r_list(self):
         src = 'library(x)\n## VIASH START\npar <- list(\n  output = "o"\n)\n## VIASH END\ncat(par$output)\n'
         self.assertEqual(op.with_par_r(src, {"input_test_mod2": "/data/s.h5ad", "output": "/data/o.h5ad"}),

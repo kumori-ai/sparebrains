@@ -34,7 +34,8 @@ SMOKE = ("import numpy as np\nfrom sklearn.decomposition import TruncatedSVD\nfr
 MAX_TEST_SCORINGS = 3                              # the bar (DECISIONS 2026-10-20): at most 3 candidates see the test set
 COMPETITIVE = {"rmse": 0.6634, "mean_pearson_per_cell": 0.7857}   # guanlab_dengkw_pm, the third NeurIPS 2021 winner
 NORM = "log_cp10k"                           # knnr_py's preferred_normalization (its config.vsh.yaml)
-METHOD, PARAMS = "knnr_py", {"distance_method": "minkowski", "n_pcs": 50, "n_neighbors": 100}   # config defaults
+METHOD, PARAMS = "knnr_py", {"distance_method": "minkowski", "n_pcs": 50, "n_neighbors": 100,
+                              "seed": 0}   # config defaults; seed from src/api/comp_method.yaml (upstream bc9313f98a)
 METRICS = ("mse",)                          # Python, run in-process
 R_METRICS = ("correlation",)                # R, run in the task's own image with its config's CRAN packages
 R_IMAGE, R_CRAN = "openproblems/base_r:1", ("proxyC", "testthat", "dynutils")
