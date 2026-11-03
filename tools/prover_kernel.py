@@ -28,6 +28,23 @@ PROMPT = ("Complete the following Lean 4 code:\n```lean4\n{}```\nBefore producin
           "should highlight key ideas, intermediate lemmas, and proof structures that will guide the construction of "
           "the final formal proof.")
 
+def fit_chunk(chunk, per_sample, elapsed, budget):
+    """The chunk to run next within the budget, or None. When the whole chunk does not fit, its problems in order with
+    as many samples as fit (batch 20261103T1804: a 2 h budget, a 632 s load, a 2-problem chunk estimated at 8411 s,
+    so it stopped with 0 answers after spending the load; 2026-11-03)."""
+    left = budget - elapsed
+    if per_sample * sum(p["n"] for p in chunk) <= left:
+        return chunk
+    out = []
+    for p in chunk:
+        k = min(p["n"], int(left // per_sample)) if per_sample > 0 else 0
+        if k < 1:
+            break
+        out.append(dict(p, n=k))
+        left -= k * per_sample
+    return out or None
+
+
 def stamp(**kw):
     timing.update(kw)
     json.dump(timing, open(TIMING, "w"))
@@ -62,11 +79,13 @@ stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s
 per_sample = SEC_PER_SAMPLE                       # the slowest rate seen so far, never below the measured prior
 with open(OUT, "a") as out:
     for i in range(0, len(PROBLEMS), CHUNK):
-        chunk = PROBLEMS[i:i + CHUNK]
-        need = per_sample * sum(p["n"] for p in chunk)
-        if time.time() - t0 + need > BUDGET_S:
-            print(json.dumps({"stopped": "budget", "done": i, "next_chunk_s": round(need)}), flush=True)
+        full = PROBLEMS[i:i + CHUNK]
+        chunk = fit_chunk(full, per_sample, time.time() - t0, BUDGET_S)
+        if chunk is None:
+            print(json.dumps({"stopped": "budget", "done": i, "next_chunk_s": round(per_sample * sum(p["n"] for p in full))}), flush=True)
             break
+        if chunk is not full:
+            print(json.dumps({"trimmed": [[p["target"], p["n"]] for p in chunk], "of": [[p["target"], p["n"]] for p in full]}), flush=True)
         prompts = [tok.apply_chat_template([{"role": "user", "content": PROMPT.format(p["statement"])}],
                                            tokenize=False, add_generation_prompt=True) for p in chunk]
         params = [SamplingParams(n=p["n"], temperature=TEMPERATURE, top_p=TOP_P, max_tokens=MAX_TOKENS) for p in chunk]
@@ -89,4 +108,7 @@ with open(OUT, "a") as out:
         timing["chunks"].append({"problems": len(chunk), "seconds": round(secs, 1), "tokens": n_tokens})
         stamp()
         per_sample = max(per_sample, secs / max(sum(p["n"] for p in chunk), 1))
+        if chunk is not full:
+            print(json.dumps({"stopped": "budget", "done": i + 1, "trimmed": True}), flush=True)
+            break
 stamp(finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))

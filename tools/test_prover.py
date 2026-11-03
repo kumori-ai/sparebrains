@@ -318,10 +318,33 @@ class GpuHoursTests(unittest.TestCase):
             src = (Path(d) / "prover_kernel.py").read_text()
             self.assertIn("BUDGET_S = 33048", src)
             self.assertIn(f"SEC_PER_SAMPLE = {prover.sec_per_sample()}", src)
-            self.assertIn("time.time() - t0 + need > BUDGET_S", src)
+            self.assertIn("chunk = fit_chunk(full, per_sample, time.time() - t0, BUDGET_S)", src)
             compile(src, "prover_kernel.py", "exec")
             prover.build(d, [(t, 32)], "b10")                                # no budget given: the template's own
             self.assertIn("BUDGET_S = 9 * 3600", (Path(d) / "prover_kernel.py").read_text())
+
+
+class KernelFit(unittest.TestCase):
+    """prover_kernel.fit_chunk, read out of the kernel's source (the kernel itself installs vllm when run)."""
+
+    def setUp(self):
+        import ast
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel.py").read_text()
+        fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "fit_chunk")
+        ns = {}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "prover_kernel.py", "exec"), ns)
+        self.fit = ns["fit_chunk"]
+
+    def test_batch_20261103T1804_runs_its_first_problem_instead_of_nothing(self):
+        chunk = [{"target": "a", "n": 28}, {"target": "b", "n": 28}]         # 56 samples at 150.2 s: 8411 s
+        got = self.fit(chunk, 150.2, 632.5, 7200)                          # 6567.5 s left: 43 samples
+        self.assertEqual(got, [{"target": "a", "n": 28}, {"target": "b", "n": 15}])
+
+    def test_a_chunk_that_fits_runs_whole_and_none_when_not_one_sample_fits(self):
+        chunk = [{"target": "a", "n": 2}, {"target": "b", "n": 2}]
+        self.assertIs(self.fit(chunk, 100, 0, 400), chunk)
+        self.assertIsNone(self.fit(chunk, 100, 350, 400))
+        self.assertEqual(self.fit([{"target": "a", "n": 1}], 100, 0, 50), None)
 
 
 if __name__ == "__main__":
