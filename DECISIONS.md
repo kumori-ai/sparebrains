@@ -5,6 +5,37 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-03
 
+- **The tool-lift contract for openproblems, written before any of it is built or measured (kumori #477).** Goal (Andy,
+  2026-11-03): tools that let any writer, weak free lanes included, do this faster and better, measured as lift, inside
+  the free lanes' shared daily caps. Codex reviewed the plan three rounds (20261103T225044041376Z DISAGREE: the screen gate
+  protected rmse instead of the selector's picks, validation score is not lift, my runtime premise was incomplete, the
+  budget check reserves nothing; round 2 DISAGREE: 60 of the 117 past candidates pass the bar, so "all of them in a top
+  30" could never pass, and best() can pick nothing (6 past runs); 20261103T230012002103Z AGREE).
+  *C1, the screen gate*, frozen before receipt 41732177244 is read. A slice size passes only if (a) all 10 of the 10 best
+  bar-passers by full mean Pearson per cell (passes_bar against each row's own reference) rank in the slice's top 30 of
+  117 by slice mean Pearson, slice failures last; (b) the single best bar-passer ranks in the slice's top 10; (c) Spearman
+  of slice vs full mean Pearson >= 0.7 with at least 90 of 117 run. The swap direction needs its own receipt under the
+  same rules. A cascade built on a pass full-fits the slice's top 30% of candidates seen. Its first run full-fits a
+  seeded sample of 5 slice-rejects; any that passes_bar turns score-based screening off. That audit is a tripwire, not
+  evidence: it finds one missed winner among 87 rejects 5.75% of the time. Until both directions pass, the slice stays
+  a crash screen.
+  *C2, any tool A/B*. Frozen per experiment and written into each row: writer lane, seed (one seed_upto for both arms),
+  evaluator commit, ask budget (24, repairs included), selection rule best(). loso_note is off in both arms. Outcome: each
+  arm's final best() pick on 4 leave-one-site-out folds (sites 2 and 3, both directions), mean Pearson delta vs knnr,
+  never shown to a writer or used to select. An arm with no pick scores as the frozen shared seed (as knnr, delta 0,
+  with no seed); a crashed or timed-out fold scores -1; no pair is dropped. Read: 6 pairs, frozen before the first
+  dispatch; exact one-sided sign test on tools-on minus tools-off, ties excluded and reported; 6 of 6 is p = 0.016, and
+  anything less is no claim. A 2-pair pilot comes first, makes no claim and does not count. Limitation: sites 2 and 3
+  reached writers through loso_note before today, so this is a paired comparison on a developed benchmark, not proof of
+  unseen-site generalization. Site 1 (validation) is reported apart as development feedback; the 3 test shots are never
+  used to tune.
+  *C3, accounting before any savings claim*. Each evolve row gets ask_s, repair_ask_s, screen_s and fit_s per direction,
+  bootstrap_s, router_calls and wall_s. Withdrawn: my "asks total 28 of 219 min" (run 41505253156) left out 7 repair
+  asks (ask_s does not count them), and only 1 of its 3 unscored candidates was a full-fit timeout; the other 2 were
+  slice shape/index errors.
+  *C4*. Router-spending dispatches stay serialized. tools/lane_budget.py is a per-run preflight, not an allocation, and
+  parallel chains wait for a shared allocation with a concurrent-dispatch test.
+
 - **The daily report counts the ledger rows that arrived since the last report, not the rows stamped in the last
   24 hours (kumori #597).** A row's ts is when its run asked; an attempt run (timeout 350 min, one every 2 h) commits
   its rows when it ends, so a ts window drops every row stamped before a report and committed after it, from that
