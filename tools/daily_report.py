@@ -149,17 +149,20 @@ def rungs(ledger, rows, now, since):
     fc_last = max((_ts(r) for r in fc), default=None)
     out.append({"rung": "formal-conjectures", "last": fc_last, "idle_days": _days(now, fc_last),
                 "tries_24h": sum(_ts(r) > since for r in fc), "accepts_ever": sum(r.get("verdict") == "accept" for r in fc)})
-    ev = [r for r in _load_jsonl(Path(ledger) / "openproblems") if r.get("round") is not None]
+    ev = [r for r in _load_jsonl(Path(ledger) / "openproblems") if r.get("round") is not None and not r.get("rescore")]
     ev_last = max((_ts(r) for r in ev), default=None)
     scored = [r for r in ev if isinstance(r.get("metrics"), dict) and "rmse" in r["metrics"]]
     # The bar is the leave-one-site-out qualify (both directions, rmse and Pearson, every site), never a screen score:
     # the best evolve rmse (0.8916 vs 0.9684, 2026-10-21) came from one split and its candidate failed qualify on Pearson.
     quals = sorted((json.loads(f.read_text()) for f in Path(ledger).glob("openproblems/qualify-*.json")), key=_ts)
     q = quals[-1] if quals else None
+    drifts = sorted((json.loads(f.read_text()) for f in Path(ledger).glob("openproblems/drift-*.json")), key=_ts)
+    dr = drifts[-1] if drifts else None      # upstream main checked against the pin (tools/openproblems.py drift)
     out.append({"rung": "openproblems.bio", "last": ev_last, "idle_days": _days(now, ev_last), "rounds_24h": sum(_ts(r) > since for r in ev),
                 "scored": len(scored), "crashed": sum("error" in r for r in ev), "qualify_runs": len(quals),
                 "qualify": {"at": q["at"], "passed": bool(q["verdict"].get("passed")), "sites": q["verdict"].get("sites"),
-                            "mean_pearson_delta": q["verdict"].get("mean_pearson_delta")} if q and q.get("verdict") else None})
+                            "mean_pearson_delta": q["verdict"].get("mean_pearson_delta")} if q and q.get("verdict") else None,
+                "drift": {"at": dr["at"], "main": dr["main"][:12], "status": dr["status"]} if dr else None})
     return out
 
 
@@ -258,6 +261,10 @@ def render(d):
             delta = f"{q['mean_pearson_delta']:+.3f}" if q and q.get("mean_pearson_delta") is not None else "unavailable"
             bar = (f"last qualify {'PASSED' if q['passed'] else 'missed'} {q['at'][:10]} (Pearson delta {delta} over {q['sites']} site{'s' if q['sites'] != 1 else ''})"
                    if q else "no qualify run yet")
+            dr = r.get("drift")
+            if dr and dr["status"] != "current":
+                bar += (f"; upstream main {dr['main']} {'FAILS' if dr['status'] == 'fails' else 'passes'} the reproduce gate"
+                        f" ({dr['at'][:10]}), the pin {'stays' if dr['status'] == 'fails' else 'can move'}")
             extra = f" ({r['scored']} candidates scored, {r['crashed']} crashed; {bar})"
         if r["rung"] == "formal-conjectures":
             extra = f" ({r['accepts_ever']} accepts ever)"

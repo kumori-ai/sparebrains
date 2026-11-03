@@ -1,11 +1,12 @@
 """Reproduce one openproblems.bio leaderboard entry on our own machine (task #477, DECISIONS.md 2026-10-20): the
-task's own method and metric scripts, fetched at a pinned commit and run unchanged except for their VIASH
+task's own method and metric scripts, fetched at UPSTREAM_SHA and run unchanged except for their VIASH
 parameter block, on the task's public data, scored against the maintainers' own results file. The gate is every
 compared metric within 1%; a run that compares nothing never passes.
 
     python3 tools/openproblems.py reproduce --work /tmp/op --out ledger/openproblems/RUN.json
     python3 tools/openproblems.py prepare --work /tmp/op        # site-1 validation split + the reference's scores
     python3 tools/openproblems.py evolve --work /tmp/op --rounds 12 --out ledger/openproblems/evolve-RUN.jsonl
+    python3 tools/openproblems.py drift --work /tmp/op --out ledger/openproblems  # upstream main vs the pin, once a commit
 
 `evolve` (roadmap row 11, the bar in DECISIONS.md 2026-10-20): a free model writes predict(), each candidate runs
 as the sandbox user on the validation split only, and sees the best so far and the last outcome. The test set is
@@ -23,6 +24,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]     # run with -I, which leaves the script's own folder off the path
 
 REPO = "openproblems-bio/task_predict_modality"
+# Every upstream fetch reads this commit (2026-11-03): reading main at run time, upstream's bc9313f98a (14:12 UTC, a
+# seed for every method and a CSR fix in the correlation metric) broke the 16:42 run. A newer main is checked by
+# `drift`, which runs the reproduce gate there; moving the pin is a commit of ours after that gate passes.
+UPSTREAM_SHA = "bc9313f98ac3d0f1b8e6915dbdf8926a95976d9d"
+REF_TOL = 1e-4      # two references are one when every metric agrees this closely; unseeded runs moved ~7e-4 (rmse)
+QUALIFY_SCORER = "local: knnr_chunked(random_state=0) reference and metrics(), no upstream script"
 S3 = "https://openproblems-data.s3.amazonaws.com/resources/task_predict_modality"
 RESULTS = "run_2026-10-10_07-15-14"
 DATASET = "openproblems_neurips2021/bmmc_cite/normal"
@@ -81,15 +88,20 @@ def published(scores, dataset, method):
 
 
 def compare(got, pub):
+    """Every published metric, within TOLERANCE_PCT; one the run did not produce is a miss, never skipped (Codex
+    20261103T185822469055Z f4: a missing correlation output passed on the intersection)."""
     metrics = {k: {"got": round(v, 4), "published": round(pub[k], 4), "diff_pct": round(100 * (v - pub[k]) / pub[k], 2)}
                for k, v in got.items() if k in pub}
-    return {"metrics": metrics, "pass": bool(metrics) and all(abs(m["diff_pct"]) <= TOLERANCE_PCT for m in metrics.values())}
+    missing = sorted(set(pub) - set(got))
+    return {"metrics": metrics, "missing": missing,
+            "pass": bool(metrics) and not missing and all(abs(m["diff_pct"]) <= TOLERANCE_PCT for m in metrics.values())}
 
 
-def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=None, random_state=None):
+def knnr_chunked(X_train, Y_train, X_test, k=100, n_pcs=50, chunk=256, embed=None, random_state=0):
     """knnr_py's algorithm (an SVD of train and test together, then the mean of the k nearest training rows,
     Euclidean) with the test rows taken in chunks: on swap validation the upstream script's 14,669 x 100 x 13,953
-    neighbour array would be ~82 GB. `embed` replaces the SVD in tests."""
+    neighbour array would be ~82 GB. `embed` replaces the SVD in tests. Seeded by default since 2026-11-03, as upstream
+    seeds knnr_py (bc9313f98a): the swap reference was the one left unseeded (Codex 20261103T184829013094Z f3)."""
     from sklearn.neighbors import NearestNeighbors
     if embed is None:
         from scipy.sparse import vstack, csr_matrix
@@ -543,6 +555,56 @@ def best_or_closest(rows, ref):
                               if ran else None)
 
 
+def pred_fp(a):
+    """The reference predictions' identity: a digest of their shape and exact float32 bytes. A validation interval is
+    bound to these predictions; any difference, CPU noise included, is another reference and costs a rescore, never a
+    reused interval (Codex 20261103T190328625747Z f2: a sketch within tolerance reused an interval that rescoring
+    failed, on references 2.4e-7 apart in rmse)."""
+    a = np.ascontiguousarray(np.asarray(a, dtype=np.float32))
+    return hashlib.sha256(repr(a.shape).encode() + a.tobytes()).hexdigest()
+
+
+def same_fp(x, y):
+    return isinstance(x, str) and x == y
+
+
+def same_reference(row, ref, tol=REF_TOL):
+    """Whether a row was scored against this reference: every metric of both directions within `tol`. Its validation
+    interval is a paired bootstrap against that run's reference predictions, so it says nothing about another
+    reference (Codex 20261103T184829013094Z f2): with a bootstrap, the reference predictions' pred_fp must match too
+    (equal aggregates from other predictions gave a false pass, Codex 20261103T185822469055Z f2); a row without one is
+    never trusted. The swap direction has no interval, only metrics, so its metrics decide."""
+    old = next(iter((row.get("reference") or {}).values()), None)
+    if not old or not isinstance(old.get("swap"), dict) or not isinstance(ref.get("swap"), dict):
+        return False
+    if ref.get("bootstrap") and not same_fp(old.get("pred_fp"), ref.get("pred_fp")):
+        return False
+    keys = ("rmse", "mae", "mean_pearson_per_cell")
+    try:
+        return all(abs(a[k] - b[k]) <= tol for a, b in ((old, ref), (old["swap"], ref["swap"])) for k in keys)
+    except (KeyError, TypeError):
+        return False
+
+
+def seed_for(prior, ref, score):
+    """(seed, rescore_row): the seed from earlier rows scored against this reference, as written; when none was,
+    the best of the others rescored once here (score(code)), so its numbers and interval are today's. The rescore is
+    a row of this run (round -1, `rescore` says from where), so the next run finds it comparable; (None, None) when
+    there is nothing earlier."""
+    ran = [r for r in prior if "metrics" in r and r.get("code") and not r.get("same_as_seed")]
+    same = [r for r in ran if same_reference(r, ref)]
+    if same:
+        return best_or_closest(same, ref), None
+    pick = best_or_closest(ran, ref)
+    if not pick:
+        return None, None
+    m = score(pick["code"])
+    row = {"round": -1, "writer": "none: a rescore of an earlier candidate against this run's reference",
+           "rescore": {"at": pick.get("at"), "round": pick.get("round"), "metrics_then": pick["metrics"]},
+           "code": pick["code"], **({"error": m["error"]} if "error" in m else {"metrics": m})}
+    return (row if "metrics" in row else None), row
+
+
 def _fmt(m):
     s = f"rmse {m['rmse']:.4f}, mean Pearson per cell {m['mean_pearson_per_cell']:.4f}"
     if m.get("swap"):
@@ -792,7 +854,7 @@ def write_receipt(out, source, code, rows_by_direction, expected=None, screen=No
         assert not verdict["passed"] and any(not fold_won(r) for r in allrows), "a stop needs a lost fold"
     receipt = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": QUALIFY_POLICY,
                "source": source, "code_sha": hashlib.sha256(code.encode()).hexdigest(), "rows": rows_by_direction,
-               "expected_sites": expected, "verdict": verdict, **({"screen": screen} if screen else {})}
+               "expected_sites": expected, "verdict": verdict, "scorer": QUALIFY_SCORER, **({"screen": screen} if screen else {})}
     Path(out).write_text(json.dumps(receipt, indent=1) + "\n")
     return receipt
 
@@ -1032,14 +1094,12 @@ def prepare(data, val, answers):
     h5 = answers / "h5"
     h5.mkdir(exist_ok=True)
     m1[~v].write_h5ad(h5 / "train_mod1.h5ad"); m2[~v].write_h5ad(h5 / "train_mod2.h5ad"); m1[v].write_h5ad(h5 / "test_mod1.h5ad")
-    sha = subprocess.run(["gh", "api", f"repos/{REPO}/commits/main", "-q", ".sha"], capture_output=True, text=True,
-                         check=True).stdout.strip()
-    run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
+    run_script(fetch_script(f"src/methods/{METHOD}/script.py", UPSTREAM_SHA), METHOD,
                {"input_train_mod1": str(h5 / "train_mod1.h5ad"), "input_train_mod2": str(h5 / "train_mod2.h5ad"),
                 "input_test_mod1": str(h5 / "test_mod1.h5ad"), "output": str(h5 / "ref.h5ad"), **PARAMS}, {"name": METHOD})
     ref_pred = dense(ad.read_h5ad(h5 / "ref.h5ad").layers["normalized"]).astype(np.float32)
     np.save(answers / "ref_pred.npy", ref_pred)                  # the validation bootstrap's other arm
-    ref = {**metrics(y_val, ref_pred), "bootstrap": True}
+    ref = {**metrics(y_val, ref_pred), "bootstrap": True, "pred_fp": pred_fp(ref_pred)}
     (answers / "ref.json").write_text(json.dumps(ref))
     return ref
 
@@ -1195,14 +1255,37 @@ def download(data, dataset=DATASET, files=FILES):
             urllib.request.urlretrieve(f"{S3}/datasets/{dataset}/{NORM}/{f}.h5ad", data / f"{f}.h5ad")
 
 
-def pinned_sha():
+def upstream_main():
     return subprocess.run(["gh", "api", f"repos/{REPO}/commits/main", "-q", ".sha"], capture_output=True, text=True,
                           check=True).stdout.strip()
 
 
-def reproduce(work, out):
+def drift(work, ledger_dir, main=upstream_main, gate=None):
+    """Upstream main against the pin, once per upstream commit: when main has moved, the reproduce gate (every
+    metric, the R correlation one too, within 1% of the published scores) at main, recorded as
+    drift-<sha12>.json. status: current (main is the pin), passes (safe to move the pin, by a commit of ours),
+    fails (the gate missed or crashed at main). None when this commit was already checked."""
+    sha = main()
+    rec = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "pinned": UPSTREAM_SHA, "main": sha}
+    if sha == UPSTREAM_SHA:
+        return {**rec, "status": "current"}
+    out = Path(ledger_dir) / f"drift-{sha[:12]}.json"
+    if out.exists():
+        return None
+    gate = gate or (lambda s: reproduce(Path(work), None, sha=s, row_only=True))
+    try:
+        got = gate(sha)
+        rec.update(status="passes" if got["pass"] else "fails", metrics=got.get("metrics"))
+    except Exception as e:                       # a crash at main is the finding (run 41676849790: KeyError 'seed')
+        rec.update(status="fails", error=f"{type(e).__name__}: {e}"[:600])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(rec, indent=1) + "\n")
+    return rec
+
+
+def reproduce(work, out, sha=UPSTREAM_SHA, row_only=False):
     import anndata as ad, yaml
-    data, sha, pred = work / "data", pinned_sha(), str(work / "prediction.h5ad")
+    data, pred = work / "data", str(work / "prediction.h5ad")
     download(data)
     seconds = {METHOD: run_script(fetch_script(f"src/methods/{METHOD}/script.py", sha), METHOD,
                                   {"input_train_mod1": str(data / "train_mod1.h5ad"),
@@ -1229,6 +1312,8 @@ def reproduce(work, out):
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "task": REPO, "commit": sha,
            "results": RESULTS, "dataset": DATASET, "normalization": NORM, "method": METHOD, "params": PARAMS,
            "metrics_run": list(METRICS) + [f"{m} (R, {R_IMAGE})" for m in R_METRICS], "tolerance_pct": TOLERANCE_PCT, "seconds": seconds, **compare(got, pub)}
+    if row_only:
+        return row
     print(json.dumps(row, indent=1))
     if out:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -1259,7 +1344,7 @@ def final(work, code, source, out):
     if source != "smoke":
         check_qualified(Path(out).parent, source, code)
         check_reservation(out, source, code)
-    sha, res = pinned_sha(), {}
+    sha, res = UPSTREAM_SHA, {}
     cand_dir = work / "candidates"
     cand_dir.mkdir(parents=True, exist_ok=True)
     for name, ds in (("normal", DATASET), ("swap", SWAP)):
@@ -1323,7 +1408,7 @@ def final(work, code, source, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check", "next-qualify",
-                                   "qualify"])
+                                   "qualify", "drift"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -1371,6 +1456,13 @@ def main():
     work = Path(a.work)
     if a.cmd == "reproduce":
         return reproduce(work, a.out)
+    if a.cmd == "drift":                    # --out: the ledger folder; exit 1 only when main fails the gate
+        download(work / "data")
+        rec = drift(work, a.out)
+        print(json.dumps(rec) if rec else "drift: this upstream commit was already checked", flush=True)
+        if rec and rec["status"] == "fails":
+            print(f"::warning::upstream main {rec['main'][:12]} fails the reproduce gate; the pin stays at {UPSTREAM_SHA[:12]}")
+        return 0
     if a.cmd == "final":
         if a.smoke:
             return final(work, SMOKE, "smoke", a.out)
@@ -1394,7 +1486,14 @@ def main():
     prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
     if a.seed_upto:                        # an A/B's arms start from the same seed, whichever run publishes first
         prior = [r for r in prior if r.get("at", "") < a.seed_upto]
-    seed = best_or_closest(prior, ref)     # earlier runs scored on the same split; their scores carry over as written
+    score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
+    # Earlier rows carry over as written only when they were scored against this same reference; else the best of them
+    # is rescored here once (seed_for), and that rescore is a row of this run.
+    seed, rescored = seed_for(prior, ref, score)
+    if rescored:
+        print("rescored an earlier candidate against this run's reference: "
+              + (_fmt(rescored["metrics"]) if "metrics" in rescored else rescored["error"][-300:]), flush=True)
+    prior = [r for r in prior if same_reference(r, ref)] + ([rescored] if rescored and "metrics" in rescored else [])
     seed_note = None
     if seed:
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
@@ -1404,7 +1503,6 @@ def main():
         seed_note = loso_note(*seed_receipt([json.loads(f.read_text()) for f in led.glob("qualify-*.json")], seed, by_file))
         if seed_note:
             print("the seed's held-out-site receipt: " + seed_note, flush=True)
-    score = both_ways(scorer(val, answers, cand / "normal"), scorer(work / "val-swap", work / "answers-swap", cand / "swap"))
     screen = None
     if a.repairs >= 0:
         dirs = [(name, cand / f"screen-{name}", screen_inputs(src, cand / f"screen-{name}"))
@@ -1413,16 +1511,17 @@ def main():
     parents = archive(prior, ref) if a.parents == "archive" else None
     if parents is not None:
         print(f"archive arm: {len(parents)} distinct elites: " + "; ".join(f"r{p['round']} {_fmt(p['metrics'])[:60]}" for p in parents), flush=True)
-    rows = evolve(a.rounds, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs),
-                  max_asks=a.max_asks or None, seed_note=seed_note, parents=parents)
+    rows = ([rescored] if rescored else []) + evolve(a.rounds, ask, score, ref, writer, seed, screen=screen,
+                  repairs=max(0, a.repairs), max_asks=a.max_asks or None, seed_note=seed_note, parents=parents)
     top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "w") as fh:
         for r in rows:
-            fh.write(json.dumps({"at": stamp, "task": REPO, "dataset": DATASET, "split": "validation: site 1 held out",
-                                 "reference": {METHOD: ref}, **r}) + "\n")
-    print(f"evolve: {len(rows)} rounds by {writer}, {sum('metrics' in r for r in rows)} ran, "
+            fh.write(json.dumps({"at": stamp, "task": REPO, "upstream": UPSTREAM_SHA, "dataset": DATASET,
+                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **r}) + "\n")
+    asked = [r for r in rows if not r.get("rescore")]
+    print(f"evolve: {len(asked)} rounds by {writer}, {sum('metrics' in r for r in asked)} ran, "
           + (f"best {_fmt(top['metrics'])} (round {top['round']})" if top else "none passes the bar's checks on validation")
           + f"; reference {_fmt(ref)}")
     return 0

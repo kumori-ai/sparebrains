@@ -3,6 +3,40 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-03
+
+- **openproblems reads one pinned upstream commit, and a row counts only against the reference it was scored on
+  (kumori #477).** Upstream bc9313f98a (14:12 UTC: `--seed` for every method, default 0 in
+  `src/api/comp_method.yaml`; a CSR fix in the correlation metric) killed the 16:42 evolve run (41676849790,
+  `KeyError: 'seed'` in prepare): `pinned_sha()` read upstream main at run time, so the "pinned commit" of the
+  2026-10-20 entry was pinned within a run only. Community practice is a full-SHA pin moved by a deliberate, tested
+  bump (GitHub's Actions hardening guide; Renovate's git-refs/regex managers exist to bump such pins); search was thin
+  (web only, Reddit/HN/GitHub/StackExchange empty on two phrasings). Now: `UPSTREAM_SHA` = bc9313f98a for every fetch
+  (prepare, reproduce, final); `drift` (a step of openproblems.yml, a warning, never a failed run) runs the reproduce
+  gate (every metric, the R correlation one too) at a newer upstream main once per commit, `drift-<sha12>.json`
+  says passes or fails, the daily report shows it; moving the pin is our commit after a pass. Codex
+  20261103T184829013094Z f2: `best()` took an earlier row's validation interval (a paired bootstrap against that
+  run's reference predictions) as a lead over today's reference, and the reference moved every run (unseeded,
+  ~0.1%); from today `same_reference` gates what seeds a run and enters the archive: every metric of both directions
+  within `REF_TOL` 1e-4 AND the reference predictions' exact identity (`pred_fp`, sha256 of shape and float32
+  bytes); a row without one is never trusted. Codex 20261103T185822469055Z f2: equal aggregates from other
+  predictions gave a false pass; 20261103T190328625747Z f2: a tolerance sketch (my round-3 design) still reused an
+  interval that rescoring failed, on references 2.4e-7 apart. Three rounds, so the call was ours: exact, because a
+  false "clears zero" picks the next run's seed while an extra rescore only costs runtime; when
+  nothing earlier matches, the best earlier candidate is rescored once against this run's reference and written as a
+  round -1 `rescore` row, which the daily report does not count. Measured: the 12 earlier runs with a swap reference
+  span rmse 0.96839..0.96913 (7.4e-4), so an earlier row will rarely match and the next run will most likely rescore one; both #598 arms seed from rows before their pair's cutoff, so both rescore the same candidate and
+  still start equal. f3: the swap reference (`knnr_chunked`) is seeded (default 0). f1: qualify receipts now say
+  what scored them (`scorer`: our knnr_chunked and metrics(), never an upstream script), so the upstream change
+  touched none of the nine; evolve rows carry `upstream`. f4: `compare` needs every published metric (all 8 for
+  knnr_py in score_uns.yaml, all 8 computed); a missing one is a miss, listed in `missing`. Residual, recorded not fixed (f5): the R image
+  `openproblems/base_r:1` is a mutable tag and its CRAN packages install current, so the pin freezes the scripts, not
+  the R environment. If runner CPUs change the reference's bytes, every run rescores its seed once and #598's archive
+  arm starts each run from that one rescored elite plus its own rows (slower, and the arms then start alike; never a
+  false pass); the next two runs' `pred_fp` say which, and a mismatch is the cue to rescore the archive too.
+  Tests fail first (11 in `test_openproblems.Pin`, 1 in `test_daily_report`), 519 OK. Codex rounds:
+  20261103T184829013094Z, 20261103T185822469055Z, 20261103T190328625747Z (DISAGREE x3, each blocker fixed; f5 residual).
+
 ## 2026-11-02
 
 - **Qualify runs the folds recent candidates lost first, and a lost fold ends the run (kumori #477).** All 8
@@ -779,7 +813,7 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   The cost: no cancer data. GRN's cell-line screens (HCT116 colorectal, K562 leukemia) are the cancer-adjacent
   door after this one.
 - **Reproduced the same day, within 1% (roadmap row 10).** `tools/openproblems.py`: the task's own `knnr_py`
-  and `mse` scripts at a pinned commit, only their VIASH block swapped, on the public `log_cp10k` data, scored
+  and `mse` scripts at an upstream commit read at run time (pinned for real 2026-11-03), only their VIASH block swapped, on the public `log_cp10k` data, scored
   against the maintainers' `score_uns.yaml`. rmse 0.7238 against 0.7233 (+0.07%), mae 0.5260 against 0.5255
   (+0.09%), 80 s on a laptop (ledger/openproblems/). A first run gave +0.15% and +0.18%: upstream's TruncatedSVD
   is unseeded, so runs differ by ~0.1%. Canary: the script's example parameters (4 components, 5 neighbors) miss

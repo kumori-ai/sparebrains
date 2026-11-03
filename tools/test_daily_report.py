@@ -52,7 +52,10 @@ class DailyReport(unittest.TestCase):
         write(self.ledger / "openproblems" / "evolve-1.jsonl", [
             {"at": "2026-10-22T22:00:00+00:00", "task": "t", "round": 1, "writer": "lane-w", "reference": {"knnr_py": {"rmse": 0.9688}}, "metrics": {"rmse": 0.99}},
             {"at": "2026-10-22T23:00:00+00:00", "task": "t", "round": 2, "writer": "lane-w", "reference": {"knnr_py": {"rmse": 0.9688}}, "error": "crash"},
+            {"at": "2026-10-22T23:00:00+00:00", "task": "t", "round": -1, "rescore": {"round": 3}, "reference": {"knnr_py": {"rmse": 0.9688}}, "metrics": {"rmse": 0.98}},
         ])
+        (self.ledger / "openproblems" / "drift-ffffffffffff.json").write_text(json.dumps(
+            {"at": "2026-10-23T09:00:00+00:00", "pinned": "a" * 40, "main": "f" * 40, "status": "fails", "error": "KeyError: 'seed'"}))
         write(self.ledger / "fc" / "sweep-1.jsonl", [{"at": "2026-10-22T02:00:00+00:00", "name": "e1", "verdict": "open"}])
         (self.ledger / "openproblems" / "qualify-1.json").write_text(json.dumps(
             {"at": "2026-10-22T04:39:28+00:00", "verdict": {"passed": False, "sites": 6, "mean_pearson_delta": -0.0104}}))
@@ -126,7 +129,9 @@ class DailyReport(unittest.TestCase):
     def test_rungs_report_days_idle_and_the_relay_backoff(self):
         r = {x["rung"]: x for x in self.report["rungs"]}
         self.assertAlmostEqual(r["openproblems.bio"]["idle_days"], 5.5, places=1)
-        self.assertEqual(r["openproblems.bio"]["scored"], 1)
+        self.assertEqual(r["openproblems.bio"]["scored"], 1, "a rescore of an earlier candidate is not a round")
+        self.assertEqual(r["openproblems.bio"]["drift"], {"at": "2026-10-23T09:00:00+00:00", "main": "ffffffffffff", "status": "fails"})
+        self.assertIn("upstream main ffffffffffff FAILS the reproduce gate", daily_report.render(self.report))
         self.assertEqual(r["openproblems.bio"]["qualify"], {"at": "2026-10-22T04:39:28+00:00", "passed": False, "sites": 6, "mean_pearson_delta": -0.0104})
         self.assertAlmostEqual(r["formal-conjectures"]["idle_days"], 6.4, places=1)
         self.assertTrue(self.report["relay"]["backed_off"])

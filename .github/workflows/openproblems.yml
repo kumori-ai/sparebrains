@@ -66,6 +66,17 @@ jobs:
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py prepare --work "$RUNNER_TEMP/op"
 
+      # Upstream main against the pin (tools/openproblems.py UPSTREAM_SHA, 2026-11-03): when main has moved, the
+      # reproduce gate runs there once per upstream commit and drift-<sha12>.json says whether the pin can move.
+      # A warning, never a failed run: the run itself reads only the pin.
+      - name: upstream drift
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py drift --work "$RUNNER_TEMP/op" --out ledger/openproblems
+
       # Each candidate runs in its own gVisor container: no network, read-only root, only its direction's inputs
       # mounted read-only, its prediction streamed back (tools/openproblems.py docker_cmd, DECISIONS 2026-10-22).
       # The check proves runsc, the network block and the stream before any round is spent.
@@ -100,7 +111,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          [ -f "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" ] || exit 0
+          [ -f "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" ] || [ -n "$(git ls-files --others -- 'ledger/openproblems/drift-*.json')" ] || exit 0
+          [ -n "$SUMMARY" ] || SUMMARY="no evolve rows; upstream drift receipt only"
           git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"

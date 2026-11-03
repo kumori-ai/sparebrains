@@ -612,6 +612,146 @@ class Qualify(unittest.TestCase):
             op.check_qualified(led, src, "code")                                  # verdict recomputed from rows
 
 
+class Pin(unittest.TestCase):
+    """The upstream pin (2026-11-03): upstream bc9313f98a added par['seed'] at 14:12 UTC and our 16:42 run, which read
+    upstream main, died on it (run 41676849790). Every fetch reads one full SHA; a newer main is checked, never used."""
+    REF = {"rmse": 0.9688, "mae": 0.6669, "mean_pearson_per_cell": 0.7858, "pred_fp": "0" * 64,
+           "swap": {"rmse": 0.3229, "mae": 0.1554, "mean_pearson_per_cell": 0.7497}}
+
+    def test_every_fetch_reads_the_pinned_full_sha_and_only_the_drift_check_reads_main(self):
+        self.assertRegex(op.UPSTREAM_SHA, r"^[0-9a-f]{40}$")
+        src = Path(op.__file__).read_text()
+        self.assertEqual(src.count("commits/main"), 1, "upstream main is read in one place, upstream_main()")
+        self.assertFalse(hasattr(op, "pinned_sha"))
+
+    def test_the_swap_reference_is_seeded_like_the_normal_one(self):
+        import inspect
+        self.assertEqual(inspect.signature(op.knnr_chunked).parameters["random_state"].default, 0)
+
+    def test_a_reference_is_the_same_within_its_tolerance_and_both_directions(self):
+        row = {"reference": {"knnr_py": dict(self.REF)}}
+        self.assertTrue(op.same_reference(row, self.REF))
+        near = {**self.REF, "rmse": self.REF["rmse"] + 0.00005}
+        self.assertTrue(op.same_reference(row, near))
+        self.assertFalse(op.same_reference(row, {**self.REF, "rmse": self.REF["rmse"] + 0.0007}),
+                         "the unseeded reference moved ~0.1% between runs (DECISIONS 2026-10-20): another reference")
+        self.assertFalse(op.same_reference(row, {**self.REF, "swap": {**self.REF["swap"], "mean_pearson_per_cell": 0.75}}))
+        self.assertFalse(op.same_reference({"reference": {"knnr_py": {"rmse": 0.9688}}}, self.REF), "no swap: not comparable")
+        self.assertFalse(op.same_reference({}, self.REF))
+
+    def _old(self, pearson, code, ci=True):
+        old_ref = {**self.REF, "rmse": 0.9695, "bootstrap": True}
+        return {"at": "2026-11-02T22:41:35+00:00", "round": 3, "code": code, "reference": {"knnr_py": old_ref},
+                "metrics": {"rmse": 0.95, "mae": 0.66, "mean_pearson_per_cell": pearson,
+                            "swap": {"rmse": 0.32, "mae": 0.15, "mean_pearson_per_cell": 0.75},
+                            **({"ci": {"rmse": [-0.02, -0.01], "mean_pearson_per_cell": [0.001, 0.01]}} if ci else {})}}
+
+    def test_rows_scored_against_another_reference_never_seed_on_their_old_interval(self):
+        """Codex 20261103T184829013094Z f2: best() took an old row's bootstrap interval, computed against that run's
+        reference predictions, as a lead over today's reference."""
+        ref = {**self.REF, "bootstrap": True}
+        prior = [self._old(0.79, "OLD_BEST"), self._old(0.788, "OLD_NEXT")]
+        scored = []
+
+        def score(code):
+            scored.append(code)
+            return {"rmse": 0.96, "mae": 0.66, "mean_pearson_per_cell": 0.7859,
+                    "swap": {"rmse": 0.32, "mae": 0.15, "mean_pearson_per_cell": 0.75},
+                    "ci": {"rmse": [-0.01, 0.002], "mean_pearson_per_cell": [-0.001, 0.002]}}
+        seed, row = op.seed_for(prior, ref, score)
+        self.assertEqual(scored, ["OLD_BEST"], "one rescore, of the old best, on today's split and reference")
+        self.assertEqual(seed["code"], "OLD_BEST")
+        self.assertEqual(seed["metrics"]["mean_pearson_per_cell"], 0.7859, "today's numbers, not the old row's")
+        self.assertIsNone(op.best([seed], ref), "its new interval crosses zero, so it no longer passes")
+        self.assertTrue(row["rescore"] and row["round"] == -1 and row is seed)
+        self.assertEqual(row["rescore"]["metrics_then"]["mean_pearson_per_cell"], 0.79)
+
+    def test_a_compatible_row_seeds_as_written_and_nothing_is_rescored(self):
+        ref = {**self.REF, "bootstrap": True}
+        same = self._old(0.787, "SAME_REF")
+        same["reference"]["knnr_py"] = dict(ref)
+        seed, row = op.seed_for([self._old(0.79, "OLD_BEST"), same], ref, lambda code: self.fail("no rescore"))
+        self.assertEqual(seed["code"], "SAME_REF")
+        self.assertIsNone(row)
+
+    def test_a_rescore_that_crashes_seeds_nothing_and_is_recorded(self):
+        seed, row = op.seed_for([self._old(0.79, "OLD_BEST")], {**self.REF, "bootstrap": True}, lambda code: {"error": "boom"})
+        self.assertIsNone(seed)
+        self.assertEqual(row["error"], "boom")
+        self.assertTrue(row["rescore"])
+        self.assertEqual(op.seed_for([], self.REF, lambda c: self.fail("nothing to rescore")), (None, None))
+
+    def test_the_drift_check_runs_the_gate_at_main_and_records_it_once(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        calls = []
+        same = op.drift(d, d, main=lambda: op.UPSTREAM_SHA, gate=lambda sha: calls.append(sha))
+        self.assertEqual((same["status"], calls), ("current", []))
+        new = "f" * 40
+        r = op.drift(d, d, main=lambda: new, gate=lambda sha: calls.append(sha) or {"pass": True, "metrics": {}})
+        self.assertEqual((r["status"], calls, r["main"], r["pinned"]), ("passes", [new], new, op.UPSTREAM_SHA))
+        self.assertTrue((d / f"drift-{new[:12]}.json").exists())
+        self.assertIsNone(op.drift(d, d, main=lambda: new, gate=lambda sha: self.fail("checked once per commit")))
+
+    def test_equal_metrics_from_other_reference_predictions_are_not_the_same_reference(self):
+        """Codex 20261103T185822469055Z f2: two reference predictions with identical aggregate metrics gave a bar-pass
+        on reuse and a miss on rescore; the interval is bound to the predictions, so identity is their fingerprint."""
+        rng = np.random.default_rng(0)
+        a = rng.normal(size=(50, 8)).astype(np.float32)
+        ref = {**self.REF, "bootstrap": True, "pred_fp": op.pred_fp(a)}
+        noisy = a + rng.normal(scale=1e-6, size=a.shape).astype(np.float32)
+        self.assertTrue(op.same_fp(op.pred_fp(a.copy()), op.pred_fp(a)))
+        self.assertFalse(op.same_fp(op.pred_fp(noisy), op.pred_fp(a)), "any difference rescores (Codex 20261103T190328625747Z f2)")
+        self.assertFalse(op.same_fp(op.pred_fp(a[::-1]), op.pred_fp(a)), "the same values on other cells are another reference")
+        self.assertFalse(op.same_fp(op.pred_fp(a.reshape(8, 50)), op.pred_fp(a)))
+        self.assertFalse(op.same_fp(None, op.pred_fp(a)))
+        same = {"reference": {"knnr_py": dict(ref)}}
+        self.assertTrue(op.same_reference(same, ref))
+        self.assertFalse(op.same_reference({"reference": {"knnr_py": {**ref, "pred_fp": op.pred_fp(a[::-1])}}}, ref))
+        self.assertFalse(op.same_reference({"reference": {"knnr_py": {k: v for k, v in ref.items() if k != "pred_fp"}}}, ref),
+                         "a row from before fingerprints is rescored, never trusted")
+
+    def test_codexs_knife_edge_reference_is_rescored_and_fails(self):
+        """Codex 20261103T190328625747Z f2, its reproducer verbatim in substance: references 2.4e-7 apart in rmse; the
+        old interval passed the bar, the rescored one does not, so the old one must never be reused."""
+        rng = np.random.default_rng(17)
+        y = rng.normal(size=(50, 20)).astype(np.float32)
+        e = rng.normal(size=y.shape).astype(np.float32)
+        a, p = y + e, y + e * .99997
+        b = a + np.random.default_rng(9).normal(scale=1e-4, size=a.shape).astype(np.float32)
+        swap = {"rmse": 1., "mae": .5, "mean_pearson_per_cell": .5}
+        ref = lambda x: {**op.metrics(y, x), "swap": swap, "bootstrap": True, "pred_fp": op.pred_fp(x)}
+        old, new = ref(a), ref(b)
+        m = {**op.metrics(y, p), "swap": swap, "ci": op.gate_ci(y, p, a)}
+        row = {"round": 0, "code": "candidate", "reference": {"knnr_py": old}, "metrics": m}
+        fresh = {**m, "ci": op.gate_ci(y, p, b)}
+        self.assertTrue(op.passes_bar(row, new), "the canary: reusing the old interval would pass")
+        calls = []
+        seed, _ = op.seed_for([row], new, lambda code: calls.append(code) or fresh)
+        self.assertEqual(calls, ["candidate"])
+        self.assertFalse(op.passes_bar(seed, new))
+
+    def test_the_reproduce_gate_needs_every_published_metric(self):
+        """Codex 20261103T185822469055Z f4: compare() judged the intersection, so a missing correlation output passed."""
+        pub = {"rmse": 0.7233, "mae": 0.5255, "mean_pearson_per_cell": 0.7707}
+        r = op.compare({"rmse": 0.7234, "mae": 0.5256}, pub)
+        self.assertFalse(r["pass"])
+        self.assertEqual(r["missing"], ["mean_pearson_per_cell"])
+        self.assertTrue(op.compare({"rmse": 0.7234, "mae": 0.5256, "mean_pearson_per_cell": 0.7708, "extra": 1.0}, pub)["pass"])
+
+    def test_a_drift_that_crashes_or_misses_the_gate_fails(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+
+        def crash(sha):
+            raise KeyError("seed")
+        r = op.drift(d, d, main=lambda: "a" * 40, gate=crash)
+        self.assertEqual(r["status"], "fails")
+        self.assertIn("KeyError", r["error"])
+        r = op.drift(d, d, main=lambda: "b" * 40, gate=lambda sha: {"pass": False, "metrics": {"rmse": {"diff_pct": 3.0}}})
+        self.assertEqual(r["status"], "fails")
+
+
 class BothWays(unittest.TestCase):
     def test_a_swap_crash_reports_which_way_with_the_normal_scores(self):
         normal = lambda c: {"rmse": 0.94, "mean_pearson_per_cell": 0.79}
