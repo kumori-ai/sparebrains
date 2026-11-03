@@ -1,0 +1,1 @@
+{"run_id": "41597190027", "run_attempt": "1", "ts": "2026-11-03T08:47:38+00:00", "problem": "minif2f/test/amc12a_2003_p23", "calls": 45, "accepts": 0, "relay_rows": 30, "woken_by": {"kind": "model", "model": "gemma-4-26b-a4b-it-luminous:free"}, "backed_off": true}
