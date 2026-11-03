@@ -380,6 +380,10 @@ def main():
     else:
         problems = pick(targets, a.open, a.solved, lambda t: path(t).exists(), tuple(int(x) for x in a.slice.split("/")),
                         a.seed, used)
+    if a.lane:      # every call an arm may make, errors included, against the lane's daily cap (lane_budget, 2026-11-03)
+        import lane_budget
+        from utilities.kumori_api_client import llm_backends, llm_backoff_state, llm_usage
+        lane_budget.preflight(a.lane, len(problems) * len(arms) * a.calls, llm_usage, llm_backoff_state, catalog_fn=llm_backends)
     pacer = leanstral.Pacer(leanstral.MIN_GAP_S)
     if not a.lane:
         def call(prompt):
