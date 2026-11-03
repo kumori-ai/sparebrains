@@ -1,0 +1,1 @@
+{"run_id": "41593563812", "run_attempt": "1", "ts": "2026-11-03T07:04:11+00:00", "problem": "minif2f/test/mathd_numbertheory_495", "calls": 45, "accepts": 0, "relay_rows": 29, "woken_by": {"kind": "daily"}, "backed_off": true}
