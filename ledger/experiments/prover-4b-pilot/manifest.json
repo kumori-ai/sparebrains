@@ -1,0 +1,233 @@
+{
+ "frozen_at": "2026-11-04T04:56:37+00:00",
+ "seed": "prover-4b-pilot-2026-11-04",
+ "model": "Pythagoras-LM/Pythagoras-Prover-4B",
+ "n": 8,
+ "sampling": {
+  "max_tokens": 16000,
+  "temperature": 1.0,
+  "top_p": 0.95
+ },
+ "prompt": "the kernel's PROMPT, Goedel's model-card proof-plan prompt; the Pythagoras-Prover-4B card's instruction is the same wording with different whitespace (Codex read the card, 2026-11-04); the model's own chat template is applied by the kernel",
+ "population": {
+  "math-L3": 25,
+  "math-L4": 25,
+  "math-L5": 30,
+  "amc12": 45,
+  "aime+imo": 35
+ },
+ "per_stratum": 6,
+ "bar": 5,
+ "problems": [
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1983_p6",
+   "stratum": "aime+imo",
+   "rung": "imo",
+   "statement_sha": "a0c8c90ecef4000cff31ab99046949494668502b07ad1a0ce53a2ed1d018b165"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "aime_1994_p3",
+   "stratum": "aime+imo",
+   "rung": "aime",
+   "statement_sha": "361150cf309064a7b63d7b706b8e4d6c8d5fb313dfffe10d27564bbcd3070c90"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1965_p2",
+   "stratum": "aime+imo",
+   "rung": "imo",
+   "statement_sha": "0c3c890450cc695002f8d17287395ca8e6f27e1a758de4f310e124fa6abacafd"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_2019_p1",
+   "stratum": "aime+imo",
+   "rung": "imo",
+   "statement_sha": "cea7e8afd74f735abedcc80f85996864524d86861e1b84fac19ccc8fb91da8da"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1960_p2",
+   "stratum": "aime+imo",
+   "rung": "imo",
+   "statement_sha": "1fcc4c546066101f0c263e7fdaa195413128989434072d4282774fc9998ce179"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imoshortlist_2007_algebra_p6",
+   "stratum": "aime+imo",
+   "rung": "imo",
+   "statement_sha": "8411401397c6556cc47378955b090d9b2dc4736ffbbf034727354093e7d2204d"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2003_p23",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "1a31904d0478f2fdbc88b3693f4200edded0caa410295a96f9acac9a921d8335"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2020_p22",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "e7db0a48134543c95fb4446773f564beaa1f56c5845b2a1cc364695d7ea868b2"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p3",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "4385418391dc417190b71c762662c46492dd9c61e6948748065f7de5a771ffa4"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p18",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "a40da5fa30718c86e5c6e3f15459a97d24119b37332ef6eeb7396fd7d9556007"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p4",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "59a44b1414ee0e711d28eca315595291a27af7b00dc70d0708d23be34437939b"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12_2000_p1",
+   "stratum": "amc12",
+   "rung": "amc12",
+   "statement_sha": "37ba0e971042cff1b197620e5b8d67defc74193c01a259badfddc0f93fe39bdf"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_113",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "cf7a3ae40d8a40c0ec772361f714d2ab4886873d6bf15b3e5f863d14c0a47b8e"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_176",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "7bfd210dd42e01c6aa1b119b9c737dd72c33fd6f430026feb1c2757548e05cd3"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_296",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "6da06915f4e73db959b6bf7e3d907acc4d58352881a318acbb485a8d7e026448"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_175",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "d2d69023b3dedc9f8b627a8092a96dd5edec273e970a0384a76210f32964a3dd"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_320",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "d1f31e6c776c14fc5ec1ed7476e934e30028f985cee91c331ef731f13d6c63d0"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_158",
+   "stratum": "math-L3",
+   "rung": "math-L3",
+   "statement_sha": "76fb3be3ad4d9f4eb1bcc4b49612d9a9b211054b6b474cbe4edabde162e7c25d"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_246",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "435642b6636a20242dbe820750af833058e9c1b331e3425a32b69ca72dc95c47"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_338",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "85ff180e3fed9698a0804d2944e32bc7870fa6dd8ea6168e08545c804bc6ac0d"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_229",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "4d47a575c25ae12d251cd1d2ad2b018ab123b4d1af2a4c10d8da954b78eb1687"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_33",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "88d4ad8da87080126bc18a84529d36e531f43409b538ec4c5de6577c61454666"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_435",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "c9ba5fc95f43f60733dbd3bccbe31212991b90931a3138847f31ce11724966cf"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_452",
+   "stratum": "math-L4",
+   "rung": "math-L4",
+   "statement_sha": "970bad51c27aa6c54d5bf6e75573702dc4c00fc15c4602dbd7725a3bba7c8053"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_618",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "669a9a7db0254d352bcb592b916372d059c4a5e2f64be9fb2aaf6145262a5429"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_765",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "b6f04c5a1e63cc18091f04c42cae94082998b913518ae30c457812bbc64eef29"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_algebra_320",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "ec8e2ecb9b7c57647d75d4d6275a3f2ebf09fe44e526cea3f6ed2105ef457ab5"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_447",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "243e68c7f5861918920d86a73b66b897bddacc3439a985ec2dd5ca278a5efe84"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_495",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "507d05c060d13eef3ed07e3b2d565717ce0b43491671fa91668a814d8c6d8581"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "mathd_numbertheory_764",
+   "stratum": "math-L5",
+   "rung": "math-L5",
+   "statement_sha": "789a1ada25457120dc9038563d4ceb590860d7492b41cd872f25cd0e7fb74a72"
+  }
+ ]
+}
