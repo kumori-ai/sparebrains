@@ -1,0 +1,1 @@
+{"run_id": "41761028009", "run_attempt": "1", "ts": "2026-11-04T02:31:32+00:00", "problem": "minif2f/test/amc12_2000_p1", "calls": 45, "accepts": 0, "relay_rows": 29, "woken_by": {"kind": "model", "model": "BruhzWater/Sapphira-L3.3-70b-0.1"}, "backed_off": true}
