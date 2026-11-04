@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import publish as publish_module
 from publish import git, publish, preserve_outputs, snapshot_outputs
 
 
@@ -89,6 +90,32 @@ class PublishTests(unittest.TestCase):
             self.commit(self.writer, f'race {attempt}')
         with self.assertRaisesRegex(RuntimeError, 'after 2 attempts'):
             publish(self.job, 'bounded test', attempts=2, before_push=race)
+        self.assertEqual((self.job / 'ledger/primer/job.jsonl').read_bytes(), b'{"id":2}\n')
+
+    def reject_pushes(self, times):
+        """A pre-receive hook that refuses the next `times` pushes, as GitHub's 500s did (run 41777596480)."""
+        count = self.root / 'rejections'
+        count.write_text(str(times))
+        hook = self.remote / 'hooks' / 'pre-receive'
+        hook.write_text(f'#!/bin/sh\nn=$(cat {count}); [ "$n" -gt 0 ] || exit 0\n'
+                        f'echo $((n-1)) > {count}; echo "Internal Server Error" >&2; exit 1\n')
+        hook.chmod(0o755)
+
+    def test_server_error_without_a_competing_commit_is_retried(self):
+        publish_module.BACKOFF_S = 0
+        self.reject_pushes(1)
+        self.write(self.job, 'ledger/primer/job.jsonl', b'{"id":2}\n')
+        publish(self.job, 'transient test')
+        git(self.writer, 'pull', '--ff-only', 'origin', 'main')
+        self.assertTrue((self.writer / 'ledger/primer/job.jsonl').exists())
+
+    def test_a_server_that_keeps_failing_stops_at_the_bound(self):
+        publish_module.BACKOFF_S = 0
+        self.reject_pushes(5)
+        self.write(self.job, 'ledger/primer/job.jsonl', b'{"id":2}\n')
+        with self.assertRaisesRegex(RuntimeError, 'Internal Server Error'):
+            publish(self.job, 'bounded transient', attempts=2)
+        self.assertEqual((self.root / 'rejections').read_text().strip(), '3')
         self.assertEqual((self.job / 'ledger/primer/job.jsonl').read_bytes(), b'{"id":2}\n')
 
     def test_same_run_ledger_union_does_not_duplicate_shared_prefix(self):

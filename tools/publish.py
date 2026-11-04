@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import time
+
+BACKOFF_S = 20   # between pushes refused by the server with no competing commit (a GitHub 500, run 41777596480)
 
 
 def git(repo, *args, check=True):
@@ -112,7 +115,13 @@ def publish(repo, message, attempts=3, before_push=None):
             return sha
         git(repo, 'fetch', 'origin', 'main')
         if git(repo, 'rev-parse', 'FETCH_HEAD').stdout.strip() == base:
-            raise RuntimeError(f'Push failed without a competing commit: {result.stderr[-1500:]}')
+            # Nothing raced us, so the server refused: GitHub's 5xx pass, and a push of the same commit is idempotent.
+            if attempt == attempts:
+                raise RuntimeError(f'Push failed without a competing commit after {attempts} attempts; outputs retained '
+                                   f'at {staging} and in the workflow artifact: {result.stderr[-1500:]}')
+            print(f'push refused with no competing commit; retrying in {BACKOFF_S * attempt}s: {result.stderr[-300:]}', flush=True)
+            time.sleep(BACKOFF_S * attempt)
+            continue
         print('main advanced during publish; retrying on the new head', flush=True)
     raise RuntimeError(f'Publication still competing after {attempts} attempts; outputs retained at {staging} and in the workflow artifact')
 

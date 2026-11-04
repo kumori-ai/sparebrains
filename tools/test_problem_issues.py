@@ -289,5 +289,37 @@ class GateNotes(unittest.TestCase):
         self.assertEqual([m for m, _, _ in gh.writes], ["POST", "PATCH"])
 
 
+
+class ServerErrorRetryTests(unittest.TestCase):
+    """GitHub answered a PATCH with 500 on 2026-11-03 (run 41739369234) and the whole daily post died."""
+    def run_calls(self, method, codes):
+        import io, urllib.error
+        from unittest import mock
+        seen = []
+        def urlopen(req, timeout):
+            seen.append(req.get_method())
+            code = codes.pop(0)
+            if code != 200:
+                raise urllib.error.HTTPError(req.full_url, code, "scripted", {}, io.BytesIO(b""))
+            return mock.MagicMock(**{"__enter__.return_value.read.return_value": b'{"ok": 1}'})
+        with mock.patch.object(pi.urllib.request, "urlopen", urlopen), \
+             mock.patch.object(pi.time, "sleep"):
+            try:
+                return pi.GitHub("t").call(method, "/x", {} if method != "GET" else None), seen
+            except urllib.error.HTTPError as e:
+                return e.code, seen
+
+    def test_an_idempotent_call_is_retried_through_a_server_error(self):
+        self.assertEqual(self.run_calls("PATCH", [500, 502, 200]), ({"ok": 1}, ["PATCH"] * 3))
+
+    def test_retries_are_bounded(self):
+        self.assertEqual(self.run_calls("GET", [500] * 9), (500, ["GET"] * 3))
+
+    def test_a_post_is_never_repeated_since_a_500_can_still_have_landed(self):
+        self.assertEqual(self.run_calls("POST", [500, 200]), (500, ["POST"]))
+
+    def test_a_client_error_is_not_retried(self):
+        self.assertEqual(self.run_calls("GET", [404, 200]), (404, ["GET"]))
+
 if __name__ == "__main__":
     unittest.main()

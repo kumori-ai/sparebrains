@@ -14,7 +14,7 @@ reading the dossier and the ledger. Everything here is rendered from the public 
 The issue body is the bot's and is regenerated in place (it opens with MARKER); people write in
 the comments, and those comments reach the next model through the dossier.
 """
-import argparse, json, os, re, sys, time, urllib.request
+import argparse, json, os, re, sys, time, urllib.error, urllib.request
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from pathlib import Path
@@ -237,12 +237,22 @@ class GitHub:
             page += 1
 
     def call(self, method, path, data=None):
-        req = urllib.request.Request(API + path, method=method, data=json.dumps(data).encode() if data is not None else None,
-                                     headers={"Authorization": f"token {self.token}", "Accept": "application/vnd.github+json",
-                                              "User-Agent": relay.USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = r.read()
-        return json.loads(body) if body else None
+        # GitHub's 5xx are transient (500 on a PATCH killed run 41739369234, 2026-11-03): retry the idempotent
+        # methods, never a POST, which can land even when the answer is a 500 and would post twice.
+        tries = 1 if method == "POST" else 3
+        for n in range(1, tries + 1):
+            req = urllib.request.Request(API + path, method=method, data=json.dumps(data).encode() if data is not None else None,
+                                         headers={"Authorization": f"token {self.token}", "Accept": "application/vnd.github+json",
+                                                  "User-Agent": relay.USER_AGENT})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    body = r.read()
+                return json.loads(body) if body else None
+            except urllib.error.HTTPError as e:
+                if e.code < 500 or n == tries:
+                    raise
+                print(f"{method} {path}: GitHub {e.code}, retry {n}/{tries - 1}", file=sys.stderr)
+                time.sleep(10 * n)
 
     def problem_issues(self):
         """key → issue, for every issue (open or closed) carrying the bot's marker."""
