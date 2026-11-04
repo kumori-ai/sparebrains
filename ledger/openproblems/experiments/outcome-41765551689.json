@@ -1,0 +1,151 @@
+{
+ "at": "2026-11-04T03:13:15+00:00",
+ "policy": "outcome-v1 (2026-11-03, C2): the arm's best() pick, else its frozen seed's code; training sites 2 and 3 held out, both directions; fold delta = candidate minus knnr mean Pearson per cell, an errored fold -1; outcome = the mean of the 4",
+ "evaluator": "0d2c7cf1aaf7abdfddbb2c19b72fd253729b94ab",
+ "ledger_commit": "85eac40a30373c9136917d8ec8cb16d0efc9c878",
+ "evolve_file": "ledger/openproblems/experiments/evolve-41745340269.jsonl",
+ "experiment": "pilot-1",
+ "arm": "single",
+ "frozen": {
+  "lane": "mistral-ministral-8b-2512",
+  "seed_upto": "2026-11-04T00:00:00+00:00",
+  "max_asks": 24,
+  "parents": "single",
+  "repairs": -1,
+  "rounds": 12,
+  "feedback": "off"
+ },
+ "seed_from": {
+  "file": "ledger/openproblems/evolve-40904285869.jsonl",
+  "round": 6,
+  "at": "2026-10-29T19:50:19+00:00",
+  "code_sha": "10f10f5c5879302b"
+ },
+ "pick": {
+  "kind": "pick",
+  "round": 7
+ },
+ "code_sha": "320c13643e340103",
+ "reused_from": null,
+ "folds": [
+  {
+   "direction": "normal",
+   "site": 2,
+   "n_train": 43590,
+   "n_held": 22585,
+   "error": null,
+   "cand": {
+    "rmse": 0.8056,
+    "mae": 0.6447,
+    "mean_pearson_per_cell": 0.7214
+   },
+   "ref": {
+    "rmse": 0.5095,
+    "mae": 0.3741,
+    "mean_pearson_per_cell": 0.7077
+   },
+   "seconds": 1056.0,
+   "host_peak_rss_gb": 5.4,
+   "host_rss_gb_during_candidate": 2.45,
+   "container": {
+    "mem_peak_gb_seen": 4.22,
+    "cgroup_oom": 0,
+    "cgroup_oom_kill": 0,
+    "oom_killed": false,
+    "exit_code": 0,
+    "mem_cap": "12g"
+   }
+  },
+  {
+   "direction": "normal",
+   "site": 3,
+   "n_train": 37254,
+   "n_held": 28921,
+   "error": null,
+   "cand": {
+    "rmse": 0.6065,
+    "mae": 0.4605,
+    "mean_pearson_per_cell": 0.5561
+   },
+   "ref": {
+    "rmse": 0.4557,
+    "mae": 0.3407,
+    "mean_pearson_per_cell": 0.604
+   },
+   "seconds": 1198.0,
+   "host_peak_rss_gb": 5.47,
+   "host_rss_gb_during_candidate": 2.46,
+   "container": {
+    "mem_peak_gb_seen": 4.2,
+    "cgroup_oom": 0,
+    "cgroup_oom_kill": 0,
+    "oom_killed": false,
+    "exit_code": 0,
+    "mem_cap": "12g"
+   }
+  },
+  {
+   "direction": "swap",
+   "site": 2,
+   "n_train": 43590,
+   "n_held": 22585,
+   "error": null,
+   "cand": {
+    "rmse": 0.3601,
+    "mae": 0.166,
+    "mean_pearson_per_cell": 0.7202
+   },
+   "ref": {
+    "rmse": 0.3623,
+    "mae": 0.1626,
+    "mean_pearson_per_cell": 0.7111
+   },
+   "seconds": 541.2,
+   "host_peak_rss_gb": 10.45,
+   "host_rss_gb_during_candidate": 4.85,
+   "container": {
+    "mem_peak_gb_seen": 5.13,
+    "cgroup_oom": 0,
+    "cgroup_oom_kill": 0,
+    "oom_killed": false,
+    "exit_code": 0,
+    "mem_cap": "12g"
+   }
+  },
+  {
+   "direction": "swap",
+   "site": 3,
+   "n_train": 37254,
+   "n_held": 28921,
+   "error": null,
+   "cand": {
+    "rmse": 0.3841,
+    "mae": 0.1675,
+    "mean_pearson_per_cell": 0.6821
+   },
+   "ref": {
+    "rmse": 0.3835,
+    "mae": 0.1751,
+    "mean_pearson_per_cell": 0.6827
+   },
+   "seconds": 603.5,
+   "host_peak_rss_gb": 11.52,
+   "host_rss_gb_during_candidate": 5.51,
+   "container": {
+    "mem_peak_gb_seen": 5.52,
+    "cgroup_oom": 0,
+    "cgroup_oom_kill": 0,
+    "oom_killed": false,
+    "exit_code": 0,
+    "mem_cap": "12g"
+   }
+  }
+ ],
+ "deltas": [
+  0.0137,
+  -0.0479,
+  0.0091,
+  -0.0006
+ ],
+ "outcome": -0.0064
+}
