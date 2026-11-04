@@ -666,6 +666,170 @@ def round_timing(calls, entries, wall_s):
             "screen_s": by("screen"), "fit_s": by("fit"), "bootstrap_s": by("bootstrap"), "wall_s": round(wall_s, 1)}
 
 
+OUTCOME_SITES = (2, 3)
+OUTCOME_POLICY = ("outcome-v1 (2026-11-03, C2): the arm's best() pick, else its frozen seed's code; training sites 2 and 3 "
+                  "held out, both directions; fold delta = candidate minus knnr mean Pearson per cell, an errored fold -1; "
+                  "outcome = the mean of the 4")
+
+
+def git_head(path):
+    r = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def code_sha(code):
+    return hashlib.sha256(code.encode()).hexdigest()[:16]
+
+
+def seed_source(ledger_root, spec):
+    """The main-ledger row an experiment pair starts from: spec "ledger/openproblems/evolve-RUN.jsonl:ROUND", read under
+    ledger_root's parent (a checkout of main, not the pinned evaluator's tree). Returns (row, seed_from)."""
+    name, _, rnd = spec.rpartition(":")
+    f = Path(ledger_root).parent / name
+    if not name.startswith("ledger/openproblems/evolve-") or "/experiments/" in name or not f.exists():
+        sys.exit(f"--seed-from {spec}: not a main-ledger evolve file under {Path(ledger_root).parent}")
+    rows = [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+    hits = [r for r in rows if r.get("round") == int(rnd) and not r.get("rescore") and r.get("code")]
+    if len(hits) != 1:
+        sys.exit(f"--seed-from {spec}: {len(hits)} rows with code at round {rnd}")
+    r = hits[0]
+    return r, {"file": name, "round": r["round"], "at": r.get("at"), "code_sha": code_sha(r["code"])}
+
+
+def frozen_seed(ledger_root, spec, ref, score):
+    """C2's one seed per pair (Codex 20261103T233528955201Z f1, f2): the named row as written when it was scored on this
+    reference, else its exact code rescored here. Returns (seed or None, rescore row or None, seed_from, status)."""
+    row, sf = seed_source(ledger_root, spec)
+    if same_reference(row, ref):
+        return row, None, sf, "as written"
+    m = score(row["code"])
+    resc = {"round": -1, "writer": "none: a rescore of the frozen seed against this run's reference",
+            "rescore": {"at": row.get("at"), "round": row.get("round"), "metrics_then": row.get("metrics")},
+            "code": row["code"], **({"error": m["error"]} if "error" in m else {"metrics": m})}
+    if "error" in m:
+        return None, resc, sf, f"rescore failed: {m['error'][-200:]}"
+    return resc, resc, sf, "rescored"
+
+
+def outcome_folds(work, code):
+    """The 4 outcome folds: sites 2 and 3 held out in each direction, training files only, the candidate in its sandbox."""
+    import anndata as ad
+    Path(work).mkdir(parents=True, exist_ok=True)       # nothing before this step makes it (Codex f1)
+    f = Path(work) / "outcome-cand.py"
+    f.write_text(code)
+    out = []
+    for name, ds in (("normal", DATASET), ("swap", SWAP)):
+        data = Path(work) / f"o-{name}"
+        download(data, ds, files=("train_mod1", "train_mod2"))
+        m1, m2 = (ad.read_h5ad(data / f"{x}.h5ad") for x in ("train_mod1", "train_mod2"))
+        b = m1.obs["batch"].astype(str).values
+        for r in qualify_direction(m1.layers["normalized"], m2.layers["normalized"], b, Path(work) / f"o-{name}-folds", f,
+                                   sites=list(OUTCOME_SITES)):
+            out.append({"direction": name, **r})
+        del m1, m2
+    return out
+
+
+def outcome(ledger_root, evolve_file, out, evaluator, folds_fn):
+    """C2's outcome for one experiment arm (DECISIONS 2026-11-03): its best() pick, or the frozen seed's code when it has
+    none, on the 4 outcome folds; an errored fold is -1. Inputs come from ledger_root (a checkout of main); every bound
+    identity is checked before any fold runs. A measurement already made of the same code, policy and evaluator is
+    reused and pointed to, so a shared seed is scored once."""
+    ledger_root = Path(ledger_root)
+    f = ledger_root.parent / evolve_file
+    rows = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+    if not rows or not all(r.get("experiment") for r in rows):
+        sys.exit(f"{evolve_file}: no experiment rows under {ledger_root.parent}")
+    for k in ("experiment", "seed_from", "evaluator", "frozen"):
+        if len({json.dumps(r.get(k), sort_keys=True) for r in rows}) != 1:
+            sys.exit(f"{evolve_file}: rows disagree on {k}")
+    if rows[0]["evaluator"] != evaluator:
+        sys.exit(f"{evolve_file} ran on evaluator {rows[0]['evaluator']}, this checkout is {evaluator}: pin ref to it")
+    ref = rows[0]["reference"][METHOD]
+    pick = best([r for r in rows if not r.get("rescore")], ref)
+    sf = rows[0]["seed_from"]
+    srow = None
+    if sf:                                   # checked before any fold, pick or not (Codex f3)
+        srow, got = seed_source(ledger_root, f"{sf['file']}:{sf['round']}")
+        if got != sf:
+            sys.exit(f"the seed row no longer matches its record: {got} vs {sf}")
+    if pick:
+        code, src = pick["code"], {"kind": "pick", "round": pick["round"]}
+    elif srow:
+        code, src = srow["code"], {"kind": "seed", **sf}
+    else:
+        code, src = None, {"kind": "knnr"}
+    rec = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": OUTCOME_POLICY, "evaluator": evaluator,
+           "ledger_commit": git_head(ledger_root.parent), "evolve_file": evolve_file, "experiment": rows[0]["experiment"],
+           "arm": rows[0]["frozen"]["parents"], "frozen": rows[0]["frozen"], "seed_from": sf, "pick": src, "code_sha": code_sha(code) if code else None,
+           "reused_from": None}
+    if code is None:
+        rec.update(folds=[], deltas=[], outcome=0.0)
+    else:
+        prior = None
+        for g in sorted((ledger_root / "openproblems" / "experiments").glob("outcome-*.json")):
+            j = json.loads(g.read_text())
+            if (j.get("code_sha"), j.get("policy"), j.get("evaluator"), j.get("reused_from")) == (rec["code_sha"], OUTCOME_POLICY, evaluator, None):
+                prior = (g, j)
+                break
+        folds = prior[1]["folds"] if prior else folds_fn(code)
+        if prior:
+            rec["reused_from"] = str(prior[0].relative_to(ledger_root.parent))
+        if sorted((x["direction"], x["site"]) for x in folds) != sorted((d, s) for d in ("normal", "swap") for s in OUTCOME_SITES):
+            sys.exit(f"outcome folds incomplete: {[(x['direction'], x['site']) for x in folds]}")
+        deltas = [-1.0 if x.get("error") else round(x["cand"]["mean_pearson_per_cell"] - x["ref"]["mean_pearson_per_cell"], 4)
+                  for x in folds]
+        rec.update(folds=folds, deltas=deltas, outcome=round(sum(deltas) / len(deltas), 4))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(rec, indent=1) + "\n")
+    print(f"outcome {rec['arm']} ({src['kind']}): {rec['outcome']} from {rec['deltas']}"
+          + (f", reused {rec['reused_from']}" if rec["reused_from"] else ""), flush=True)
+    return rec
+
+
+ARM_KEYS = ("parents", "repairs")          # what may differ between the arms of a pair; everything else frozen equal
+
+
+def pair_read(receipts, pairs_frozen=6, confirm=False):
+    """C2's read: outcomes paired by experiment and seed_from, tools on (archive) minus tools off (single). A pair is
+    INVALID when an arm is missing or duplicated, or when the arms differ in evaluator or in any frozen setting but
+    ARM_KEYS (Codex f2, f4); any INVALID pair refuses the read. confirm: the registered read, which needs exactly
+    `pairs_frozen` pairs (f5); otherwise a pilot that claims nothing. Exact one-sided sign test, ties excluded."""
+    from math import comb
+    by = {}
+    for r in receipts:
+        by.setdefault((r["experiment"], json.dumps(r["seed_from"], sort_keys=True)), []).append(r)
+    pairs, invalid = [], []
+    strip = lambda f: {k: v for k, v in (f or {}).items() if k not in ARM_KEYS}
+    for k, rs in sorted(by.items()):
+        arms = [r["arm"] for r in rs]
+        if sorted(arms) != ["archive", "single"]:
+            invalid.append(list(k) + [f"arms {sorted(arms)}"])
+            continue
+        on, off = (next(r for r in rs if r["arm"] == a) for a in ("archive", "single"))
+        if on["evaluator"] != off["evaluator"] or strip(on.get("frozen")) != strip(off.get("frozen")) or not on.get("frozen"):
+            invalid.append(list(k) + ["frozen settings or evaluator differ"])
+            continue
+        pairs.append(round(on["outcome"] - off["outcome"], 4))
+    out = {"pairs": pairs, "invalid": invalid, "frozen_pairs": pairs_frozen}
+    if invalid:
+        out["read"] = "INVALID pairs: rerun them before any read"
+        return out
+    wins, ties = sum(d > 0 for d in pairs), sum(d == 0 for d in pairs)
+    n = len(pairs) - ties
+    out.update(wins=wins, ties=ties, n=n)
+    if not confirm:
+        out["read"] = f"pilot: {len(pairs)} pairs, no claim"
+        return out
+    if len(pairs) != pairs_frozen:
+        out["read"] = f"INVALID: the registered read needs exactly {pairs_frozen} pairs, not {len(pairs)}"
+        return out
+    p = sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n if n else 1.0
+    # DECISIONS 2026-11-03 C2: "6 of 6 ... anything less is no claim", so a tie also means no claim (Codex f6)
+    out.update(p=round(p, 4), read="tools lift" if p <= 0.05 and wins == pairs_frozen else "no claim")
+    return out
+
+
 def timed_seed(prior, ref, score, clock):
     """seed_for(), with the rescore row's full fits timed like a round's (C3, Codex f2): it asks nothing."""
     mark, t = len(clock), time.time()
@@ -1601,7 +1765,7 @@ def final(work, code, source, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["reproduce", "prepare", "evolve", "run-candidate", "reserve", "final", "sandbox-check", "next-qualify",
-                                   "qualify", "drift", "screen-agreement", "screen-gate"])
+                                   "qualify", "drift", "screen-agreement", "screen-gate", "outcome"])
     ap.add_argument("--evolve-file", help="final: the evolve ledger holding the candidate")
     ap.add_argument("--round", type=int, help="final: the candidate's round in that file")
     ap.add_argument("--smoke", action="store_true", help="final: a fixed, trusted ridge candidate; proves the pipeline, "
@@ -1617,6 +1781,9 @@ def main():
     ap.add_argument("--repairs", type=int, default=REPAIRS,
                     help="evolve: repair asks a round after a small-slice screen crash; -1 turns the screen off")
     ap.add_argument("--lane", default="leanstral")
+    ap.add_argument("--experiment", default="", help="evolve: a C2 experiment label; rows go under ledger/openproblems/experiments/, qualify feedback off")
+    ap.add_argument("--seed-from", default="", help="evolve --experiment: the frozen seed row, ledger/openproblems/evolve-RUN.jsonl:ROUND")
+    ap.add_argument("--ledger-root", default=str(ROOT / "ledger"), help="experiment and outcome inputs: a checkout of main's ledger/")
     a = ap.parse_args()
     if a.cmd == "run-candidate":
         run_candidate(*a.args)
@@ -1640,6 +1807,9 @@ def main():
         exempt = f"#598 trial row, arm {row['arm']}: full run for its registered read" if row.get("arm") else None
         return qualify(Path(a.work), row["code"], {"evolve_file": a.evolve_file, "round": a.round}, a.out,
                        screen=None if exempt else screen_folds(receipts), exempt=exempt)
+    if a.cmd == "outcome":                  # --evolve-file under --ledger-root's parent; --out the receipt
+        rec = outcome(a.ledger_root, a.evolve_file, a.out, git_head(ROOT), lambda code: outcome_folds(Path(a.work), code))
+        return 0 if rec else 1
     if a.cmd == "screen-gate":              # --out: the receipt to read; prints the C1 verdict per slice size
         print(json.dumps(screen_gate(json.loads(Path(a.out).read_text()), ROOT / "ledger" / "openproblems"), indent=1))
         return 0
@@ -1687,20 +1857,40 @@ def main():
         (cand / sub).mkdir(exist_ok=True)
     clock = []                                   # per-round timing (C3, DECISIONS 2026-11-03)
     ask, writer = writer_ask(a.lane, clock)
-    prior = [json.loads(l) for f in sorted(Path(a.out).parent.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
+    ledger_root = Path(a.ledger_root)
+    main_dir = ledger_root / "openproblems" if a.experiment else Path(a.out).parent
+    if a.experiment and not (a.seed_from and a.seed_upto and "/experiments/" in str(a.out)):
+        sys.exit("--experiment needs --seed-from, --seed-upto and an --out under ledger/openproblems/experiments/")
+    if a.experiment and a.lane != "leanstral":    # a router arm checks the lane's daily cap before its first ask (lane_budget)
+        import lane_budget
+        from utilities.kumori_api_client import llm_backends, llm_backoff_state, llm_usage
+        lane_budget.preflight(a.lane, a.max_asks, llm_usage, llm_backoff_state, catalog_fn=llm_backends)
+    prior = [json.loads(l) for f in sorted(main_dir.glob("evolve-*.jsonl")) for l in f.read_text().splitlines()]
     if a.seed_upto:                        # an A/B's arms start from the same seed, whichever run publishes first
         prior = [r for r in prior if r.get("at", "") < a.seed_upto]
     score = both_ways(scorer(val, answers, cand / "normal", "normal", clock),
                       scorer(work / "val-swap", work / "answers-swap", cand / "swap", "swap", clock))
-    # Earlier rows carry over as written only when they were scored against this same reference; else the best of them
-    # is rescored here once (seed_for), and that rescore is a row of this run.
-    seed, rescored = timed_seed(prior, ref, score, clock)
+    extra = {}
+    if a.experiment:                       # C2: one frozen seed row for both arms, rescored here if its reference differs
+        mark, t0 = len(clock), time.time()
+        seed, rescored, sf, status = frozen_seed(ledger_root, a.seed_from, ref, score)
+        if rescored:
+            rescored["timing"] = round_timing([], clock[mark:], time.time() - t0)
+        print(f"experiment {a.experiment}: frozen seed {sf}, {status}", flush=True)
+        extra = {"experiment": a.experiment, "seed_from": sf, "seed_status": status, "evaluator": git_head(ROOT),
+                 "ledger_commit": git_head(ledger_root.parent),
+                 "frozen": {"lane": a.lane, "seed_upto": a.seed_upto, "max_asks": a.max_asks, "parents": a.parents,
+                            "repairs": a.repairs, "rounds": a.rounds, "feedback": "off"}}
+    else:
+        # Earlier rows carry over as written only when they were scored against this same reference; else the best of
+        # them is rescored here once (seed_for), and that rescore is a row of this run.
+        seed, rescored = timed_seed(prior, ref, score, clock)
     if rescored:
         print("rescored an earlier candidate against this run's reference: "
               + (_fmt(rescored["metrics"]) if "metrics" in rescored else rescored["error"][-300:]), flush=True)
     prior = [r for r in prior if same_reference(r, ref)] + ([rescored] if rescored and "metrics" in rescored else [])
     seed_note = None
-    if seed:
+    if seed and not a.experiment:          # an experiment's writers never see qualify feedback (C2: loso_note off)
         print(f"seeded from round {seed['round']} of an earlier run: {_fmt(seed['metrics'])}", flush=True)
         led = Path(a.out).parent
         by_file = {str(f.relative_to(ROOT)) if f.is_relative_to(ROOT) else str(f):
@@ -1725,7 +1915,7 @@ def main():
     with open(a.out, "w") as fh:
         for r in rows:
             fh.write(json.dumps({"at": stamp, "task": REPO, "upstream": UPSTREAM_SHA, "dataset": DATASET,
-                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **r}) + "\n")
+                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **extra, **r}) + "\n")
     asked = [r for r in rows if not r.get("rescore")]
     print(f"evolve: {len(asked)} rounds by {writer}, {sum('metrics' in r for r in asked)} ran, "
           + (f"best {_fmt(top['metrics'])} (round {top['round']})" if top else "none passes the bar's checks on validation")

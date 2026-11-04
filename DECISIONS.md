@@ -38,6 +38,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   slice shape/index errors.
   *C4*. Router-spending dispatches stay serialized. tools/lane_budget.py is a per-run preflight, not an allocation, and
   parallel chains wait for a shared allocation with a concurrent-dispatch test.
+  *Built for C2 (2026-11-04)*. evolve --experiment takes one frozen seed row (--seed-from FILE:ROUND, the same for both
+  arms, rescored if its reference differs, its identity kept if the rescore fails). Experiment rows go under
+  ledger/openproblems/experiments/, out of every main-line reader (the daily #598 trial never seeds from them,
+  qualifies them or counts them). Each row records seed_from, seed_status, evaluator (HEAD of the pinned checkout),
+  ledger_commit and frozen. The workflows pin the evaluator with ref and read ledger inputs from a second checkout
+  of main at .ledger-main. An experiment arm on a router lane runs lane_budget first. openproblems.py outcome
+  checks every bound identity before any fold, and a shared seed is measured once. pair_read marks a pair INVALID
+  for a missing or duplicate arm, or for an evaluator or frozen setting (all but parents and repairs) that differs.
+  The registered read needs exactly 6 pairs and 6 wins. Codex: three rounds on the design (20261103T233528955201Z,
+  20261103T233724672486Z, 20261103T233831238305Z, the last fix taken: checkout refuses a path outside the workspace),
+  then three on the code (DISAGREE f1-f5, DISAGREE 20261104T000743193360Z: 5 wins and a tie read as lift, AGREE).
 
 - **The daily report counts the ledger rows that arrived since the last report, not the rows stamped in the last
   24 hours (kumori #597).** A row's ts is when its run asked; an attempt run (timeout 350 min, one every 2 h) commits

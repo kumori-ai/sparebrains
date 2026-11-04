@@ -25,14 +25,24 @@ on:
       parents:
         description: "single (the best so far is the parent) or archive (a draw from distinct elites, #598); empty = the cron's A/B, by UTC day parity"
         default: ""
+      experiment:
+        description: "a C2 experiment label (DECISIONS 2026-11-03): rows under ledger/openproblems/experiments/, qualify feedback off; needs seed_from, seed_upto, parents and ref"
+        default: ""
+      seed_from:
+        description: "experiment: the frozen seed row, ledger/openproblems/evolve-RUN.jsonl:ROUND (both arms the same)"
+        default: ""
+      ref:
+        description: "experiment: the evaluator commit (full 40-hex SHA), both arms and their outcomes the same"
+        default: ""
 
 permissions:
   contents: write        # publish the ledger rows
 
 # Its own group: one ask every few minutes is far under Mistral's 38 a minute, every Leanstral caller stops at the
 # first 429, and a run pending in the cron'd `leanstral` group is cancelled by the next cron (decompose 39507119927).
+# An experiment arm has its own group (C4): router-spending arms run one at a time, and never take the cron's pending slot.
 concurrency:
-  group: openproblems
+  group: openproblems${{ inputs.experiment != '' && '-exp' || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -40,10 +50,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:
+      - name: an experiment's inputs are complete
+        if: inputs.experiment != ''
+        run: |
+          [[ "${{ inputs.ref }}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::experiment needs ref, a full commit SHA"; exit 1; }
+          [ -n "${{ inputs.seed_from }}" ] && [ -n "${{ inputs.seed_upto }}" ] && [ -n "${{ inputs.parents }}" ] \
+            || { echo "::error::experiment needs seed_from, seed_upto and parents"; exit 1; }
+
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ inputs.experiment != '' && inputs.ref || 'main' }}
           persist-credentials: false        # no push token on disk while untrusted code runs
+
+      # An experiment's code is pinned; its ledger inputs (the frozen seed row) come from main (Codex 20261103T233724672486Z f4).
+      # Inside the workspace: actions/checkout refuses a path outside it (Codex 20261103T233831238305Z).
+      - uses: actions/checkout@v7
+        if: inputs.experiment != ''
+        with:
+          ref: main
+          path: .ledger-main
+          persist-credentials: false
 
       - name: python env (readable by the sandbox user)
         run: |
@@ -101,9 +127,15 @@ jobs:
             [ -z "$seed_upto" ] && seed_upto="${pair_day}T09:00:00+00:00"
           fi
           echo "arm: $parents; seed_upto: ${seed_upto:-all}"
+          out="ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl"; exp=()
+          if [ -n "${{ inputs.experiment }}" ]; then
+            out="ledger/openproblems/experiments/evolve-${GITHUB_RUN_ID}.jsonl"
+            exp=(--experiment "${{ inputs.experiment }}" --seed-from "${{ inputs.seed_from }}" --ledger-root .ledger-main/ledger)
+          fi
+          echo "OUT=$out" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py evolve --work "$RUNNER_TEMP/op" --rounds "${{ inputs.rounds || 12 }}" \
             --lane "${{ inputs.lane || 'leanstral' }}" --max-asks "${{ inputs.max_asks || 24 }}" --seed-upto "$seed_upto" \
-            --parents "$parents" --out "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+            --parents "$parents" --out "$out" "${exp[@]}" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
       - name: publish the ledger
@@ -111,7 +143,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          [ -f "ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl" ] || [ -n "$(git ls-files --others -- 'ledger/openproblems/drift-*.json')" ] || exit 0
+          [ -f "${OUT:-ledger/openproblems/evolve-${GITHUB_RUN_ID}.jsonl}" ] || [ -n "$(git ls-files --others -- 'ledger/openproblems/drift-*.json')" ] || exit 0
           [ -n "$SUMMARY" ] || SUMMARY="no evolve rows; upstream drift receipt only"
           git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "sparebrains-bot"

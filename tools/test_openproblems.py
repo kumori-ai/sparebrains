@@ -1257,5 +1257,131 @@ class TimingAndGateFixes(unittest.TestCase):
         self.assertEqual((after["passed"], after["best_rank"], after["missing"]), (False, 100, []))
 
 
+class Experiment(unittest.TestCase):
+    """C2 (DECISIONS 2026-11-03): one frozen seed per pair, an outcome on sites 2 and 3 for each arm's pick, the read."""
+    REF = {"rmse": 0.97, "mean_pearson_per_cell": 0.79, "swap": {"rmse": 0.31, "mean_pearson_per_cell": 0.77}}
+
+    def setUp(self):
+        import subprocess, tempfile
+        self.top = Path(tempfile.mkdtemp())          # stands in for .ledger-main: a checkout of main
+        self.root = self.top / "ledger"
+        (self.root / "openproblems" / "experiments").mkdir(parents=True)
+        self.seed = {"at": "2026-11-02T22:41:35+00:00", "round": 6, "code": "def predict(): seed",
+                     "reference": {op.METHOD: {"rmse": 0.96, "mean_pearson_per_cell": 0.78}},
+                     "metrics": {"rmse": 0.9259, "mean_pearson_per_cell": 0.8238}}
+        (self.root / "openproblems" / "evolve-1.jsonl").write_text(json.dumps(self.seed) + "\n")
+        self.git = lambda *a: subprocess.run(["git", "-C", str(self.top), *a], check=True, capture_output=True, text=True).stdout.strip()
+        self.git("init", "-q"); self.git("config", "user.email", "t@x.invalid"); self.git("config", "user.name", "t")
+        self.spec = "ledger/openproblems/evolve-1.jsonl:6"
+
+    def commit(self):
+        self.git("add", "-A"); self.git("commit", "-qm", "x")
+        return self.git("rev-parse", "HEAD")
+
+    def arm(self, name, parents, rows, evaluator="A" * 40):
+        _, sf = op.seed_source(self.root, self.spec)
+        f = self.root / "openproblems" / "experiments" / f"evolve-{name}.jsonl"
+        f.write_text("".join(json.dumps({"reference": {op.METHOD: self.REF}, "experiment": "pilot", "seed_from": sf,
+                                         "evaluator": evaluator, "frozen": {"parents": parents, "lane": "l"}, **r}) + "\n"
+                             for r in rows))
+        return str(f.relative_to(self.top))
+
+    def folds(self, calls, err=None):
+        def fn(code):
+            calls.append(code)
+            return [{"direction": d, "site": st, "error": err if (d, st) == ("swap", 3) else None,
+                     "cand": {"mean_pearson_per_cell": 0.80}, "ref": {"mean_pearson_per_cell": 0.78}}
+                    for d in ("normal", "swap") for st in op.OUTCOME_SITES]
+        return fn
+
+    def test_the_seed_source_is_one_main_ledger_row(self):
+        row, sf = op.seed_source(self.root, self.spec)
+        self.assertEqual(sf, {"file": "ledger/openproblems/evolve-1.jsonl", "round": 6, "at": self.seed["at"],
+                              "code_sha": op.code_sha(self.seed["code"])})
+        for bad in ("ledger/openproblems/experiments/evolve-1.jsonl:6", "ledger/openproblems/evolve-1.jsonl:7",
+                    "ledger/openproblems/evolve-9.jsonl:6"):
+            with self.assertRaises(SystemExit):
+                op.seed_source(self.root, bad)
+
+    def test_a_seed_on_another_reference_is_rescored_and_a_failed_rescore_keeps_its_identity(self):
+        seed, resc, sf, status = op.frozen_seed(self.root, self.spec, self.REF, lambda c: {"rmse": 0.93, "mean_pearson_per_cell": 0.82})
+        self.assertEqual((status, seed is resc, resc["code"]), ("rescored", True, self.seed["code"]))
+        seed, resc, sf2, status = op.frozen_seed(self.root, self.spec, self.REF, lambda c: {"error": "OOM"})
+        self.assertIsNone(seed)
+        self.assertTrue(status.startswith("rescore failed"))
+        self.assertEqual(sf2, sf, "the identity survives a failed rescore")
+
+    def test_outcome_reads_a_later_ledger_than_its_pinned_evaluator_and_falls_back_to_the_seed(self):
+        """Codex 20261103T233724672486Z f4: evaluator pinned at A, the arm rows first exist at a later commit B."""
+        self.commit()                                                      # the ledger before the arm ran
+        f = self.arm("off", "single", [{"round": 0, "code": "bad", "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.5}}])
+        b = self.commit()
+        calls = []
+        rec = op.outcome(self.root, f, self.top / "out.json", "A" * 40, self.folds(calls, err="exit 137"))
+        self.assertEqual((rec["evaluator"], rec["ledger_commit"], rec["pick"]["kind"]), ("A" * 40, b, "seed"))
+        self.assertEqual(calls, [self.seed["code"]], "best() picked nothing: the frozen seed's code ran")
+        self.assertEqual(rec["deltas"], [0.02, 0.02, 0.02, -1.0], "the crashed fold counts -1")
+        self.assertEqual(rec["outcome"], round((0.06 - 1.0) / 4, 4))
+
+    def test_outcome_refuses_a_tampered_seed_or_another_evaluator_before_any_fold(self):
+        f = self.arm("off", "single", [{"round": 0, "code": "bad", "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.5}}])
+        calls = []
+        with self.assertRaises(SystemExit):
+            op.outcome(self.root, f, self.top / "o.json", "B" * 40, self.folds(calls))
+        (self.root / "openproblems" / "evolve-1.jsonl").write_text(json.dumps(dict(self.seed, code="changed")) + "\n")
+        with self.assertRaises(SystemExit):
+            op.outcome(self.root, f, self.top / "o.json", "A" * 40, self.folds(calls))
+        self.assertEqual(calls, [])
+
+    def test_a_shared_seed_is_measured_once_and_the_second_arm_points_at_it(self):
+        bad = [{"round": 0, "code": "bad", "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.5}}]
+        calls, exp = [], self.root / "openproblems" / "experiments"
+        op.outcome(self.root, self.arm("off", "single", bad), exp / "outcome-1.json", "A" * 40, self.folds(calls))
+        rec = op.outcome(self.root, self.arm("on", "archive", bad), exp / "outcome-2.json", "A" * 40, self.folds(calls))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(rec["reused_from"], "ledger/openproblems/experiments/outcome-1.json")
+
+    def test_the_read_refuses_invalid_pairs_and_claims_only_at_exactly_six_of_six(self):
+        fz = lambda arm, **k: {"lane": "l", "max_asks": 24, "seed_upto": "t", "parents": arm,
+                               "repairs": 2 if arm == "archive" else -1, **k}
+        r = lambda arm, out, seed=1, ev="A", **k: {"experiment": "x", "seed_from": {"round": seed}, "arm": arm,
+                                                    "outcome": out, "evaluator": ev, "frozen": fz(arm, **k)}
+        self.assertIn("INVALID", op.pair_read([r("archive", 0.1), r("single", 0.0, ev="B")])["read"])
+        self.assertIn("INVALID", op.pair_read([r("archive", 0.1, max_asks=240), r("single", 0.0)])["read"], "Codex f2")
+        self.assertIn("INVALID", op.pair_read([r("archive", 0.1), r("single", 0.0, lane="m")])["read"])
+        self.assertIn("INVALID", op.pair_read([r("archive", 0.1), r("archive", -0.1), r("single", 0.0)])["read"], "f4")
+        self.assertIn("no claim", op.pair_read([r("archive", 0.1), r("single", 0.0)])["read"])
+        six = [x for k in range(6) for x in (r("archive", 0.1, k), r("single", 0.0, k))]
+        self.assertIn("no claim", op.pair_read(six)["read"], "without confirm it is a pilot")
+        self.assertEqual((op.pair_read(six, confirm=True)["p"], op.pair_read(six, confirm=True)["read"]), (0.0156, "tools lift"))
+        seven = six + [r("archive", 0.1, 6), r("single", 0.0, 6)]
+        self.assertIn("INVALID", op.pair_read(seven, confirm=True)["read"], "f5: exactly the registered count")
+        five = six[:-2] + [r("archive", 0.0, 5), r("single", 0.1, 5)]
+        self.assertEqual(op.pair_read(five, confirm=True)["read"], "no claim")
+        tie = six[:-2] + [r("archive", 0.0, 5), r("single", 0.0, 5)]
+        v = op.pair_read(tie, confirm=True)
+        self.assertEqual((v["wins"], v["ties"], v["p"], v["read"]), (5, 1, 0.0312, "no claim"), "Codex f6: 5 wins and a tie")
+
+    def test_a_tampered_seed_stops_the_outcome_even_when_there_is_a_pick(self):
+        good = [{"round": 0, "code": "good", "metrics": {"rmse": 0.90, "mean_pearson_per_cell": 0.85,
+                                                          "swap": {"rmse": 0.30, "mean_pearson_per_cell": 0.78}}}]
+        f = self.arm("on", "archive", good)
+        (self.root / "openproblems" / "evolve-1.jsonl").write_text(json.dumps(dict(self.seed, code="changed")) + "\n")
+        calls = []
+        with self.assertRaises(SystemExit):
+            op.outcome(self.root, f, self.top / "o.json", "A" * 40, self.folds(calls))
+        self.assertEqual(calls, [])
+
+    def test_outcome_folds_make_their_own_work_directory(self):
+        import sys as _s, types
+        from unittest import mock
+        fake = types.SimpleNamespace(read_h5ad=lambda p: (_ for _ in ()).throw(RuntimeError("stop after the write")))
+        work = self.top / "fresh" / "op"
+        with mock.patch.dict(_s.modules, {"anndata": fake}), mock.patch.object(op, "download", lambda *a, **k: None):
+            with self.assertRaises(RuntimeError):
+                op.outcome_folds(work, "code")
+        self.assertTrue((work / "outcome-cand.py").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
