@@ -1,0 +1,88 @@
+{
+ "experiment": "c2-r1",
+ "written": "2026-11-04T09:13:33+00:00",
+ "rule": "DECISIONS 2026-11-04 C2 amendment R5; read: DECISIONS 2026-11-03 C2",
+ "lane": "mistral-ministral-8b-2512",
+ "lane_shakedown": "evolve-41768843553.jsonl",
+ "evaluator": "e5da2731c1b9ee842350fb9570a315828ba7f281",
+ "ledger_commit": "e5da2731c1b9ee842350fb9570a315828ba7f281",
+ "seed_upto": "2026-11-04T00:00:00+00:00",
+ "inputs_digest": "bc5fb2b0a94ccab19b95e034f2c3ee66fc810a31dce8baf5b38c2dbe607ab04e",
+ "order_seed": "c2-r1-2026-11-04",
+ "pool": 65,
+ "max_asks": 24,
+ "rounds": 12,
+ "feedback": "off",
+ "arms": {
+  "on": {
+   "parents": "archive",
+   "repairs": 2
+  },
+  "off": {
+   "parents": "single",
+   "repairs": -1
+  }
+ },
+ "pairs": [
+  {
+   "id": "p1",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-41505253156.jsonl",
+    "round": 2,
+    "at": "2026-11-02T22:41:35+00:00",
+    "code_sha": "bf764e4e11fd7ab7"
+   },
+   "first": "on"
+  },
+  {
+   "id": "p2",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-39533744774.jsonl",
+    "round": 12,
+    "at": "2026-10-21T03:17:34+00:00",
+    "code_sha": "859e5cdf02a8db31"
+   },
+   "first": "on"
+  },
+  {
+   "id": "p3",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-41212190018.jsonl",
+    "round": 7,
+    "at": "2026-10-31T19:05:47+00:00",
+    "code_sha": "93a048fa36a223e5"
+   },
+   "first": "on"
+  },
+  {
+   "id": "p4",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-39809530205.jsonl",
+    "round": 10,
+    "at": "2026-10-22T21:48:57+00:00",
+    "code_sha": "ab82558c857801e0"
+   },
+   "first": "off"
+  },
+  {
+   "id": "p5",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-41212190018.jsonl",
+    "round": 1,
+    "at": "2026-10-31T19:05:47+00:00",
+    "code_sha": "cf83b55efd03598b"
+   },
+   "first": "off"
+  },
+  {
+   "id": "p6",
+   "seed_from": {
+    "file": "ledger/openproblems/evolve-39797210354.jsonl",
+    "round": 19,
+    "at": "2026-10-22T19:16:36+00:00",
+    "code_sha": "fa5939c0710c2611"
+   },
+   "first": "off"
+  }
+ ]
+}
