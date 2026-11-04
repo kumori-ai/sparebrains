@@ -108,7 +108,9 @@ def _beat(event, **kw):
             **kw}
     msg = json.dumps(body)
     # the tail gives way first, keeping its last lines; the error block keeps its first lines, the root cause
-    for k, keep in (("tail", lambda v, n: v[-n:]), ("error", lambda v, n: v[:n])):
+    # versions (a probe's traceback) gives way too, keeping its end, where the error is (#534, Codex f1 x2: escaping
+    # can push a probe beat past the cap, and the fallback below keeps none of its diagnostics)
+    for k, keep in (("tail", lambda v, n: v[-n:]), ("versions", lambda v, n: v[-n:]), ("error", lambda v, n: v[:n])):
         if len(msg) > 3900 and k in body:
             body[k] = keep(body[k], max(200, len(body[k]) - (len(msg) - 3900)))
             msg = json.dumps(body)
@@ -181,6 +183,39 @@ if not ok:
 stamp(venv_s=round(time.time() - t0, 1))
 beat("venv", venv_s=timing["venv_s"])
 
+
+def limits():
+    """What can refuse a shared object's mmap, read whole (task #534, 2026-11-04): the 32B's third death was
+    'libstdc++.so.6: failed to map segment from shared object' right after a 65 GB download, with the cgroup at 140 of
+    354 GB, 136 GB of it page cache; the 8B ran in the same venv path. Overcommit policy and commit accounting, the
+    address-space limit, the map count, and how /tmp is mounted."""
+    out = {}
+    try:
+        import resource
+        for k in ("overcommit_memory", "overcommit_ratio", "max_map_count"):
+            out[k] = open(f"/proc/sys/vm/{k}").read().strip()
+        mi = {l.split(":")[0]: l.split(":")[1].strip() for l in open("/proc/meminfo")}
+        out.update({k: mi.get(k) for k in ("CommitLimit", "Committed_AS", "MemAvailable", "Cached")})
+        out["rlimit_as"] = [str(x) for x in resource.getrlimit(resource.RLIMIT_AS)]
+        # bounded (Codex f1: a 50-layer overlay's options ran past the beat's cap and every field was dropped)
+        out["mounts"] = {l.split()[1]: {"fs": l.split()[2][:20], "noexec": "noexec" in l.split()[3].split(","),
+                                         "opts": l.split()[3][:120]}
+                         for l in open("/proc/mounts") if len(l.split()) > 3 and l.split()[1] in ("/tmp", "/")}
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:200]
+    return out
+
+
+def probe():
+    r = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; print(json.dumps({'huggingface_hub': "
+                        "huggingface_hub.__version__, 'vllm': vllm.__version__}))"], capture_output=True, text=True)
+    return r.stdout.strip()[:300] if r.returncode == 0 else \
+        f"import failed (exit {r.returncode}): " + (r.stderr.strip() or r.stdout.strip())[-1200:]
+
+
+# Before the download: if vLLM's import already fails here, the download is not the cause (#534)
+beat("probe", when="before download", versions=probe(), limits=limits())
+
 # The weights, fetched before vLLM so a stalled download and a hung initialization are told apart (2026-10-24: both
 # 32B batches died at ~80 min inside one "loading" phase). Pinned revision, HTTP, its own restartable process; every
 # file checked against the hub's manifest; vLLM then loads this copy offline.
@@ -198,12 +233,29 @@ if not ok or bad:
     stamp(failed=f"download: {reason or '; '.join(bad[:5])}")
     beat("failed", reason="download", detail=reason, bad=bad[:20], restarts=restarts)
     sys.exit(f"download failed: {reason or bad[:5]}")
-versions = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; print(json.dumps({'huggingface_hub': "
-                           "huggingface_hub.__version__, 'vllm': vllm.__version__}))"], capture_output=True, text=True)
+versions = probe()
 stamp(download_s=round(time.time() - t_dl, 1), model_revision=PINS[MODEL])
 beat("downloaded", download_s=timing["download_s"], files=len(man), bytes=sum(man.values()), restarts=restarts,
-     revision=PINS[MODEL], versions=versions.stdout.strip()[:300] if versions.returncode == 0 else
-     f"import failed (exit {versions.returncode}): " + (versions.stderr.strip() or versions.stdout.strip())[-1200:])
+     revision=PINS[MODEL], versions=versions)
+beat("probe", when="after download", limits=limits())
+if versions.startswith("import failed"):
+    # The download's page cache advised away file by file (no root needed), then the import again; generation goes on
+    # from here either way, and a load after this is an observation about the cache, not proof it was the cause (#534)
+    # An observation, not proof of cause: DONTNEED is advice the kernel may not take (Codex f3)
+    evicted = {"ok": 0, "failed": 0}
+    for name in man:
+        fd = None
+        try:
+            fd = os.open(os.path.join(local, name), os.O_RDONLY)
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            evicted["ok"] += 1
+        except OSError:
+            evicted["failed"] += 1
+        finally:
+            if fd is not None:
+                os.close(fd)
+    versions = probe()
+    beat("probe", when="after advising the page cache away", evicted=evicted, versions=versions, limits=limits())
 # the probe's traceback used to be cut to its first 300 chars, the useless head, and a startup line on stdout hid it
 # (smoke-tpu32-20261024T2034, task #534; Codex f2 2026-11-01: the exit code decides, not which stream spoke)
 for p in parts(man):

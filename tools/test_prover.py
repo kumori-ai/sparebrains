@@ -128,7 +128,13 @@ class ProverTests(unittest.TestCase):
             prover.build(d, [(t, 32)], "tpu32-20261023T0000", tpu=True, budget_h=8.5, model=prover.PROVER_32B["model"])
             text = (Path(d) / "prover_kernel.py").read_text()
             self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', text)
-            self.assertIn('if versions.returncode == 0 else', text, "a failed import probe keeps the tail of its traceback by exit code, not by stream")
+            self.assertIn('if r.returncode == 0 else', text, "a failed import probe keeps the tail of its traceback by exit code, not by stream")
+            # #534, 2026-11-04: the import is probed before the download as well, limits read on both sides, and a
+            # failure after the download retried once the download's page cache is evicted
+            self.assertLess(text.index('beat("probe", when="before download"'), text.index('phase = "downloading"'))
+            self.assertIn('os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)', text)
+            self.assertIn('beat("probe", when="after advising the page cache away", evicted=evicted', text)
+            compile(text, "prover_kernel.py", "exec")
             self.assertIn('if phase == "loading" or waited >= BEAT_S', text, "one beat a minute while vLLM loads, stepped by the minute")
 
     def test_a_tpu_kernel_gets_its_budget_less_the_load_and_one_chunk(self):
@@ -345,6 +351,53 @@ class KernelFit(unittest.TestCase):
         self.assertIs(self.fit(chunk, 100, 0, 400), chunk)
         self.assertIsNone(self.fit(chunk, 100, 350, 400))
         self.assertEqual(self.fit([{"target": "a", "n": 1}], 100, 0, 50), None)
+
+
+
+class TpuLimits(unittest.TestCase):
+    """prover_kernel_tpu.limits(), read out of the kernel's source: bounded however long the mount options are
+    (Codex 2026-11-04 f1), so a probe beat keeps its fields under the 3,900-byte cap."""
+
+    def test_an_overlay_with_fifty_layers_stays_small_and_says_noexec(self):
+        import ast, io
+        from unittest import mock
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel_tpu.py").read_text()
+        fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "limits")
+        ns = {}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "k.py", "exec"), ns)
+        opts = "rw,lowerdir=" + ":".join(f"/var/lib/layer{i}/diff" for i in range(50)) + ",relatime"
+        files = {"/proc/mounts": f"overlay / overlay {opts} 0 0\ntmpfs /tmp tmpfs rw,nosuid,noexec 0 0\n",
+                 "/proc/meminfo": "CommitLimit: 1 kB\nCommitted_AS: 2 kB\nMemAvailable: 3 kB\nCached: 4 kB\n"}
+        real = open
+        fake = lambda path, *a, **k: io.StringIO(files.get(path, "0\n")) if str(path).startswith("/proc") else real(path, *a, **k)
+        with mock.patch("builtins.open", fake):
+            out = ns["limits"]()
+        self.assertLess(len(json.dumps(out)), 900)
+        self.assertEqual((out["mounts"]["/"]["noexec"], out["mounts"]["/tmp"]["noexec"]), (False, True))
+        self.assertEqual(out["CommitLimit"], "1 kB")
+
+    def test_a_probe_beat_with_an_escaped_traceback_keeps_its_diagnostics_under_the_cap(self):
+        import ast
+        from unittest import mock
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel_tpu.py").read_text()
+        fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "_beat")
+        sent = []
+
+        class U:
+            Request = staticmethod(lambda url, data=None, headers=None: data)
+            urlopen = staticmethod(lambda data, timeout=None: sent.append(data))
+        ns = {"json": json, "time": __import__("time"), "os": __import__("os"), "shutil": __import__("shutil"),
+              "urllib": type("M", (), {"request": U}), "BATCH": "b", "phase": "downloading", "T_START": 0,
+              "DISKS": (), "NTFY_TOPIC": "t", "memory": lambda: {"current": 1}}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "k.py", "exec"), ns)
+        trace = "Traceback\n" + "  File \"/tmp/ü/é.py\" ✓\n" * 120 + "ImportError: libstdc++.so.6: failed to map segment"
+        lim = {"CommitLimit": "1 kB", "mounts": {"/tmp": {"noexec": False}}}
+        ns["_beat"]("probe", when="after advising the page cache away", evicted={"ok": 20, "failed": 3},
+                    versions="import failed (exit 1): " + trace, limits=lim)
+        body = json.loads(sent[0])
+        self.assertLessEqual(len(sent[0]), 3900)
+        self.assertEqual((body["evicted"], body["limits"], body["when"]), ({"ok": 20, "failed": 3}, lim, "after advising the page cache away"))
+        self.assertTrue(body["versions"].endswith("failed to map segment"), "the traceback keeps its last line")
 
 
 if __name__ == "__main__":
