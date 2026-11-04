@@ -3,6 +3,40 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-04
+
+- **The 4B prover pilot, frozen before any answer (kumori #480).** The charter's question on the Lean side: does the
+  Lean-only chain (tools/toolscore.py's full arm: fixer, holes, Lean's automation, no model call) lift a small prover?
+  Codex reviewed two design rounds. Round 1 DISAGREE: the 8B history mixes goal-closer, plan-assisted and fixer rows
+  into "raw"; judging stops after the first success, so "8 recorded samples" excludes early solves; sample numbers
+  restart per batch; and "reaches 8B" had no decision rule. Round 2 DISAGREE: with raw accepts kept, nothing can
+  regress, so no sign-test p-value applies; and the population was misnamed. The design adopted from those rounds:
+  Pythagoras-LM/Pythagoras-Prover-4B, n = 8 per problem, max_tokens 16000, T 1.0, top_p 0.95, the kernel's proof-plan
+  prompt (the 4B card's wording, whitespace aside) and the model's chat template, on Kaggle T4 x2 under its own
+  kernel id (kumoriai/sparebrains-prover-pilot), so prover.yml never reads these answers as the 8B's. The population
+  is the five strata math-L3, math-L4, math-L5, amc12 and aime+imo of miniF2F-test (160 of 244), 6 each by the seed
+  prover-4b-pilot-2026-11-04, with no verdict read, frozen in ledger/experiments/prover-4b-pilot/manifest.json. Every
+  answer is judged (none skipped after a success), each by its (batch, target, sample) id: raw, then the chain on each
+  raw reject. The read: rescues R = problems solved by the chain and not raw. R >= 5 is a practical pilot bar with
+  R/30 as the absolute lift, and no significance claimed. It is complete only with 8 judged answers on all 30
+  problems, else inconclusive, and the owed slots rerun. Cost is recorded per answer, so conclusions are about success
+  at 8 attempts, not efficiency. Step 2 (a later week, its own design round): fresh Goedel-8B answers on the same
+  manifest, with superiority or a stated noninferiority margin.
+  *Built (tools/prover_pilot.py; its workflow .github/workflows/prover_pilot.yml is held off main: the deploy's public
+  gate counts each line naming the Kaggle secret as a new private name in this kumori-ai repo, and the ways round it
+  are Andy's call)*. Each row is written as soon as its answer is
+  judged; a judge run stops starting new answers at 230 minutes, so a job past its limit loses nothing, and the next
+  run resumes by answer id. Raw answers are stored (answers-<batch>.jsonl.gz) before any judging. The read counts
+  one record per answer id, and records that conflict make it inconclusive. The manifest goes to main on a push run
+  of its own, before any kernel. The accounting reads ledger/experiments/prover-4b-pilot/pushes.jsonl, which records
+  every push on main before the kernel goes out. A new push needs every recorded batch judged or void. Ids are unique
+  per run attempt and never reused. A failed push stays outstanding until a person voids it by hand. Kaggle's reply is
+  never the evidence: for a kernel that does not exist it prints "Cannot access kernel ... (Permission 'kernels.get'
+  was denied)", which is indistinguishable from a denial (read live 2026-11-04). Codex code reviews: three rounds
+  on a Kaggle-reply design (DISAGREE: no judge deadline, replaceable unjudged batches, rows counted not ids; then
+  failed pulls read as absence; then denial read as absence), re-scoped to the ledger record, then DISAGREE
+  (same-minute id reuse, auto-void on a failed push) and AGREE.
+
 ## 2026-11-03
 
 - **The tool-lift contract for openproblems, written before any of it is built or measured (kumori #477).** Goal (Andy,
