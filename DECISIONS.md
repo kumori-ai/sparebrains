@@ -5,6 +5,32 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-04
 
+- **C2 amendment: refused asks, budgets, order and reruns, frozen before any registered pair (kumori #477).** Pilot-1
+  (no claim; lane mistral-ministral-8b-2512, evaluator 0d2c7cf1) measured nothing. Tools-off arm 41745340269: one 524 at
+  round 5, then from round 9 "503 ... is benched: circuit breaker open (recent failures or chronic slowness)"; 3 of 12
+  scored. Tools-on arm 41761590520 (a rerun: 41745355874 was refused by lane_budget during the backoff and went green
+  through an unpiped `| tee`, since fixed): 3 calls in round 0, then 11 refusals at about 0.6 s each; 0 scored. Each
+  refusal counted as a round, so the router's state set each arm's real budget. Its first C3 timing: a full fit takes
+  830-1083 s normal plus 255-313 s swap per candidate; a writer ask takes 20-125 s. The rule (Codex: round 1
+  DISAGREE: the 12-round cap, 524 is not proof of no generation, reruns and order unfrozen, no durable end; round 2
+  AGREE):
+  R1 an experiment arm runs until 24 counted asks (round and repair alike) or its deadline, with no round cap.
+  R2 the budget is 24 ATTEMPTED asks: any call the router accepted, including a 524/502/504 with or without a saved
+  answer, a timeout or an empty reply. Only an immediate refusal is free: HTTP 503 whose body says "is benched" or
+  "is pacing", or 429. Free refusals are recorded and waited out. Every generation POST counts separately from
+  recovery polls, the shared client's hidden retries included (Codex f5). Delivered answers, attempts, refusals and
+  elapsed time are reported beside the read.
+  R3 a wait after a refusal takes Retry-After or the lane's backoff, clamped to 30 s..15 min; no call starts within
+  5 min of the arm's deadline (the job's 340 min less 30).
+  R4 rows are appended as each round ends, and an arm ends with a terminal row (complete | incomplete, attempts,
+  delivered, refused). A missing or truncated terminal row means incomplete (Codex f6).
+  R5 6 pair ids, 3 tools-on-first and 3 tools-off-first by a fixed seed, written to the experiment manifest with each
+  pair's seed_from and lane. A pair with an incomplete arm is INVALID and is rerun at most once, same id, order and
+  seed. If still INVALID, it is reported as failed and counts as no win for tools. The read uses each id's first valid
+  run, and INVALID is decided before any outcome job runs.
+  R6 a lane is eligible only after one shakedown arm on it completes. On this evidence, ministral-8b is out until one
+  does.
+
 - **C1 read: the small slice does not rank candidates like the full fit, so no cascade (kumori #477).** Receipt
   ledger/openproblems/screen-agreement-41732177244.json (117 distinct past candidates, 116 ran on each slice), read by
   openproblems.py screen-gate against the rules frozen on 2026-11-03 before it landed. 2000x700 (median 14.2 s a
