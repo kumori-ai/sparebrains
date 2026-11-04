@@ -60,7 +60,7 @@ jobs:
       - name: contract test environment
         run: |
           python3 -m venv "$RUNNER_TEMP/contract-tests"
-          "$RUNNER_TEMP/contract-tests/bin/pip" install -c tools/sandbox/requirements.txt numpy scipy requests pyflakes   # scipy: the sandbox streaming tests (2026-10-22)
+          "$RUNNER_TEMP/contract-tests/bin/pip" install -c tools/sandbox/requirements.txt numpy scipy requests pyflakes pyyaml   # scipy: the sandbox streaming tests (2026-10-22); pyyaml: the workflow-shell tests (2026-11-04)
 
       - name: undefined names (pyflakes)
         # 2026-10-29: a refactor left `runs` undefined in problem_issues.py --daily; 439 unit tests stayed green because

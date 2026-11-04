@@ -37,6 +37,9 @@ on:
       ref:
         description: "experiment: the evaluator commit (full 40-hex SHA), both arms and their outcomes the same"
         default: ""
+      pair:
+        description: "a registered arm (C2 R5) as PAIR/ARM/ATTEMPT, e.g. p3/on/1; needs experiment and ref, and takes every other setting from the experiment's manifest"
+        default: ""
 
 permissions:
   contents: write        # publish the ledger rows
@@ -45,7 +48,7 @@ permissions:
 # first 429, and a run pending in the cron'd `leanstral` group is cancelled by the next cron (decompose 39507119927).
 # An experiment arm has its own group (C4): router-spending arms run one at a time, and never take the cron's pending slot.
 concurrency:
-  group: openproblems${{ inputs.experiment != '' && '-exp' || '' }}
+  group: openproblems${{ (inputs.experiment != '' || inputs.pair != '') && '-exp' || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -54,11 +57,16 @@ jobs:
     timeout-minutes: 340
     steps:
       - name: an experiment's inputs are complete
-        if: inputs.experiment != ''
+        if: inputs.experiment != '' || inputs.pair != ''
         run: |
           [[ "${{ inputs.ref }}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::experiment needs ref, a full commit SHA"; exit 1; }
-          [ -n "${{ inputs.seed_from }}" ] && [ -n "${{ inputs.seed_upto }}" ] && [ -n "${{ inputs.parents }}" ] \
-            || { echo "::error::experiment needs seed_from, seed_upto and parents"; exit 1; }
+          [ -n "${{ inputs.experiment }}" ] || { echo "::error::a pair needs its experiment"; exit 1; }
+          if [ -n "${{ inputs.pair }}" ]; then
+            [[ "${{ inputs.pair }}" =~ ^p[0-9]+/(on|off)/[12]$ ]] || { echo "::error::pair is PAIR/ARM/ATTEMPT, e.g. p3/on/1"; exit 1; }
+          else
+            [ -n "${{ inputs.seed_from }}" ] && [ -n "${{ inputs.seed_upto }}" ] && [ -n "${{ inputs.parents }}" ] \
+              || { echo "::error::experiment needs seed_from, seed_upto and parents"; exit 1; }
+          fi
 
       - uses: actions/checkout@v7
         with:
@@ -114,6 +122,47 @@ jobs:
           chmod 700 "$RUNNER_TEMP/op/answers" "$RUNNER_TEMP/op/data" "$RUNNER_TEMP/op/answers-swap" "$RUNNER_TEMP/op/data-swap"
           PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
 
+      # C2 R5: the gate reads main's manifest and dispatch records, and this arm's record goes to main before any ask,
+      # so a run that dies without publishing still counts as an incomplete arm, and no arm runs twice or out of order.
+      # It runs after data, sandbox and the lane's daily room are proven, so a setup failure never spends a pair's rerun.
+      - name: register this arm (C2 R5)
+        id: gate
+        if: inputs.pair != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+        run: |
+          IFS=/ read -r pair arm attempt <<< "${{ inputs.pair }}"
+          exp="${{ inputs.experiment }}"
+          man=".ledger-main/ledger/openproblems/experiments/$exp/manifest.json"
+          "$RUNNER_TEMP/venv/bin/python" -I tools/lane_budget.py --need "$(jq -r .max_asks "$man")" --lane "$(jq -r .lane "$man")"
+          got=$(python3 -I tools/openproblems_registry.py gate --registry ".ledger-main/ledger/openproblems/experiments/$exp" \
+            --pair "$pair" --arm "$arm" --attempt "$attempt" --run-id "$GITHUB_RUN_ID" \
+            --write "ledger/openproblems/experiments/$exp/dispatches.jsonl")
+          echo "$got"
+          echo "ledger_commit=$(jq -r .ledger_commit <<< "$got")" >> "$GITHUB_OUTPUT"
+          echo "LANE=$(jq -r .lane <<< "$got")" >> "$GITHUB_ENV"
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "openproblems $exp: $pair $arm attempt $attempt dispatched as run $GITHUB_RUN_ID (C2 R5), before any ask"
+          git config --unset http.https://github.com/.extraheader
+
+      # Fresh main (the record just pushed) for the ownership check, and the manifest's frozen ledger for every input.
+      - uses: actions/checkout@v7
+        if: inputs.pair != ''
+        with:
+          ref: main
+          path: .ledger-main
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        if: inputs.pair != ''
+        with:
+          ref: ${{ steps.gate.outputs.ledger_commit }}
+          path: .ledger-frozen
+          persist-credentials: false
+
       - name: evolve
         env:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
@@ -136,6 +185,11 @@ jobs:
             out="ledger/openproblems/experiments/evolve-${GITHUB_RUN_ID}.jsonl"
             exp=(--experiment "${{ inputs.experiment }}" --seed-from "${{ inputs.seed_from }}" --ledger-root .ledger-main/ledger)
           fi
+          if [ -n "${{ inputs.pair }}" ]; then     # every setting from the manifest; the flags above are overridden
+            IFS=/ read -r pair arm attempt <<< "${{ inputs.pair }}"
+            exp=(--pair "$pair" --arm "$arm" --attempt "$attempt" --run-id "$GITHUB_RUN_ID" --ledger-root .ledger-frozen/ledger
+                 --registry ".ledger-main/ledger/openproblems/experiments/${{ inputs.experiment }}")
+          fi
           echo "OUT=$out" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py evolve --work "$RUNNER_TEMP/op" --rounds "${{ inputs.rounds || 12 }}" \
             --lane "${{ inputs.lane || 'leanstral' }}" --max-asks "${{ inputs.max_asks || 24 }}" --seed-upto "$seed_upto" \
@@ -153,7 +207,9 @@ jobs:
           git config user.name "sparebrains-bot"
           git config user.email "sparebrains-bot@users.noreply.github.com"
           MACHINE="$(nproc) vCPU $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs), $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB RAM, $(lsb_release -ds 2>/dev/null || uname -sr)"
-          python3 tools/publish.py --message "openproblems evolve $GITHUB_RUN_ID: $SUMMARY
+          GEN="${{ (inputs.lane || 'leanstral') == 'leanstral' && 'Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral''s Labs API' || format('router lane {0} via Kumori', inputs.lane) }}"
+          [ -n "$LANE" ] && GEN="router lane $LANE via Kumori"
+          python3 tools/publish.py --message "openproblems evolve $GITHUB_RUN_ID${{ inputs.pair != '' && format(' ({0} {1})', inputs.experiment, inputs.pair) || '' }}: $SUMMARY
 
-          Generated-by: ${{ (inputs.lane || 'leanstral') == 'leanstral' && 'Leanstral 1.5 (labs-leanstral-1-5-1) on Mistral''s Labs API' || format('router lane {0} via Kumori', inputs.lane) }}, cost \$0, via tools/openproblems.py; scored on the site-1 validation split only
+          Generated-by: $GEN, cost \$0, via tools/openproblems.py; scored on the site-1 validation split only
           Run on: $MACHINE"

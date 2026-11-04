@@ -5,6 +5,26 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-04
 
+- **C2 R5 built: a registered experiment is a manifest, a dispatch record per arm, and a freeze (kumori #477).**
+  tools/openproblems_registry.py. `manifest` writes ledger/openproblems/experiments/<name>/manifest.json once: 6 pairs,
+  each with its own seed row (main-ledger rows before seed_upto that pass the bar against their own reference, one per
+  distinct code, 6 drawn by the order seed), 3 tools-on-first and 3 tools-off-first by the same seed, the lane (R6:
+  refused without a completed shakedown on it), the evaluator commit, and the ledger snapshot every arm reads (main's
+  commit plus a digest of the rows evolve's prior and archive are built from). A registered arm (openproblems.yml
+  `pair=p3/on/1`) passes data, sandbox and lane_budget, then the gate pushes its dispatch record to main before any ask:
+  the manifest's first arm first, no arm twice, attempt 2 only after attempt 1 is INVALID by terminal rows, nothing
+  after the freeze. Evolve then refuses unless main records this run for that arm under the same manifest, HEAD is the
+  evaluator, and the frozen ledger checkout matches the digest; every setting comes from the manifest. `freeze`
+  (openproblems_pairs.yml, in the arms' serialized group) writes selection.json once: each pair's first valid
+  attempt, or FAILED after two INVALID ones, refusing while any pair is unsettled. outcome of a registered arm needs its
+  file in selection.json; qualify, reserve and final refuse every experiments/ file before any data, so an arm's
+  held-out folds are measured only after the freeze (Codex f1). The read: a FAILED pair is a non-win with no invented
+  delta, so any FAILED pair means no claim. Codex design: 20261104T085109300085Z DISAGREE (qualify could preview the
+  outcome folds; the archive inputs were not frozen), 20261104T085501122406Z AGREE. Not closed by code (Codex f4): a
+  person running the evaluator by hand on a published arm before the freeze. The protocol is that nobody does; a
+  registered arm's held-out folds are read only through outcome. Residual: a lane that loses its daily room between
+  the workflow's lane_budget check and evolve's own makes that arm incomplete, and its pair spends the rerun.
+
 - **C2 amendment: refused asks, budgets, order and reruns, frozen before any registered pair (kumori #477).** Pilot-1
   (no claim; lane mistral-ministral-8b-2512, evaluator 0d2c7cf1) measured nothing. Tools-off arm 41745340269: one 524 at
   round 5, then from round 9 "503 ... is benched: circuit breaker open (recent failures or chronic slowness)"; 3 of 12

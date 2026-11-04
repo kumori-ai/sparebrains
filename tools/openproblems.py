@@ -745,6 +745,12 @@ def outcome(ledger_root, evolve_file, out, evaluator, folds_fn):
     rows = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
     if not rows or not all(r.get("experiment") for r in rows):
         sys.exit(f"{evolve_file}: no experiment rows under {ledger_root.parent}")
+    pair = rows[0].get("pair")
+    if pair or any(r.get("pair") for r in rows):          # a registered arm (C2 R5): only a run the freeze selected
+        import openproblems_registry as registry
+        sel = registry.selected_files(ledger_root / "openproblems" / "experiments" / rows[0]["experiment"])
+        if sel.get(evolve_file) != (pair["id"], pair["arm"]):
+            sys.exit(f"{evolve_file}: not the selected run of {pair['id']} {pair['arm']} (selection.json)")
     ends = [r["terminal"] for r in rows if r.get("terminal")]
     if len(ends) != 1 or ends[0].get("final") != "complete" or not rows[-1].get("terminal"):
         sys.exit(f"{evolve_file}: no complete terminal row (C2 R4): {ends or 'missing or truncated'}; the pair is INVALID")
@@ -769,7 +775,7 @@ def outcome(ledger_root, evolve_file, out, evaluator, folds_fn):
         code, src = None, {"kind": "knnr"}
     rec = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": OUTCOME_POLICY, "evaluator": evaluator,
            "ledger_commit": git_head(ledger_root.parent), "evolve_file": evolve_file, "experiment": rows[0]["experiment"],
-           "arm": rows[0]["frozen"]["parents"], "frozen": rows[0]["frozen"], "seed_from": sf, "pick": src, "code_sha": code_sha(code) if code else None,
+           "arm": rows[0]["frozen"]["parents"], "pair": rows[0].get("pair"), "frozen": rows[0]["frozen"], "seed_from": sf, "pick": src, "code_sha": code_sha(code) if code else None,
            "reused_from": None}
     if code is None:
         rec.update(folds=[], deltas=[], outcome=0.0)
@@ -1302,7 +1308,10 @@ def check_reservation(out, source, code):
 
 
 def candidate_row(ledger_file, round_no):
-    """A candidate's evolve row; only a candidate that ran on validation qualifies."""
+    """A candidate's evolve row; only a candidate that ran on validation qualifies. Never an experiment arm's: its
+    held-out folds are read only by outcome, after the R5 freeze (Codex 20261104T085109300085Z f1)."""
+    if "/experiments/" in Path(ledger_file).as_posix():
+        sys.exit(f"{ledger_file}: an experiment arm; held-out and test scoring of it goes through outcome only (C2 R5)")
     for line in Path(ledger_file).read_text().splitlines():
         r = json.loads(line)
         if r.get("round") == round_no:
@@ -1880,6 +1889,11 @@ def main():
     ap.add_argument("--experiment", default="", help="evolve: a C2 experiment label; rows go under ledger/openproblems/experiments/, qualify feedback off")
     ap.add_argument("--seed-from", default="", help="evolve --experiment: the frozen seed row, ledger/openproblems/evolve-RUN.jsonl:ROUND")
     ap.add_argument("--ledger-root", default=str(ROOT / "ledger"), help="experiment and outcome inputs: a checkout of main's ledger/")
+    ap.add_argument("--pair", default="", help="evolve: a registered arm (C2 R5): pair id; settings come from the manifest")
+    ap.add_argument("--arm", default="", choices=["", "on", "off"])
+    ap.add_argument("--attempt", type=int, default=0)
+    ap.add_argument("--registry", default="", help="--pair: ledger/openproblems/experiments/<experiment> in a fresh checkout of main")
+    ap.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     ap.add_argument("--arm-minutes", type=float, default=300, help="evolve --experiment: the arm's deadline from its start (C2 R3)")
     a = ap.parse_args()
     if a.cmd == "run-candidate":
@@ -1954,6 +1968,21 @@ def main():
         (cand / sub).mkdir(exist_ok=True)
     clock = []                                   # per-round timing (C3, DECISIONS 2026-11-03)
     t_arm = time.monotonic()
+    registered = None
+    if a.pair:                                   # C2 R5: main records this run for this arm; the manifest sets the rest
+        import openproblems_registry as registry
+        registered = registry.check_dispatch(a.registry, a.pair, a.arm, a.attempt, a.run_id)
+        man = registered["manifest"]
+        if git_head(ROOT) != man["evaluator"]:
+            sys.exit(f"R5: this checkout is {git_head(ROOT)}, the manifest's evaluator is {man['evaluator']}")
+        if git_head(Path(a.ledger_root).parent) != man["ledger_commit"]:
+            sys.exit(f"R5: --ledger-root is not the manifest's frozen ledger commit {man['ledger_commit']}")
+        st = registered["settings"]
+        a.experiment, a.seed_from = man["experiment"], registered["seed_from"]
+        a.lane, a.seed_upto, a.max_asks, a.rounds = st["lane"], st["seed_upto"], st["max_asks"], st["rounds"]
+        a.parents, a.repairs = st["parents"], st["repairs"]
+        if registry.inputs_digest(registry.prior_rows(a.ledger_root, a.seed_upto)) != man["inputs_digest"]:
+            sys.exit("R5: the archive and seed inputs differ from the manifest's snapshot (inputs_digest)")
     if a.experiment and a.lane == "leanstral":
         sys.exit("--experiment runs on a router lane: its refusals are read from the kumori client's request log (C2 R2)")
     ask, writer = writer_ask(a.lane, clock, single=bool(a.experiment))
@@ -1986,6 +2015,8 @@ def main():
                  "ledger_commit": git_head(ledger_root.parent),
                  "frozen": {"lane": a.lane, "seed_upto": a.seed_upto, "max_asks": a.max_asks, "parents": a.parents,
                             "repairs": a.repairs, "rounds": a.rounds, "feedback": "off"}}
+        if registered:
+            extra["pair"] = {"id": a.pair, "arm": a.arm, "attempt": a.attempt}
     else:
         # Earlier rows carry over as written only when they were scored against this same reference; else the best of
         # them is rescored here once (seed_for), and that rescore is a row of this run.

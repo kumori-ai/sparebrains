@@ -1,0 +1,45 @@
+# C2 R5 (DECISIONS 2026-11-04, kumori #477): freeze which run of each registered pair the read uses, from the arms'
+# terminal rows alone, once, before any outcome job. It shares the arms' concurrency group (openproblems.yml,
+# openproblems-exp), so no arm is running while it reads them: a dispatched arm with no rows on main is a dead one.
+name: openproblems-pairs
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: "the registered experiment (ledger/openproblems/experiments/<experiment>/manifest.json)"
+        required: true
+
+permissions:
+  contents: write        # publish selection.json
+
+concurrency:
+  group: openproblems-exp
+  cancel-in-progress: false
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: freeze the pairs
+        run: |
+          set -o pipefail      # GitHub's default bash has no pipefail: an unsettled freeze would go green through tee
+          python3 -I tools/openproblems_registry.py freeze --registry "ledger/openproblems/experiments/${{ inputs.experiment }}" \
+            | tee "$RUNNER_TEMP/out.txt"
+
+      - name: publish selection.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sel="ledger/openproblems/experiments/${{ inputs.experiment }}/selection.json"
+          [ -f "$sel" ] || { echo "::error::no selection.json: nothing was frozen"; exit 1; }
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "openproblems ${{ inputs.experiment }}: pairs frozen (C2 R5), $(jq -c '[.pairs[] | [.pair, .attempt, .status]]' "$sel")"
