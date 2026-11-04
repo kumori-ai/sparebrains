@@ -59,9 +59,10 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   problems, else inconclusive, and the owed slots rerun. Cost is recorded per answer, so conclusions are about success
   at 8 attempts, not efficiency. Step 2 (a later week, its own design round): fresh Goedel-8B answers on the same
   manifest, with superiority or a stated noninferiority margin.
-  *Built (tools/prover_pilot.py; its workflow .github/workflows/prover_pilot.yml is held off main: the deploy's public
-  gate counts each line naming the Kaggle secret as a new private name in this kumori-ai repo, and the ways round it
-  are Andy's call)*. Each row is written as soon as its answer is
+  *Built (tools/prover_pilot.py, .github/workflows/prover_pilot.yml)*. The workflow was held off main until 2026-11-04
+  ~05:00 UTC: the deploy's public gate counted its two Kaggle-token lines as new private names. Andy approved an
+  exact-line allowlist for them, which lives in ~/.kumori/public_gate_allow.json, outside every repo (Codex had three
+  rounds on its shape). Each row is written as soon as its answer is
   judged; a judge run stops starting new answers at 230 minutes, so a job past its limit loses nothing, and the next
   run resumes by answer id. Raw answers are stored (answers-<batch>.jsonl.gz) before any judging. The read counts
   one record per answer id, and records that conflict make it inconclusive. The manifest goes to main on a push run
