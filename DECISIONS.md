@@ -5,6 +5,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-04
 
+- **C1 read: the small slice does not rank candidates like the full fit, so no cascade (kumori #477).** Receipt
+  ledger/openproblems/screen-agreement-41732177244.json (117 distinct past candidates, 116 ran on each slice), read by
+  openproblems.py screen-gate against the rules frozen on 2026-11-03 before it landed. 2000x700 (median 14.2 s a
+  candidate): Spearman of slice vs full mean Pearson 0.4323, best bar-passer ranked 33rd, the 10 best bar-passers at
+  ranks 18-66; FAIL on (a), (b) and (c). 8000x2000 (median 56.6 s): Spearman 0.5718, best ranked 52nd, the 10 best at
+  33-55; FAIL on all three. Slice vs full rmse rank correlation was 0.058 and 0.054. 60 of the 117 pass the bar. As of
+  2026-11-04 the slice stays a crash screen; a cascade on it would have discarded the full fit's winners. Slice
+  rmse says nothing about full rmse at these sizes. Not tried: larger slices, other sites, or slice scores as one
+  feature among several; any of them needs its own frozen gate. The time per round stays in the full fit (C3's
+  timing from 11-04 onward will say how much).
+
 - **The 4B prover pilot, frozen before any answer (kumori #480).** The charter's question on the Lean side: does the
   Lean-only chain (tools/toolscore.py's full arm: fixer, holes, Lean's automation, no model call) lift a small prover?
   Codex reviewed two design rounds. Round 1 DISAGREE: the 8B history mixes goal-closer, plan-assisted and fixer rows
