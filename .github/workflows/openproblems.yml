@@ -119,6 +119,7 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
+          set -o pipefail      # the `| tee` below hid a refused arm's exit (41745355874 went green, 2026-11-04)
           # The arm (#598, 2026-11-01): by hand as given; the daily cron alternates by UTC day of year, odd = single,
           # even = archive, so each arm gets the same asks on alternate days and the ledger row says which it was.
           parents="${{ inputs.parents }}"; seed_upto="${{ inputs.seed_upto }}"
