@@ -663,6 +663,11 @@ def round_timing(calls, entries, wall_s):
                        for d in dict.fromkeys(dd for k, dd, _ in entries if k == kind)}
     return {"ask_s": calls[0] if calls else None, "repair_ask_s": calls[1:], "calls": len(calls),
             "client_calls": sum(k == "client_call" for k, _, _ in entries),
+            "gen_posts": sum(int(v) for k, _, v in entries if k == "gen_post"),
+            "polls": sum(int(v) for k, _, v in entries if k == "poll"),
+            "refused": [{"reason": d, "wait_s": round(v, 1)} for k, d, v in entries if k == "refused"],
+            "delivered": sum(int(v) for k, _, v in entries if k == "delivered"),
+            "anomalies": [d for k, d, _ in entries if k == "anomaly"],
             "screen_s": by("screen"), "fit_s": by("fit"), "bootstrap_s": by("bootstrap"), "wall_s": round(wall_s, 1)}
 
 
@@ -740,13 +745,16 @@ def outcome(ledger_root, evolve_file, out, evaluator, folds_fn):
     rows = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
     if not rows or not all(r.get("experiment") for r in rows):
         sys.exit(f"{evolve_file}: no experiment rows under {ledger_root.parent}")
+    ends = [r["terminal"] for r in rows if r.get("terminal")]
+    if len(ends) != 1 or ends[0].get("final") != "complete" or not rows[-1].get("terminal"):
+        sys.exit(f"{evolve_file}: no complete terminal row (C2 R4): {ends or 'missing or truncated'}; the pair is INVALID")
     for k in ("experiment", "seed_from", "evaluator", "frozen"):
         if len({json.dumps(r.get(k), sort_keys=True) for r in rows}) != 1:
             sys.exit(f"{evolve_file}: rows disagree on {k}")
     if rows[0]["evaluator"] != evaluator:
         sys.exit(f"{evolve_file} ran on evaluator {rows[0]['evaluator']}, this checkout is {evaluator}: pin ref to it")
     ref = rows[0]["reference"][METHOD]
-    pick = best([r for r in rows if not r.get("rescore")], ref)
+    pick = best([r for r in rows if not r.get("rescore") and not r.get("terminal")], ref)
     sf = rows[0]["seed_from"]
     srow = None
     if sf:                                   # checked before any fold, pick or not (Codex f3)
@@ -839,8 +847,68 @@ def timed_seed(prior, ref, score, clock):
     return seed, rescored
 
 
+REFUSAL_MARKS = ("is benched", "is pacing")
+CHAT_PATH = "/api/v1/llm/chat"
+
+
+def classify_posts(entries):
+    """(generation POSTs, refused POSTs, recovery polls) among the kumori client's request-log entries for one ask
+    (C2 R2, DECISIONS 2026-11-04). Every POST to /llm/chat counts, the client's own retries included (Codex f5); a
+    refused POST is an immediate refusal, no generation: HTTP 429, or 503 whose body says it is benched or pacing.
+    A 524/502/504 or a dropped connection is a generation attempt, answered or not."""
+    posts = [e for e in entries if e.get("method") == "POST" and str(e.get("url", "")).endswith(CHAT_PATH)]
+    refused = [e for e in posts if e.get("response_status") == 429 or (
+        e.get("response_status") == 503 and any(m in json.dumps(e.get("response_body"), default=str) for m in REFUSAL_MARKS))]
+    polls = sum(1 for e in entries if e.get("method") == "GET" and "/api/v1/llm/result/" in str(e.get("url", "")))
+    return len(posts) - len(refused), len(refused), polls
+
+
+def patient(ask, log, lane, backoff_fn, deadline, clock, sleep=time.sleep, now=time.monotonic, margin_s=300):
+    """C2 R2-R3: an ask that only met immediate refusals waits out the lane's backoff (clamped 30 s..15 min) and asks
+    again, never counted as an attempt; no call starts within margin_s of the arm's deadline (time.monotonic())."""
+    state = {"stopped": None}
+
+    def ask2(prompt):
+        while True:
+            if now() > deadline - margin_s:
+                state["stopped"] = "deadline: no call starts within 5 min of the arm's deadline"
+                return {"error": state["stopped"]}
+            mark = len(log)
+            r = ask(prompt)
+            gen, refused, polls = classify_posts(log[mark:])
+            clock.extend([("gen_post", lane, gen), ("poll", lane, polls), ("delivered", lane, int(isinstance(r, str)))])
+            if gen + refused > 1:                    # single_shot makes one POST; anything else is recorded, not hidden
+                clock.append(("anomaly", f"{gen + refused} POSTs in one ask", 0.0))
+            if refused and not gen and not isinstance(r, str):
+                try:
+                    left = (backoff_fn().get(lane) or {}).get("remaining_sec")
+                except Exception:
+                    left = None
+                wait = min(900.0, max(30.0, float(left or 30)))
+                clock.append(("refused", (r.get("error") if isinstance(r, dict) else str(r))[:120], wait))
+                sleep(wait)
+                continue
+            return r
+    ask2.stopped = lambda: state["stopped"]
+    return ask2
+
+
+def arm_end(rows, max_asks, stopped):
+    """C2 R4's terminal row: complete only when the arm made exactly max_asks generation attempts (POSTs the router
+    accepted, from the request log) and nothing stopped it; else incomplete with why. Refusals are listed apart."""
+    attempts = sum((r.get("timing") or {}).get("gen_posts", 0) for r in rows)
+    refused = sum(len((r.get("timing") or {}).get("refused", [])) for r in rows)
+    delivered = sum((r.get("timing") or {}).get("delivered", 0) for r in rows)        # replies, repairs included (f4)
+    anomalies = [x for r in rows for x in (r.get("timing") or {}).get("anomalies", [])]
+    why = stopped or (f"anomalies: {anomalies}" if anomalies else
+                      None if attempts == max_asks else f"{attempts} generation attempts, not {max_asks}")
+    return {"round": None, "terminal": {"final": "incomplete" if why else "complete", "attempts": attempts,
+                                        "max_asks": max_asks, "refused": refused, "delivered": delivered,
+                                        "rounds": len(rows), **({"why": why} if why else {})}}
+
+
 def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPAIRS, max_asks=None, seed_note=None,
-           parents=None, clock=None):
+           parents=None, clock=None, on_row=None, stop=None):
     """`rounds` asks; each sees the best candidate so far (from `seed`, the best of earlier runs, until this run
     beats it) with its validation scores, and the last outcome. score(code) -> metrics, or {"error": why}. With
     `screen` (code -> error or None), each round's code first passes the small-slice screen, with up to `repairs`
@@ -857,6 +925,8 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
     raw_ask = ask
     for i in range(rounds):
         if max_asks is not None and asks >= max_asks:
+            break
+        if stop and stop():                               # C2 R3: the arm's deadline
             break
         t_round, mark, calls = time.time(), len(clock), []
 
@@ -920,6 +990,8 @@ def evolve(rounds, ask, score, ref, writer, seed=None, screen=None, repairs=REPA
                 row["same_as_seed"] = True                 # the same numbers and nothing passed the elite fails: a copy
         row["timing"] = round_timing(calls, clock[mark:], time.time() - t_round)
         rows.append(row)
+        if on_row:                                        # C2 R4: on disk as the round ends
+            on_row(row)
         print(json.dumps({k: v for k, v in row.items() if k != "code"})[:400], flush=True)
     return rows
 
@@ -1575,7 +1647,26 @@ def sandboxed_predict(code_file, inputs, shape, timeout, dir_mode=0o755, mem=SAN
             diag.update(seen, mem_cap=mem)
 
 
-def writer_ask(lane, clock=None):
+def single_shot(lane, chat):
+    """One POST per ask, no retry of its own (C2 R2-R3, Codex 20261104 round 1 f1-f3): decompose.router_ask waits out
+    a short retry_after itself, which let an arm spend a 25th attempt, retry inside the deadline margin and wait less
+    than 30 s. In experiment mode patient() owns every retry, wait and deadline check, one POST at a time."""
+    import uuid
+
+    def ask(prompt):
+        try:
+            # request_id selects the client's recoverable path: one POST with retry_on_5xx False, then /result polls
+            # only after an edge cut; without it the client retries a 5xx itself (Codex round 2 f1-f3)
+            reply, _, _ = chat(lane, [{"role": "user", "content": prompt}], max_tokens=16000, temperature=0.2,
+                               app_name="sparebrains", include_metadata=True, timeout=(10, 315), timeout_s=300,
+                               long_call=True, request_id=uuid.uuid4().hex)
+            return reply
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    return ask
+
+
+def writer_ask(lane, clock=None, single=False):
     """Leanstral (Mistral's Labs API, the free key) by default, or any Kumori router lane. With `clock`, every call
     sparebrains makes into the model client is logged ("client_call"): one per urlopen in Leanstral's loop (its
     dropped-connection retry included) and one per llm_chat in the router ask (its retry_after retries included).
@@ -1602,6 +1693,11 @@ def writer_ask(lane, clock=None):
         def chat(*a, **k):
             tick()
             return llm_chat(*a, **k)
+    if single:
+        if chat is None:
+            from utilities.kumori_api_client import init, llm_chat as chat
+            init()
+        return single_shot(lane, chat), f"router lane {lane}"
     return decompose.router_ask(lane, chat=chat)[0], f"router lane {lane}"
 
 
@@ -1784,6 +1880,7 @@ def main():
     ap.add_argument("--experiment", default="", help="evolve: a C2 experiment label; rows go under ledger/openproblems/experiments/, qualify feedback off")
     ap.add_argument("--seed-from", default="", help="evolve --experiment: the frozen seed row, ledger/openproblems/evolve-RUN.jsonl:ROUND")
     ap.add_argument("--ledger-root", default=str(ROOT / "ledger"), help="experiment and outcome inputs: a checkout of main's ledger/")
+    ap.add_argument("--arm-minutes", type=float, default=300, help="evolve --experiment: the arm's deadline from its start (C2 R3)")
     a = ap.parse_args()
     if a.cmd == "run-candidate":
         run_candidate(*a.args)
@@ -1856,7 +1953,15 @@ def main():
     for sub in ("normal", "swap"):
         (cand / sub).mkdir(exist_ok=True)
     clock = []                                   # per-round timing (C3, DECISIONS 2026-11-03)
-    ask, writer = writer_ask(a.lane, clock)
+    t_arm = time.monotonic()
+    if a.experiment and a.lane == "leanstral":
+        sys.exit("--experiment runs on a router lane: its refusals are read from the kumori client's request log (C2 R2)")
+    ask, writer = writer_ask(a.lane, clock, single=bool(a.experiment))
+    if a.experiment:                             # C2 R2-R3: attempts counted from real POSTs, refusals waited out
+        from utilities.kumori_api_client import client as kclient, llm_backoff_state
+        reqlog = []
+        kclient.set_request_log(reqlog)
+        ask = patient(ask, reqlog, a.lane, llm_backoff_state, t_arm + 60 * a.arm_minutes, clock)
     ledger_root = Path(a.ledger_root)
     main_dir = ledger_root / "openproblems" if a.experiment else Path(a.out).parent
     if a.experiment and not (a.seed_from and a.seed_upto and "/experiments/" in str(a.out)):
@@ -1906,16 +2011,29 @@ def main():
     parents = archive(prior, ref) if a.parents == "archive" else None
     if parents is not None:
         print(f"archive arm: {len(parents)} distinct elites: " + "; ".join(f"r{p['round']} {_fmt(p['metrics'])[:60]}" for p in parents), flush=True)
-    rows = ([rescored] if rescored else []) + evolve(a.rounds, ask, score, ref, writer, seed, screen=screen,
-                  repairs=max(0, a.repairs), max_asks=a.max_asks or None, seed_note=seed_note, parents=parents,
-                  clock=clock)
-    top = best(rows, ref)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    with open(a.out, "w") as fh:
-        for r in rows:
-            fh.write(json.dumps({"at": stamp, "task": REPO, "upstream": UPSTREAM_SHA, "dataset": DATASET,
-                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **extra, **r}) + "\n")
+    line = lambda r: json.dumps({"at": stamp, "task": REPO, "upstream": UPSTREAM_SHA, "dataset": DATASET,
+                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **extra, **r}) + "\n"
+    if a.experiment:                       # C2 R1, R4: no round cap; each row on disk as its round ends; a terminal row
+        fh = open(a.out, "w")
+        if rescored:
+            fh.write(line(rescored)); fh.flush()
+        on_row = lambda r: (fh.write(line(r)), fh.flush())
+        asked_rows = evolve(10 ** 6, ask, score, ref, writer, seed, screen=screen, repairs=max(0, a.repairs),
+                            max_asks=a.max_asks, seed_note=None, parents=parents, clock=clock, on_row=on_row,
+                            stop=ask.stopped)
+        fh.write(line(arm_end(asked_rows, a.max_asks, ask.stopped())))
+        fh.close()
+        rows = ([rescored] if rescored else []) + asked_rows
+    else:
+        rows = ([rescored] if rescored else []) + evolve(a.rounds, ask, score, ref, writer, seed, screen=screen,
+                      repairs=max(0, a.repairs), max_asks=a.max_asks or None, seed_note=seed_note, parents=parents,
+                      clock=clock)
+        with open(a.out, "w") as fh:
+            for r in rows:
+                fh.write(line(r))
+    top = best(rows, ref)
     asked = [r for r in rows if not r.get("rescore")]
     print(f"evolve: {len(asked)} rounds by {writer}, {sum('metrics' in r for r in asked)} ran, "
           + (f"best {_fmt(top['metrics'])} (round {top['round']})" if top else "none passes the bar's checks on validation")

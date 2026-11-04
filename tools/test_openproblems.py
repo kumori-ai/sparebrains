@@ -1278,9 +1278,11 @@ class Experiment(unittest.TestCase):
         self.git("add", "-A"); self.git("commit", "-qm", "x")
         return self.git("rev-parse", "HEAD")
 
-    def arm(self, name, parents, rows, evaluator="A" * 40):
+    def arm(self, name, parents, rows, evaluator="A" * 40, end="complete"):
         _, sf = op.seed_source(self.root, self.spec)
         f = self.root / "openproblems" / "experiments" / f"evolve-{name}.jsonl"
+        if end:                                      # C2 R4: an arm ends with its terminal row
+            rows = rows + [{"round": None, "terminal": {"final": end, "attempts": 24, "max_asks": 24}}]
         f.write_text("".join(json.dumps({"reference": {op.METHOD: self.REF}, "experiment": "pilot", "seed_from": sf,
                                          "evaluator": evaluator, "frozen": {"parents": parents, "lane": "l"}, **r}) + "\n"
                              for r in rows))
@@ -1333,6 +1335,20 @@ class Experiment(unittest.TestCase):
             op.outcome(self.root, f, self.top / "o.json", "A" * 40, self.folds(calls))
         self.assertEqual(calls, [])
 
+    def test_an_arm_without_a_complete_terminal_row_gets_no_outcome(self):
+        """C2 R4 and Codex f6: a missing, truncated or incomplete end makes the arm incomplete, the pair INVALID."""
+        bad = [{"round": 0, "code": "bad", "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.5}}]
+        calls = []
+        for end in (None, "incomplete"):
+            with self.assertRaises(SystemExit):
+                op.outcome(self.root, self.arm(f"x{end}", "single", bad, end=end), self.top / "o.json", "A" * 40, self.folds(calls))
+        f = self.root / self.arm("trunc", "single", bad)[len("ledger/"):]
+        lines = f.read_text().splitlines()
+        f.write_text("\n".join(lines[:-1] + [lines[0]]) + "\n")       # the terminal row is not the last line
+        with self.assertRaises(SystemExit):
+            op.outcome(self.root, str(f.relative_to(self.top)), self.top / "o.json", "A" * 40, self.folds(calls))
+        self.assertEqual(calls, [])
+
     def test_a_shared_seed_is_measured_once_and_the_second_arm_points_at_it(self):
         bad = [{"round": 0, "code": "bad", "metrics": {"rmse": 1.2, "mean_pearson_per_cell": 0.5}}]
         calls, exp = [], self.root / "openproblems" / "experiments"
@@ -1381,6 +1397,157 @@ class Experiment(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 op.outcome_folds(work, "code")
         self.assertTrue((work / "outcome-cand.py").exists())
+
+
+
+class RefusedAsks(unittest.TestCase):
+    """C2 amendment R1-R4 (DECISIONS 2026-11-04): attempts counted from real POSTs, immediate refusals waited out and
+    free, no round cap, rows on disk as they end, and a terminal row the outcome requires."""
+    POST = lambda self, status, body: {"method": "POST", "url": "https://kumori.ai/api/v1/llm/chat", "response_status": status,
+                                       "response_body": body}
+
+    def test_only_benched_pacing_and_429_are_free_and_hidden_retries_count(self):
+        bench = self.POST(503, {"error": "mistral-ministral-8b-2512 is benched: circuit breaker open"})
+        pace = self.POST(503, {"error": "x is pacing to the provider limit"})
+        cut, ok = self.POST(524, {"raw": "<html>"}), self.POST(200, {"text": "hi"})
+        poll = {"method": "GET", "url": "https://kumori.ai/api/v1/llm/result/abc"}
+        self.assertEqual(op.classify_posts([bench, pace, self.POST(429, {})]), (0, 3, 0))
+        self.assertEqual(op.classify_posts([cut, poll, poll]), (1, 0, 2), "a 524 is an attempt; polls are not")
+        self.assertEqual(op.classify_posts([cut, ok]), (2, 0, 0), "Codex f5: a client retry is a second attempt")
+        self.assertEqual(op.classify_posts([self.POST(503, {"error": "upstream 503"})]), (1, 0, 0), "a plain 503 counts")
+
+    def patient(self, script, deadline=10 ** 9):
+        log, clock, waits = [], [], []
+
+        def ask(prompt):
+            status = script.pop(0)
+            log.append(self.POST(status, {"error": "lane is benched: breaker"} if status == 503 else {}))
+            return {"text": "ok"} if status == 200 else {"error": f"HTTP {status}"}
+        a = op.patient(lambda p: (lambda r: r.get("text") or r)(ask(p)), log, "lane", lambda: {"lane": {"remaining_sec": 5}},
+                       deadline, clock, sleep=waits.append, now=lambda: 0)
+        return a, clock, waits
+
+    def test_a_refusal_is_waited_out_and_is_no_attempt(self):
+        a, clock, waits = self.patient([503, 503, 200])
+        self.assertEqual(a("p"), "ok")
+        self.assertEqual(waits, [30.0, 30.0], "the backoff clamped to at least 30 s")
+        t = op.round_timing([1.0], clock, 1.0)
+        self.assertEqual((t["gen_posts"], len(t["refused"])), (1, 2))
+
+    def test_no_call_starts_near_the_deadline(self):
+        a, clock, waits = self.patient([200], deadline=100)
+        self.assertIn("deadline", a("p")["error"])
+        self.assertTrue(a.stopped())
+        self.assertEqual(waits, [])
+
+    def test_the_arm_runs_to_its_ask_budget_with_no_round_cap_and_repairs_count(self):
+        clock, calls, written = [], [], []
+
+        def ask(prompt):
+            calls.append(prompt)
+            clock.append(("gen_post", "lane", 1))
+            return GOOD
+        seen = []
+        screen = lambda code: (seen.append(code), "crash" if len(seen) % 2 else None)[1]   # every other screen fails once
+        rows = op.evolve(10 ** 6, ask, lambda c: {"rmse": 0.95, "mean_pearson_per_cell": 0.80},
+                         {"rmse": 0.97, "mean_pearson_per_cell": 0.79}, writer="fake", screen=screen, repairs=2,
+                         max_asks=24, clock=clock, on_row=written.append)
+        self.assertEqual(len(calls), 24, "24 asks, rounds and repairs alike")
+        self.assertEqual(written, rows, "each row handed over as its round ended")
+        end = op.arm_end(rows, 24, None)["terminal"]
+        self.assertEqual((end["final"], end["attempts"]), ("complete", 24))
+
+    def test_one_post_per_ask_so_the_budget_the_deadline_and_every_refusal_are_patients(self):
+        """Codex round 1 f1-f4: with single_shot, a retryable 503 then success is two attempts and two asks, a
+        refusal is one record each, every wait is clamped, and delivered counts replies."""
+        log, posts = [], []
+
+        def chat(lane, msgs, **k):
+            status = posts.pop(0)
+            log.append(self.POST(int(status), {"error": "lane is benched: x"} if status == 503.1 else {}))
+            if status != 200:
+                raise RuntimeError(f"HTTP {int(status)}")
+            return "```python\nx\n```", None, None
+        clock, waits = [], []
+        ask = op.patient(op.single_shot("lane", chat), log, "lane", lambda: {}, 10 ** 9, clock, sleep=waits.append,
+                         now=lambda: 0)
+        posts.extend([503, 200])                       # a plain upstream 503: an attempt, answered on the next ask
+        self.assertIn("error", ask("p"))
+        self.assertIsInstance(ask("p"), str)
+        posts.extend([503.1, 429, 200])                # two refusals, each its own record, then the answer
+        self.assertIsInstance(ask("p"), str)
+        t = op.round_timing([1.0], clock, 1.0)
+        self.assertEqual((t["gen_posts"], len(t["refused"]), t["delivered"], t["anomalies"]), (3, 2, 2, []))
+        self.assertEqual(waits, [30.0, 30.0])
+
+    def transport(self, statuses):
+        """The real kumori client, its HTTP transport mocked: (patched request, calls)."""
+        calls = []
+
+        class R:
+            def __init__(self, status, body, headers):
+                self.status_code, self._b, self.headers = status, body, headers
+                self.content, self.text = json.dumps(body).encode(), json.dumps(body)
+
+            def json(self):
+                return self._b
+
+        def request(method, url, json=None, headers=None, timeout=None):
+            calls.append((method, url))
+            status = statuses.pop(0)
+            if status == "benched":
+                return R(503, {"error": "lane is benched: circuit breaker open"}, {"Retry-After": "1"})
+            if status == 503:
+                return R(503, {"error": "upstream 503"}, {"Retry-After": "1"})
+            if status == 429:
+                return R(429, {"error": "rate limited"}, {"Retry-After": "1"})
+            return R(200, {"text": "```python\nx\n```", "backend": "lane", "inference": {}}, {})
+        return request, calls
+
+    def real_patient(self, statuses, deadline=10 ** 9, now=lambda: 0):
+        from unittest import mock
+        import utilities.kumori_api_client.client as kc
+        request, calls = self.transport(statuses)
+        log, clock, waits = [], [], []
+        stack = [mock.patch.object(kc.requests, "request", request), mock.patch.object(kc, "_API_KEY", "k", create=True),
+                 mock.patch.dict("os.environ", {"KUMORI_API_KEY": "k"})]
+        for m in stack:
+            m.start()
+        self.addCleanup(lambda: [m.stop() for m in stack] and kc.set_request_log(None))
+        kc.init()
+        kc.set_request_log(log)
+        ask = op.patient(op.single_shot("lane", kc.llm_chat), log, "lane", lambda: {}, deadline, clock,
+                         sleep=waits.append, now=now)
+        return ask, calls, clock, waits
+
+    def test_through_the_real_client_a_retryable_503_is_one_post_and_one_attempt(self):
+        """Codex round 2: the real client path, mocked HTTP only. A 503 with a short Retry-After is not retried by
+        the client (request_id: retry_on_5xx False), so one ask is one POST."""
+        ask, calls, clock, waits = self.real_patient([503])
+        self.assertIn("error", ask("p"))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(op.round_timing([1.0], clock, 1.0)["gen_posts"], 1)
+
+    def test_through_the_real_client_two_refusals_are_two_records_and_clamped_waits(self):
+        ask, calls, clock, waits = self.real_patient(["benched", 429, 200])
+        self.assertIsInstance(ask("p"), str)
+        t = op.round_timing([1.0], clock, 1.0)
+        self.assertEqual((len(calls), t["gen_posts"], len(t["refused"]), waits, t["anomalies"]), (3, 1, 2, [30.0, 30.0], []))
+
+    def test_through_the_real_client_no_post_inside_the_deadline_margin(self):
+        ask, calls, clock, waits = self.real_patient([200], deadline=1000, now=lambda: 701)
+        self.assertIn("deadline", ask("p")["error"])
+        self.assertEqual(calls, [])
+
+    def test_a_stopped_or_short_arm_ends_incomplete(self):
+        rows = [{"round": 0, "timing": {"gen_posts": 3, "delivered": 2, "refused": [{"reason": "x", "wait_s": 30}]}}]
+        self.assertEqual(op.arm_end(rows, 24, "deadline: x")["terminal"]["final"], "incomplete")
+        e = op.arm_end(rows, 24, None)["terminal"]
+        self.assertEqual((e["final"], e["refused"]), ("incomplete", 1))
+        self.assertIn("3 generation attempts", e["why"])
+        self.assertEqual(e["delivered"], 2)
+        two = [{"round": 0, "timing": {"gen_posts": 24, "anomalies": ["2 POSTs in one ask"]}}]
+        self.assertIn("anomalies", op.arm_end(two, 24, None)["terminal"]["why"], "a hidden retry is never complete")
 
 
 if __name__ == "__main__":
