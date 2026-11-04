@@ -1,0 +1,121 @@
+# The 4B prover pilot (kumori #480; tools/prover_pilot.py; DECISIONS 2026-11-04): Pythagoras-Prover-4B on a frozen
+# 30-problem miniF2F-test set, 8 samples each, on Kaggle's free T4 x2 under its own kernel id, so the production
+# lane (prover.yml) never reads these answers as Goedel-8B's. By hand only:
+#   phase=push   freeze the manifest if it is not on main yet, build the kernel for the owed sample slots, push it
+#   phase=judge  when Kaggle says COMPLETE: every answer judged raw and through the Lean-only chain, rows published
+# No model call outside Kaggle, cost $0 (Kaggle's weekly free GPU hours, shared with prover.yml's lane).
+name: prover-pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "push (build and push the kernel) or judge (read Kaggle's answers)"
+        required: true
+        default: "push"
+      hours:
+        description: "push: the session's hours; the kernel stops before them (check prover.py hours first)"
+        default: "5"
+
+permissions:
+  contents: write        # publish the manifest and the judged rows
+
+concurrency:
+  group: prover-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false        # no push token on disk while untrusted Lean runs
+
+      - name: python deps
+        run: python3 -m pip install -q requests "kaggle>=2.2.4"
+
+      # The manifest is published on its own run, before any kernel (Codex f2): a push needs it on main already.
+      - name: the manifest (frozen once, before any answer)
+        id: manifest
+        if: inputs.phase == 'push'
+        run: |
+          if [ ! -f ledger/experiments/prover-4b-pilot/manifest.json ]; then
+            python3 tools/prover_pilot.py manifest
+            echo "SUMMARY=manifest frozen; dispatch phase=push again to push the kernel" >> "$GITHUB_ENV"
+            echo "fresh=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The ledger's record of pushes is the accounting (Codex 2026-11-04): a push needs every recorded batch judged or
+      # void, then records itself on main BEFORE the kernel goes out; Kaggle's status only stops a push over a live batch.
+      - name: push the kernel
+        if: inputs.phase == 'push' && steps.manifest.outputs.fresh != '1'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/prover_pilot.py accounted
+          status=$(kaggle kernels status kumoriai/sparebrains-prover-pilot 2>&1 | tail -1) || true
+          case "$status" in
+            *RUNNING*|*QUEUED*) echo "::error::the pilot kernel is $status; one batch at a time"; exit 1 ;;
+          esac
+          batch="pilot4b-$(date -u +%Y%m%dT%H%M)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"     # unique per attempt (Codex f1)
+          python3 tools/prover_pilot.py build --dir "$RUNNER_TEMP/k" --hours "${{ inputs.hours }}" --batch "$batch" | tee "$RUNNER_TEMP/out.txt"
+          python3 tools/prover_pilot.py record-push --batch "$batch"
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "prover pilot: push of $batch recorded before its kernel goes out"
+          # A failed push exit does not prove Kaggle refused it (Codex f2): the record stays outstanding, so nothing is
+          # pushed again until a person checks the kernel on Kaggle and either judges its answers or, if no batch
+          # $batch ever ran, records it void: python3 tools/prover_pilot.py record-push --batch $batch --void "<why>"
+          kaggle kernels push -p "$RUNNER_TEMP/k" || { echo "::error::kaggle push of $batch failed; it stays outstanding until a person reconciles it"; exit 1; }
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt")" >> "$GITHUB_ENV"
+
+      - name: Kaggle's answers
+        id: kaggle
+        if: inputs.phase == 'judge'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          status=$(kaggle kernels status kumoriai/sparebrains-prover-pilot 2>&1 | tail -1)
+          echo "kaggle: $status"
+          case "$status" in *COMPLETE*) ;; *) echo "::error::not complete: $status"; exit 1 ;; esac
+          mkdir -p "$RUNNER_TEMP/kout"
+          kaggle kernels output kumoriai/sparebrains-prover-pilot -p "$RUNNER_TEMP/kout" >/dev/null
+          tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+          [ -s "$RUNNER_TEMP/kout/answers.jsonl" ] || { echo "::error::the batch completed with no answers"; exit 1; }
+
+      - name: lean + mathlib cache + build
+        if: inputs.phase == 'judge'
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        if: inputs.phase == 'judge'
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge every answer
+        if: inputs.phase == 'judge'
+        run: |
+          python3 tools/prover_pilot.py judge --answers "$RUNNER_TEMP/kout/answers.jsonl" --max-minutes 230 | tee "$RUNNER_TEMP/out.txt"
+          python3 tools/prover_pilot.py read | tee -a "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(grep -m1 judged "$RUNNER_TEMP/out.txt")" >> "$GITHUB_ENV"
+
+      - name: publish
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -n "$(git status --porcelain -- ledger/experiments/prover-4b-pilot)" ] || exit 0
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "prover pilot ${{ inputs.phase }} $GITHUB_RUN_ID: ${SUMMARY:-manifest}
+
+          Generated-by: Pythagoras-Prover-4B on Kaggle (GPU T4 x2), cost \$0, via tools/prover_pilot.py and tools/prover_kernel.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)"
