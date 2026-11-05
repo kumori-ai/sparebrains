@@ -50,6 +50,62 @@ class Check(unittest.TestCase):
         self.assertEqual([g["file_ok"] for g in gc.check(goals, lambda s, t: TARGET, judge)], [True, False])
 
 
+class Refresh(unittest.TestCase):
+    """2026-11-05: the queue was last rebuilt 10-19; the ledger then held 185 one-step goals on 34 of the 40 open
+    problems that decompose, which reads only the queue, could never be asked."""
+    OLD = {"sha": "old", "target_set": "s", "target": "t", "goal": STEP, "sketches": [SKETCH], "file_ok": True,
+           "restates": False}
+
+    def test_new_goals_join_checked_and_old_ones_stay(self):
+        now = [dict(self.OLD, sha=gc.goal_sha(STEP)), {"sha": "n1", "target_set": "s", "target": "u", "goal": STEP + " ",
+               "sketches": ["x"], "restates": False}, {"sha": "n2", "target_set": "s", "target": "u", "goal": "bad",
+               "sketches": ["y"], "restates": True}]
+        queue = [dict(self.OLD, sha=gc.goal_sha(STEP))]
+        judged = []
+        def judge(text):
+            judged.append(text)
+            return {"verdict": "wellformed" if STEP in text else "reject"}
+        out, stats, checks = gc.refresh(now, queue, {("s", "t"), ("s", "u")}, lambda s, t: TARGET, judge)
+        self.assertEqual(len(judged), 2, "only the new goals go to Lean")
+        self.assertEqual({c["sha"]: c["verdict"] for c in checks}, {"n1": "wellformed", "n2": "reject"})
+        self.assertEqual({g["sha"]: g["file_ok"] for g in out}, {gc.goal_sha(STEP): True, "n1": True, "n2": False})
+        self.assertEqual(stats, {"kept": 1, "added": 2, "readable_added": 1, "dropped_solved": 0})
+        self.assertEqual([g["sha"] for g in out][-1], "n2", "restatements last, as collect orders them")
+
+    def test_a_solved_problems_goals_leave_the_queue(self):
+        out, stats, _ = gc.refresh([], [self.OLD], {("s", "other")}, lambda s, t: TARGET, lambda t: {"verdict": "wellformed"})
+        self.assertEqual(out, [])
+        self.assertEqual(stats["dropped_solved"], 1)
+
+    def test_a_kept_goal_gains_the_new_sketches_that_print_it(self):
+        now = [dict(self.OLD, sketches=[SKETCH, SKETCH + "\n  -- another"])]
+        out, _, _ = gc.refresh(now, [self.OLD], {("s", "t")}, lambda s, t: TARGET, lambda t: {"verdict": "wellformed"})
+        self.assertEqual(len(out[0]["sketches"]), 2)
+
+
+class RefreshChecks(unittest.TestCase):
+    NEW = {"sha": "n1", "target_set": "s", "target": "u", "goal": STEP, "sketches": ["x"], "restates": False}
+
+    def go(self, prior, verdict="wellformed", reason=""):
+        calls = []
+        def judge(text):
+            calls.append(text)
+            return {"verdict": verdict, "reason": reason}
+        out, _, checks = gc.refresh([self.NEW], [], {("s", "u")}, lambda s, t: TARGET, judge, checked=prior)
+        return out, checks, calls
+
+    def test_a_stored_definitive_verdict_is_reused(self):
+        out, checks, calls = self.go({"n1": {"verdict": "wellformed", "reason": ""}})
+        self.assertEqual((calls, checks, out[0]["file_ok"]), ([], [], True))
+        out, _, calls = self.go({"n1": {"verdict": "reject", "reason": "lean exit 1: unknown identifier"}})
+        self.assertEqual((calls, out[0]["file_ok"]), ([], False))
+
+    def test_a_timeout_is_judged_again(self):   # Codex 20261105 f2: a transient failure must not exclude a goal for good
+        out, checks, calls = self.go({"n1": {"verdict": "reject", "reason": "timeout after 300s"}})
+        self.assertEqual((len(calls), out[0]["file_ok"]), (1, True))
+        self.assertEqual(checks[0]["verdict"], "wellformed")
+
+
 TYPED = "theorem sb_goal (x y : ℤ) (h₀ : y ^ (2 : ℕ) + (3 : ℤ) * x = (7 : ℤ)) : y ^ (2 : ℕ) ≤ (7 : ℤ) + (3 : ℤ) * x := by"
 
 

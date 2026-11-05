@@ -41,6 +41,7 @@ jobs:
         run: python3 -m pip install -q requests
 
       - name: lean + mathlib cache + build
+        timeout-minutes: 15             # measured 1m39s and 1m40s on 2026-11-05 (runs 42060800492, 42061251877)
         uses: leanprover/lean-action@v1.6.0
         with:
           auto-config: false
@@ -50,18 +51,25 @@ jobs:
       - name: judge sandbox (untrusted Lean runs as another user)
         run: bash tools/judge_sandbox.sh
 
+      - name: refresh the goal queue (today's one-step goals join it, each checked by Lean)
+        # 2026-11-05: rebuilt last on 10-19, the queue lacked 111 typed goals and 19 of the 40 open problems
+        timeout-minutes: 60             # budget: lean 15 + refresh 60 + decompose 240 + publish 20 = 335 of the job's 340
+        continue-on-error: true         # a failed or timed-out refresh writes no queue; decompose reads the stored one
+        run: python3 tools/goal_closer.py refresh --out "$RUNNER_TEMP/goal-queue.json" --checks-out "ledger/goal-checks/run-${GITHUB_RUN_ID}.jsonl"
+
       - name: decompose
         env:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
-        timeout-minutes: 310            # below the job's 340, so the rows written so far still get published
+        timeout-minutes: 240            # with the refresh's 60, the job's 340 keeps room to publish the rows written so far
         run: |
           python3 tools/decompose.py run --max-goals "${{ inputs.max_goals }}" $( [ -n "${{ inputs.lane }}" ] && echo --lane "${{ inputs.lane }}" ) \
-            --out "ledger/decompose/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
+            --queue "$RUNNER_TEMP/goal-queue.json" --out "ledger/decompose/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 
       - name: publish the ledger
         if: always()
+        timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

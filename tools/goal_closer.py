@@ -16,6 +16,7 @@ that is the hard part of a problem (imo_1962_p2's one direction of the set equal
     python3 tools/goal_closer.py tactic --tactic grind [--jobs 4] [--out FILE]   # one tactic on every readable goal
     python3 tools/goal_closer.py retype --slice 0/10 --out FILE  # every sketch's goal printed again, typed (CI)
     python3 tools/goal_closer.py requeue --rows 'ledger/tactics/retype-*.jsonl'  # the queue rebuilt from those rows
+    python3 tools/goal_closer.py refresh --out Q.json --checks-out ledger/goal-checks/run-ID.jsonl   # decompose runs it
 
 `tactic` is the tactic-recipe search: no model, Lean only. Every goal here is a step the loop's automation
 (subgoals.AUTO_TACTICS) already failed, so each goal a new tactic closes, and whose splice the kernel accepts, is a
@@ -167,6 +168,45 @@ def requeue(rows, queue, read_target):
     for g in out:
         g["restates"] = restates(g["goal"], read_target(g["target_set"], g["target"]))
     return sorted(out, key=lambda g: (g["restates"], -len(g["sketches"]), g["target"], g["sha"]))
+
+
+TYPED_SINCE = "2026-10-09"   # rows from then on print goals with numeric types (retype's docstring); older ones would
+                             # come back as untyped duplicates of goals the 10-19 retype already typed
+
+
+def definitive(check):
+    """A stored Lean check worth reusing: readable, or rejected for a reason that is not a timeout."""
+    return check["verdict"] == "wellformed" or not str(check.get("reason", "")).startswith("timeout")
+
+
+def refresh(goals_now, queue, open_keys, read_target, judge_text, checked=None):
+    """The stored queue brought up to date: goals collected from today's rows that it lacks join it, each checked by
+    Lean as retype checks (its own file must be readable; a definitive verdict in `checked` {sha: check} is reused,
+    a timeout is judged again), a goal already queued gains any new sketch that prints it, and goals whose problem is
+    no longer open leave. Returns (queue in collect's order, counts, the new checks as rows).
+    2026-11-05: rebuilt last on 10-19, the queue lacked 111 typed goals and 19 of the 40 open problems."""
+    checked = checked or {}
+    old = {g["sha"]: g for g in queue if (g["target_set"], g["target"]) in open_keys}
+    dropped = sum(1 for g in queue if (g["target_set"], g["target"]) not in open_keys)
+    added = readable = 0
+    rows = []
+    for g in goals_now:
+        if (g["target_set"], g["target"]) not in open_keys:
+            continue
+        if g["sha"] in old:
+            have = old[g["sha"]]["sketches"]
+            have += [sk for sk in g["sketches"] if sk not in have]
+            continue
+        c = checked.get(g["sha"])
+        if not (c and definitive(c)):
+            r = judge_text(goal_file(read_target(g["target_set"], g["target"]), g["goal"]))
+            c = {"verdict": r["verdict"], "reason": str(r.get("reason", ""))[:200]}
+            rows.append({"sha": g["sha"], "target_set": g["target_set"], "target": g["target"], **c})
+        ok = c["verdict"] == "wellformed"
+        old[g["sha"]] = {**g, "file_ok": ok}
+        added, readable = added + 1, readable + ok
+    out = sorted(old.values(), key=lambda g: (bool(g.get("restates")), -len(g["sketches"]), g["target"], g["sha"]))
+    return out, {"kept": len(out) - added, "added": added, "readable_added": readable, "dropped_solved": dropped}, rows
 
 
 def close(goal, target_text, body, judge_text):
@@ -359,7 +399,7 @@ def queue(goals, read_target, n):
             for g in goals if g.get("file_ok")]
 
 
-def _load(keys="open"):
+def _load(keys="open", since=None):
     """(goals, read): the one-step goals of the open problems, or with keys="solved" those of the solved ones (the
     sweep's back-check: how today's recipes would have done on what is already done)."""
     import relay
@@ -368,9 +408,11 @@ def _load(keys="open"):
         for line in f.open():
             if '"sketch"' in line:
                 try:
-                    rows.append(json.loads(line))
+                    r = json.loads(line)
                 except ValueError:
-                    pass
+                    continue
+                if since is None or str(r.get("ts", "")) >= since:
+                    rows.append(r)
     want = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")[keys]}
     want = {k for k in want if (ROOT / "targets" / k[0] / f"{k[1]}.lean").exists()}
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
@@ -483,7 +525,7 @@ def run_sweep(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep", "retype", "requeue"])
+    ap.add_argument("cmd", choices=["list", "try", "tactic", "sweep", "retype", "requeue", "refresh"])
     ap.add_argument("--recipes", help="sweep: recipes separated by `,`, steps within one by `;`")
     ap.add_argument("--slice", default="0/1", help="sweep: k/N, every Nth goal from k, for a matrix of jobs")
     ap.add_argument("--publish", action="store_true", help="sweep: record solves outside the bar (needs KUMORI_API_KEY)")
@@ -492,6 +534,7 @@ def main():
     ap.add_argument("--tactic", help="tactic: the tactic tried as the whole proof of every readable goal")
     ap.add_argument("--jobs", type=int, default=4, help="tactic: Lean processes at once (~3 GB each)")
     ap.add_argument("--out")
+    ap.add_argument("--checks-out", help="refresh: append the new Lean checks here (ledger/goal-checks/run-<id>.jsonl)")
     ap.add_argument("--rows", help="requeue: retype's row files (a glob)")
     ap.add_argument("--check", action="store_true", help="list: judge each goal's own file (Lean, ~20 s a goal)")
     ap.add_argument("--goal", help="try: a goal's sha from `list`")
@@ -514,6 +557,28 @@ def main():
         return 0
     if args.cmd == "sweep":
         return run_sweep(args)
+    if args.cmd == "refresh":                          # today's typed goals join the stored queue, checked by Lean
+        import lean_tools, relay
+        goals_now, read = _load(since=TYPED_SINCE)
+        want = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
+        # the stored queue is never rewritten here: publish.py refuses a changed .json under ledger/ (Codex
+        # 20261105 f1); the merged queue goes to --out for this job, the Lean checks to an append-only file
+        checked = {}
+        for f in sorted((ROOT / "ledger" / "goal-checks").glob("*.jsonl")):
+            for line in f.read_text().splitlines():
+                if line.strip():
+                    r = json.loads(line)
+                    checked[r["sha"]] = r
+        out, stats, rows = refresh(goals_now, json.loads(QUEUE.read_text()), want, read, lean_tools.judge_text, checked)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+        if rows and args.checks_out:
+            Path(args.checks_out).parent.mkdir(parents=True, exist_ok=True)
+            with open(args.checks_out, "a") as f:
+                f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+        print(f"refresh: {stats}; {len(rows)} judged now; queue {len(out)} goals, "
+              f"{sum(bool(g.get('file_ok')) for g in out)} readable -> {args.out}")
+        return 0
     if args.cmd in ("retype", "requeue"):              # the stored queue, every sketch's goal printed again
         read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
         queue = json.loads(QUEUE.read_text())

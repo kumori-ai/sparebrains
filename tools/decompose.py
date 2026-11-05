@@ -246,6 +246,7 @@ def main():
     ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral, or `auto` for the "
                     "strongest live one")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--queue", help="a goal queue to read instead of ledger/goal-queue.json (goal_closer.py refresh --out)")
     a = ap.parse_args()
     max_tokens = 16000
     if a.lane == "auto":
@@ -270,7 +271,9 @@ def main():
     tried = tried_by(past, lane["backend"])
     reach = ({(r["target_set"], r["target"]) for r in json.loads(prover.REACHABLE.read_text())["reachable"]}
              if prover.REACHABLE.exists() else set())
-    goals = pick_goals(json.loads(goal_closer.QUEUE.read_text()), rung, tried, reach, prover.plan_owed(open_keys=set(rung)) is None,
+    qfile = Path(a.queue) if a.queue and Path(a.queue).exists() else goal_closer.QUEUE
+    print(f"queue: {qfile}", flush=True)
+    goals = pick_goals(json.loads(qfile.read_text()), rung, tried, reach, prover.plan_owed(open_keys=set(rung)) is None,
                        a.max_goals)
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
     ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)

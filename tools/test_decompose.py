@@ -196,5 +196,20 @@ class RouterLane(unittest.TestCase):
         self.assertEqual((lane["backend"], lane["mode"], lane["file"]), ("groq-gptoss-decompose", "goal-closer", "decompose"))
         self.assertIs(decompose.lane_of(None), decompose.LANE)
 
+
+class WorkflowBudget(unittest.TestCase):
+    def test_the_steps_leave_room_to_publish_inside_the_job(self):
+        # Codex 20261105 refresh f3: refresh 90 + decompose 310 could exceed the job's 340, and a job timeout cancels the
+        # publish step too, losing every row; GitHub docs, jobs.<job_id>.timeout-minutes
+        import yaml
+        wf = yaml.safe_load((Path(__file__).resolve().parent.parent / ".github" / "workflows" / "decompose.yml").read_text())
+        job = wf["jobs"]["decompose"]
+        capped = {st["name"]: st.get("timeout-minutes") for st in job["steps"] if "name" in st}
+        for name in ("lean + mathlib cache + build", "decompose", "publish the ledger"):
+            self.assertTrue(capped.get(name), f"{name} has no timeout of its own (Codex f4)")
+        self.assertLessEqual(sum(t for t in capped.values() if t) + 5, job["timeout-minutes"],
+                             "every capped step at its limit still ends before the job does")
+
+
 if __name__ == "__main__":
     unittest.main()
