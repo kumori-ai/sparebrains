@@ -88,6 +88,17 @@ jobs:
           tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
           [ -s "$RUNNER_TEMP/kout/answers.jsonl" ] || { echo "::error::the batch completed with no answers"; exit 1; }
 
+      # One shared cache of Mathlib's packages, keyed on the toolchain and manifest, restored here and saved right after
+      # the build, before any untrusted Lean runs. lean-action's own cache is keyed on the commit (2.4 GB per commit); on
+      # 2026-11-05 four of them filled the repo's 10 GB and evicted every other cache, openproblems' data included.
+      - name: mathlib packages (restore)
+        if: inputs.phase == 'judge'
+        id: lakecache
+        uses: actions/cache/restore@v5
+        with:
+          path: .lake/packages
+          key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
       - name: lean + mathlib cache + build
         if: inputs.phase == 'judge'
         uses: leanprover/lean-action@v1.6.0
@@ -95,6 +106,14 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: true
+          use-github-cache: false
+
+      - name: mathlib packages (save, before untrusted Lean)
+        if: (inputs.phase == 'judge') && steps.lakecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .lake/packages
+          key: ${{ steps.lakecache.outputs.cache-primary-key }}
 
       - name: judge sandbox (untrusted Lean runs as another user)
         if: inputs.phase == 'judge'

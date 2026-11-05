@@ -42,6 +42,17 @@ jobs:
           python3 tools/leanstral.py generate --out "$RUNNER_TEMP/answers.jsonl" | tee "$RUNNER_TEMP/gen.txt"
           if [ -s "$RUNNER_TEMP/answers.jsonl" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=none" >> "$GITHUB_OUTPUT"; fi
 
+      # One shared cache of Mathlib's packages, keyed on the toolchain and manifest, restored here and saved right after
+      # the build, before any untrusted Lean runs. lean-action's own cache is keyed on the commit (2.4 GB per commit); on
+      # 2026-11-05 four of them filled the repo's 10 GB and evicted every other cache, openproblems' data included.
+      - name: mathlib packages (restore)
+        if: steps.gen.outputs.state == 'judge'
+        id: lakecache
+        uses: actions/cache/restore@v5
+        with:
+          path: .lake/packages
+          key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
       - name: lean + mathlib cache + build
         if: steps.gen.outputs.state == 'judge'
         uses: leanprover/lean-action@v1.6.0
@@ -49,6 +60,14 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: true
+          use-github-cache: false
+
+      - name: mathlib packages (save, before untrusted Lean)
+        if: (steps.gen.outputs.state == 'judge') && steps.lakecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .lake/packages
+          key: ${{ steps.lakecache.outputs.cache-primary-key }}
 
       - name: judge sandbox (untrusted Lean runs as another user)
         if: steps.gen.outputs.state == 'judge'

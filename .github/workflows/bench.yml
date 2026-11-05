@@ -42,6 +42,17 @@ jobs:
           ref: main
           persist-credentials: false
 
+      # One shared cache of Mathlib's packages, keyed on the toolchain and manifest, restored here and saved right after
+      # the build, before any untrusted Lean runs. lean-action's own cache is keyed on the commit (2.4 GB per commit); on
+      # 2026-11-05 four of them filled the repo's 10 GB and evicted every other cache, openproblems' data included.
+      - name: mathlib packages (restore)
+        if: steps.cap.outputs.over != '1'
+        id: lakecache
+        uses: actions/cache/restore@v5
+        with:
+          path: .lake/packages
+          key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
       - name: lean + mathlib cache + build
         if: steps.cap.outputs.over != '1'
         uses: leanprover/lean-action@v1.6.0
@@ -49,6 +60,14 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: true
+          use-github-cache: false
+
+      - name: mathlib packages (save, before untrusted Lean)
+        if: (steps.cap.outputs.over != '1') && steps.lakecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .lake/packages
+          key: ${{ steps.lakecache.outputs.cache-primary-key }}
 
       - name: judge sandbox (untrusted Lean runs as another user)
         if: steps.cap.outputs.over != '1'

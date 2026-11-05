@@ -553,6 +553,18 @@ def notify_owner(subject, text=''):
                     retry_on_5xx=False).get('sent', False)
 
 
+def brief_section(name, severity, headline, why='', todo='', detail='', link='', source_day=None):
+    """Today's section of Andy's 08:20 Kumori morning mail (scope brief.section), in place of a daily mail of your
+    own. severity: 'action' (needs Andy today), 'unreadable' (your check could not run: never report that as quiet),
+    'watch', or 'quiet'. Say what happened in headline, why it matters in why, what to do in todo; detail is plain
+    text. Stored per key label + name; posting again the same day replaces it. Returns the stored section name."""
+    body = {'name': name, 'severity': severity, 'headline': headline, 'why': why, 'todo': todo,
+            'detail': detail, 'link': link}
+    if source_day:
+        body['source_day'] = str(source_day)
+    return _request('POST', '/api/v1/brief/section', body, retry_on_5xx=False).get('section')
+
+
 def heartbeat(name):
     """Say this device is alive (scope heartbeat). If it stops for its threshold (26 h by default), kumori mails Andy
     once, and once more on the next ping. Hourly is plenty; the name is claimed by the first key that pings it."""

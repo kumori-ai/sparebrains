@@ -17,6 +17,29 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   spent. Also read: proved-but-not-spliced goals (3 of 11 before), a recoverable loss of its own.
   The 2026-11-05 daily report's "goal-closer idle" line counted decomposition's rows only; the rung now counts the
   prover's goal batches too, and the brief lists the rung as retired, which applies to the GPU arm, not to this.
+  *Run id:* 42060800492 was cancelled 4 min in so proved-but-unspliced goals keep their bodies (02b121fb); the bar's
+  run is **42061251877** on the same 37 goals. 42065250110 follows: the first run with the queue refresh (764308d),
+  which adds 111 typed goals and covers all 40 open problems instead of 21. Codex verdicts for the refresh were
+  20261105T161435960331Z, 20261105T161850619469Z (DISAGREE) and 20261105T162051146956Z (AGREE); 764308d's message
+  also lists four ids from other sessions' reviews, picked up by a glob over the shared ask directory.
+
+- **openproblems.bio is paused: its data bucket is disabled upstream, and our cached copy had been evicted.**
+  Run 42069436881 (scheduled, 764308d) failed downloading the task's data: `openproblems-data.s3.amazonaws.com`
+  answers 403 `<Code>AllAccessDisabled</Code>` "All access to this object has been disabled" for every object
+  (HEAD and ranged GET, 2026-11-05 ~17:00Z). The last good run was 41869521760 (11-04 16:39Z). No mirror was found
+  (deep-search; task_predict_modality's commits and issues since 10-25 say nothing). The run downloaded at all
+  because its cache (`openproblems.yml:92`) was gone: the repo sat at GitHub's 10 GB cache limit (10,031,946,691
+  bytes) with four lean-action caches of 2.4 GB, keyed on the commit (lean-action v1.6.0 action.yml:264-268), all
+  from 11-05, so every other cache had been evicted. Done: `openproblems.yml` and `openproblems_qualify.yml` (the two
+  scheduled ones) disabled with `gh workflow disable`, so neither fails and mails daily; the dispatch-only
+  `_pairs` and `_final` stay. **Re-enable both when a HEAD on the bucket's train_mod1.h5ad answers 200**
+  (`gh workflow enable`); the rung's idle days climb in the daily report meanwhile, and past 7 they are a Fix line.
+  Writing to the openproblems maintainers is public and Andy's call. The cache: all 12 Lean workflows now share one
+  `.lake/packages` cache keyed on lean-toolchain + lake-manifest.json (restore before lean-action, save right after
+  it, before untrusted Lean, under the build's own condition), with lean-action's cache off;
+  `tools/test_lean_cache.py` holds the shape. Codex 20261105T171732577070Z DISAGREE (f1: lean-action already saved
+  before untrusted Lean, so this preserves that ordering rather than adding it; f2: mirror the build's guards),
+  20261105T172047505109Z AGREE.
 
 ## 2026-11-04
 
