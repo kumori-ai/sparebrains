@@ -44,6 +44,10 @@ permissions:
 concurrency:
   group: leanstral       # one Mistral caller at a time: the Labs limit is 38 requests a minute for the org
   cancel-in-progress: false
+  # queue (2026-11-04): a new pending run waits behind the pending one instead of replacing it (GitHub docs, concurrency
+  # "queue: max", changelog 2026-05-07), so a leanstral dispatch can never cancel a waiting headtohead run (Codex
+  # 20261104T235532650614Z f2)
+  queue: max
 
 jobs:
   headtohead:

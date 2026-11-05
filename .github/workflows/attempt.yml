@@ -289,26 +289,7 @@ jobs:
         if: success() && steps.publish.outcome == 'success' && startsWith(steps.run.outputs.mode, 'relay')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          . tools/gh_retry.sh
-          since=$(date -u -d '130 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-          # leanstral shares its concurrency group with decompose and headtohead, where a new pending run cancels the
-          # waiting one: never start a round while any of the three is waiting.
-          # A plain sum, never a pipeline: a pipeline's status is its last read's, so an unreadable leanstral queue
-          # counted as empty and let a dispatch through (Codex 20261104T230348153659Z). A read that fails stops the step.
-          waiting=0
-          for g in leanstral decompose headtohead; do
-            n=$(gh_retry gh run list --workflow "$g.yml" --repo "$GITHUB_REPOSITORY" \
-                  --limit 5 --json status --jq '[.[] | select(.status == "pending" or .status == "queued" or .status == "waiting")] | length')
-            waiting=$((waiting + n))
-          done
-          echo "waiting in the leanstral group: $waiting"
-          for w in prover leanstral; do
-            if [ "$w" = leanstral ] && [ "$waiting" != "0" ]; then continue; fi
-            last=$(gh_retry gh run list --workflow "$w.yml" --repo "$GITHUB_REPOSITORY" --limit 1 --json createdAt --jq '.[0].createdAt // ""')
-            echo "$w: last run ${last:-none}"
-            if [ -z "$last" ] || [[ "$last" < "$since" ]]; then gh workflow run "$w.yml" --ref main; echo "started $w"; fi
-          done
+        run: tools/start_dropped_lanes.sh
 
       # Only a ladder job hands stage 2 the next problem (2026-10-08: a retro canary, mode 'retro', dispatched a relay).
       # Stage 2 rides the ladder's own chain: GitHub fired 8 of 24 scheduled events in two days and
@@ -319,3 +300,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run attempt.yml --ref main -f relay_target=next -f ladder=false
+
+  # The lane backup rides the ladder job, which is alive nearly all day, where GitHub's cron is not (2026-11-04: from
+  # 09:42 to 15:29 it fired one scheduled run repo-wide while ladder job 41801282472 ran throughout). Its own job: a
+  # dispatch-only token, and it never shares a runner with the untrusted Lean the attempt job runs.
+  lanes:
+    if: github.event.schedule == '0 */2 * * *' || (github.event_name == 'workflow_dispatch' && inputs.ladder && !inputs.fixer_target && !inputs.relay_target)
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      actions: write     # gh workflow run prover/leanstral, and read this run's jobs
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: start dropped lanes every 20 minutes while the ladder job runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/lanes_heartbeat.sh
