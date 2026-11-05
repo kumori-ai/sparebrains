@@ -54,6 +54,14 @@ jobs:
       # The daily school report (tools/daily_report.py): the last 24 hours by grade, lane and tool, as
       # ledger/daily/<day>.{json,md}; the issues workflow posts the same text on the log issue and kumori's
       # morning mail renders the JSON, so the public log and the mail are one text from one source.
+      # one ranged GET per outside data source a rung needs (tools/source_probe.py; DECISIONS 2026-11-05), so the report
+      # below says when one went away and when it came back
+      - name: outside data sources
+        if: steps.gate.outputs.go == '1'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: python3 tools/source_probe.py | tee -a "$RUNNER_TEMP/out.txt"
+
       - name: today's school report
         if: steps.gate.outputs.go == '1'
         run: python3 tools/daily_report.py | tee -a "$RUNNER_TEMP/out.txt"

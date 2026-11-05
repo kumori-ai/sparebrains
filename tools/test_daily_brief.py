@@ -173,6 +173,20 @@ class Brief(unittest.TestCase):
                             for f in b["fixes"]), b["fixes"])
         self.assertTrue(any("ministral-8b (90 refusals, 18 targets)" in i for i in b["ideas"]), b["ideas"])
 
+    def op_with(self, source):
+        t = copy.deepcopy(TODAY)
+        next(r for r in t["rungs"] if r["rung"] == "openproblems.bio")["source"] = source
+        return brief(t)["fixes"]
+
+    def test_a_data_source_down_is_a_fix_and_back_says_what_to_do(self):
+        down = self.op_with({"ok": False, "at": "2026-11-06T06:40:00+00:00", "code": "AllAccessDisabled",
+                             "down_since": "2026-11-06T06:40:00+00:00"})
+        self.assertTrue(any("down since 2026-11-06 (AllAccessDisabled)" in f for f in down), down)
+        back = self.op_with({"ok": True, "at": "2026-11-09T06:40:00+00:00", "back_since": "2026-11-09T06:40:00+00:00",
+                             "was_down_since": "2026-11-06T06:40:00+00:00"})
+        self.assertTrue(any("answers again since 2026-11-09" in f and "re-enable" in f for f in back), back)
+        self.assertFalse(any("data source" in f for f in self.op_with({"ok": True, "at": "x"})))
+
     def test_markdown_puts_the_brief_first(self):
         md = daily_brief.render(brief())
         self.assertTrue(md.index("**Wins**") < md.index("**Fix**") < md.index("**Ideas**"))

@@ -149,6 +149,15 @@ class DailyReport(unittest.TestCase):
         self.assertEqual(r["goal batches (GPU)"]["last"], "2026-10-28T06:00:00+00:00")
         self.assertEqual(r["decompose"]["last"], "2026-10-27T06:00:00+00:00", "its own rung: idle stays visible")
 
+    def test_a_down_data_source_shows_on_the_openproblems_rung(self):
+        write(self.ledger / "sources" / "openproblems.jsonl", [
+            {"at": "2026-10-27T06:40:00+00:00", "ok": True, "status": 206, "code": None},
+            {"at": "2026-10-28T06:40:00+00:00", "ok": False, "status": 403, "code": "AllAccessDisabled"}])
+        d = daily_report.build(self.ledger, NOW)
+        r = {x["rung"]: x for x in d["rungs"]}
+        self.assertEqual(r["openproblems.bio"]["source"]["down_since"], "2026-10-28T06:40:00+00:00")
+        self.assertIn("DATA SOURCE DOWN since 2026-10-28 (AllAccessDisabled)", daily_report.render(d))
+
     def test_markdown_carries_the_headline_and_every_grade(self):
         md = daily_report.render(self.report)
         self.assertIn("**2 first-time solves**", md)

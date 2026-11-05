@@ -127,6 +127,13 @@ def brief(d, history):
         if idle is not None and idle > IDLE_FIX_DAYS:
             fixes.append(f"{r['rung']} idle {idle} days: restart it or retire it from the report.")
         if r["rung"] == "openproblems.bio":
+            src = r.get("source") or {}
+            if src and not src["ok"]:
+                fixes.append(f"openproblems.bio's data source is down since {src['down_since'][:10]} ({src['code']}); "
+                             "its two scheduled workflows stay disabled (DECISIONS 2026-11-05).")
+            elif src.get("back_since"):
+                fixes.append(f"openproblems.bio's data source answers again since {src['back_since'][:10]}: archive the "
+                             "data with checksums, then re-enable openproblems.yml and openproblems_qualify.yml.")
             rounds = r.get("scored", 0) + r.get("crashed", 0)
             if rounds and r.get("crashed", 0) / rounds >= CRASH_FIX:
                 fixes.append(f"openproblems.bio: {r['crashed']} crashed beside {r['scored']} scored ({_pct(r['crashed'], rounds)}% of rounds).")

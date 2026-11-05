@@ -11,7 +11,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
     python3 tools/daily_report.py --now 2026-10-28T12:00:00+00:00 --out /tmp/daily
 """
 import argparse, json, subprocess, sys
-import daily_brief, ledger_files
+import daily_brief, ledger_files, source_probe
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -243,7 +243,8 @@ def rungs(ledger, rows, now, since):
                 "scored": len(scored), "crashed": sum("error" in r for r in ev), "qualify_runs": len(quals),
                 "qualify": {"at": q["at"], "passed": bool(q["verdict"].get("passed")), "sites": q["verdict"].get("sites"),
                             "mean_pearson_delta": q["verdict"].get("mean_pearson_delta")} if q and q.get("verdict") else None,
-                "drift": {"at": dr["at"], "main": dr["main"][:12], "status": dr["status"]} if dr else None})
+                "drift": {"at": dr["at"], "main": dr["main"][:12], "status": dr["status"]} if dr else None,
+                "source": source_probe.state(source_probe.read("openproblems", Path(ledger) / "sources"))})
     return out
 
 
@@ -360,6 +361,11 @@ def render(d):
             if dr and dr["status"] != "current":
                 bar += (f"; upstream main {dr['main']} {'FAILS' if dr['status'] == 'fails' else 'passes'} the reproduce gate"
                         f" ({dr['at'][:10]}), the pin {'stays' if dr['status'] == 'fails' else 'can move'}")
+            src = r.get("source")
+            if src and not src["ok"]:
+                bar += f"; DATA SOURCE DOWN since {src['down_since'][:10]} ({src['code']})"
+            elif src and src.get("back_since"):
+                bar += f"; data source back since {src['back_since'][:10]}"
             extra = f" ({r['scored']} candidates scored, {r['crashed']} crashed; {bar})"
         if r["rung"] == "formal-conjectures":
             extra = f" ({r['accepts_ever']} accepts ever)"

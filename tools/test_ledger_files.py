@@ -14,7 +14,7 @@ class LedgerFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             for p in ("minif2f/test/1.jsonl", "mil/2.jsonl", "speed/run-3.jsonl", "speed/x/4.jsonl", "speedy/5.jsonl",
-                      "prover-beats/tpu-20261023T0100.jsonl", "goal-checks/run-1.jsonl"):   # a statement check is no try
+                      "prover-beats/tpu-20261023T0100.jsonl", "goal-checks/run-1.jsonl", "sources/openproblems.jsonl"):   # a statement check is no try
                 (root / p).parent.mkdir(parents=True, exist_ok=True)
                 (root / p).write_text("{}\n")
             got = sorted(str(f.relative_to(root)) for f in ledger_files.try_files(root))
