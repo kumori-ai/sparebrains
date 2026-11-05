@@ -1,0 +1,1 @@
+{"run_id": "41957652960", "run_attempt": "1", "ts": "2026-11-05T02:51:58+00:00", "problem": "minif2f/test/algebra_abpbcpcageq3_sumaonsqrtapbgeq3onsqrt2", "calls": 45, "accepts": 0, "relay_rows": 28, "woken_by": {"kind": "model", "model": "meganova-ai/manta-flash-1.0"}, "backed_off": true}
