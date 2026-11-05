@@ -23,6 +23,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   20261105T161435960331Z, 20261105T161850619469Z (DISAGREE) and 20261105T162051146956Z (AGREE); 764308d's message
   also lists four ids from other sessions' reviews, picked up by a glob over the shared ask directory.
 
+  *Read (run 42061251877, 16:07-21:18 UTC):* 39 of its 40 goals finished, 94 Leanstral asks; **4 goals solved on 2
+  problems, mathd_numbertheory_495 and mathd_numbertheory_711, both first-time solves: the bar (at least 1) is met.**
+  Both proofs were then lost: the step hit its 310-minute cap before the end-of-run publish, and the rows kept no
+  body for a solve, so neither reached verified/. Fixed the same day (decompose `publish` step, rows keep body + goal +
+  sketches, accepted proofs written before their ledger row and atomically; Codex 20261105T212221436329Z and
+  20261105T212508667868Z DISAGREE, 20261105T223723974802Z AGREE). The 4 goals count as untried again and run 42124394793
+  (25 goals, with the refreshed queue) asks them first among the rest. 42065250110 was cancelled during its refresh.
+  The cap: one goal took 5,057 s alone; 40 goals do not fit 220 minutes, so runs ask 25.
+  Corrections to this day's commit messages: def6d109 and 764308d list Codex ids picked up by a glob over the shared
+  ask directory (only the ids named in this entry are this work's); the publish fix's message names its first verdict
+  20261105T212226, which is 20261105T212221436329Z.
+
 - **openproblems.bio is paused: its data bucket is disabled upstream, and our cached copy had been evicted.**
   Run 42069436881 (scheduled, 764308d) failed downloading the task's data: `openproblems-data.s3.amazonaws.com`
   answers 403 `<Code>AllAccessDisabled</Code>` "All access to this object has been disabled" for every object
@@ -34,7 +46,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   scheduled ones) disabled with `gh workflow disable`, so neither fails and mails daily; the dispatch-only
   `_pairs` and `_final` stay. **Re-enable both when a HEAD on the bucket's train_mod1.h5ad answers 200**
   (`gh workflow enable`); the rung's idle days climb in the daily report meanwhile, and past 7 they are a Fix line.
-  Writing to the openproblems maintainers is public and Andy's call. The cache: all 12 Lean workflows now share one
+  Andy said yes to writing to the maintainers: openproblems-bio/task_predict_modality#85 (2026-11-05) asks whether
+  the outage is known and for an archive or checksums of the exact processed split. A daily probe
+  (tools/source_probe.py, in retro.yml) records the bucket's answer in ledger/sources/; the brief shows it. Checkpoint
+  2026-11-12 (Codex 20261105T172845378225Z): with no recovery route, a rebuild is accepted only if knnr_py reproduces the
+  recorded reference prediction digest (pred_fp e88684e2..., 91 ledger rows) byte for byte, else a separately
+  versioned benchmark. The cache: all 12 Lean workflows now share one
   `.lake/packages` cache keyed on lean-toolchain + lake-manifest.json (restore before lean-action, save right after
   it, before untrusted Lean, under the build's own condition), with lean-action's cache off;
   `tools/test_lean_cache.py` holds the shape. Codex 20261105T171732577070Z DISAGREE (f1: lean-action already saved
