@@ -222,8 +222,14 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, o
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "sha": g["sha"],
                "target_set": g["target_set"], "target": g["target"], "kind": goal_closer.kind(g["goal"]),
                "restates": g.get("restates"), "asks": budget["asks"], "levels": log, "effort": effort,
-               "outcome": "solved" if r and r["verdict"] == "accept" else ("goal proved, splice failed" if r else "failed"),
+               "outcome": "solved" if r and r["verdict"] == "accept" else
+                          ("goal proved, splice failed" if r and r.get("stage") != "goal" else "failed"),
                "seconds": round(time.monotonic() - t0, 1)}
+        if r:
+            row["stage"] = r.get("stage")
+        if r and r["verdict"] != "accept" and r.get("stage") != "goal":
+            # the goal is proved: keep its proof for a later splice (2026-11-05: imo_1974_p3's goal, proved 10-21, was lost)
+            row.update(body=body, splice_output=(r.get("output") or "")[-600:])
         if on_row:
             on_row(row)
         return row, ((g, body) if r and r["verdict"] == "accept" else None)

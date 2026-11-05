@@ -95,6 +95,34 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(seen, ["a", "b"], "each row arrives before the run ends, so a timeout loses none")
         self.assertEqual([r["sha"] for r in rows], ["a", "b"])
 
+    def run_one_with_close(self, close_result):
+        goals = [{"sha": "a", "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by\n  sorry"}]
+        with mock.patch.object(decompose, "decompose", return_value="  trivial\n"), \
+                mock.patch.object(decompose.goal_closer, "close", return_value=close_result):
+            rows, solves = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask=None, run_lean=None,
+                                         judge_text=None, jobs=1)
+        return rows[0], solves
+
+    def test_a_proved_goal_that_does_not_splice_keeps_its_body_and_why(self):
+        # 2026-11-05: imo_1974_p3's goal was proved 10-21 and its body was lost; the row said only 'splice failed'
+        row, solves = self.run_one_with_close({"verdict": "reject", "stage": "splice", "output": "no sketch had exactly one hole"})
+        self.assertEqual(row["outcome"], "goal proved, splice failed")
+        self.assertEqual(row["stage"], "splice")
+        self.assertEqual(row["body"], "  trivial\n", "the proof of the goal is kept for a later splice")
+        self.assertIn("exactly one hole", row["splice_output"])
+        self.assertEqual(solves, [])
+
+    def test_a_body_lean_rejects_alone_is_a_failure_not_a_proved_goal(self):
+        row, _ = self.run_one_with_close({"verdict": "reject", "stage": "goal", "output": "unsolved goals"})
+        self.assertEqual(row["outcome"], "failed")
+        self.assertNotIn("body", row)
+
+    def test_a_solve_keeps_no_body_in_the_row(self):   # the proof is published through judge_goals, not duplicated here
+        row, solves = self.run_one_with_close({"verdict": "accept", "stage": "problem", "candidate": "c", "output": ""})
+        self.assertEqual(row["outcome"], "solved")
+        self.assertNotIn("body", row)
+        self.assertEqual(len(solves), 1)
+
     def test_reachable_problems_go_first_and_the_bar_joins_only_when_allowed(self):
         q = [{"sha": s, "target_set": "minif2f/test", "target": t, "file_ok": True}
              for s, t in (("g1", "imo_a"), ("g2", "amc_b"), ("g3", "imo_c"), ("g4", "imo_a"))]
