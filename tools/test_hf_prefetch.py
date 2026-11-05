@@ -46,7 +46,9 @@ class Prefetch(unittest.TestCase):
         self.assertIn("no new bytes", reason)
 
     def test_a_child_that_exits_non_zero_is_restarted_too(self):
-        ok, restarts, reason = self.run_it("import sys\nsys.exit(3)", max_restarts=1)
+        # stall_s far above a Python start: under full-suite load a child took longer than 0.6 s to exit, was
+        # killed as stalled, and the reason read "no new bytes" (flaked 2026-11-04); this test is about the exit
+        ok, restarts, reason = self.run_it("import sys\nsys.exit(3)", max_restarts=1, stall_s=30)
         self.assertEqual((ok, restarts), (False, 1))
         self.assertIn("exit 3", reason)
 
