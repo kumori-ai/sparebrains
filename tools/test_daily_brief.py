@@ -67,12 +67,15 @@ class Brief(unittest.TestCase):
         self.assertFalse(any("before the kernel" in f for f in brief(t)["fixes"]))
 
     def test_a_rescue_that_saves_almost_nothing_is_a_fix(self):
-        self.assertTrue(any("1 of 318 (0.3%)" in f for f in brief()["fixes"]), brief()["fixes"])
+        fixes = brief()["fixes"]
+        self.assertFalse(any(f.startswith("Edge-cut") for f in fixes), "not a fix of its own: the cause is upstream")
+        self.assertTrue(any(f.startswith("Lost before") and "rescue saved 1 of 318" in f and "kumori's routing" in f
+                            for f in fixes), fixes)
 
     def test_idle_and_crashing_rungs_are_fixes(self):
         fixes = " | ".join(brief()["fixes"])
         self.assertNotIn("goal-closer", fixes, "retired on purpose is not a fix (DECISIONS.md, 2026-11-02)")
-        self.assertTrue(any("goal-closer" in l and "retired 2026-11-02" in l for l in brief()["losses"]))
+        self.assertFalse(any("goal-closer" in x for x in brief()["losses"] + brief()["wins"]), "nor a daily loss line")
         t = copy.deepcopy(TODAY)
         t["rungs"].append({"rung": "decompose", "idle_days": 14.9})
         self.assertIn("decompose idle 14.9 days", " ".join(brief(t)["fixes"]))

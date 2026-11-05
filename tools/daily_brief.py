@@ -22,7 +22,7 @@ LIFT_MIN = 10
 COMPARABLE = 0.6         # the smaller week must have tried at least this share of the larger week's problems
 BEST_MIN = 10            # answered tries before a lane can be named the day's most-accepts lane
 HISTORY_DAYS = 7
-# Rungs stopped on purpose: listed with the decision, never as a fix to restart. A rung comes off this list when it runs again.
+# Rungs stopped on purpose: never a fix to restart, never a daily line. Take one off this list when it runs again.
 RETIRED = {"goal-closer": "retired 2026-11-02: its bar (3 first-time solves in 7 days) was missed with 1, and the Kaggle "
                           "GPU went back to whole problems (DECISIONS.md, kumori #461)"}
 HEADLINE_MAX = 70        # kumori prefixes "sparebrAIns: "; past this the optional parts drop, least important first
@@ -108,8 +108,12 @@ def brief(d, history):
                         f"{_pct(LOST_FIX, 1)}% or more." if streak > 1 else "."))
         problems.append((2, f"{_pct(lost, t['judged'])}% lost pre-kernel"))
     rc = t.get("recovered") or {}
-    if rc.get("attempted", 0) >= RESCUE_MIN and rc.get("answers", 0) / rc["attempted"] < RESCUE_FLOOR:
-        fixes.append(f"Edge-cut rescue saved {rc.get('answers', 0)} of {rc['attempted']} ({100 * rc.get('answers', 0) / rc['attempted']:.1f}%).")
+    if fixes and fixes[-1].startswith("Lost before") and rc.get("attempted", 0) >= RESCUE_MIN \
+            and rc.get("answers", 0) / rc["attempted"] < RESCUE_FLOOR:
+        # #597's 2026-11-03 read: a failed rescue's saved result is the upstream timeout itself, so this is the free
+        # upstreams' latency behind kumori's router, not a fault in this repo's client
+        fixes[-1] = fixes[-1][:-1] + (f"; the edge-cut rescue saved {rc.get('answers', 0)} of {rc['attempted']}, because "
+                                      "the saved results were the upstream timeouts themselves (kumori's routing).")
 
     for r in d.get("rungs") or []:
         idle = r.get("idle_days")
@@ -118,10 +122,8 @@ def brief(d, history):
                 fixes.append(f"The ladder has been idle {idle} days.")
                 problems.append((1, f"ladder idle {idle}d"))
             continue
-        if r["rung"] in RETIRED:
-            if idle is not None and idle > 1:            # running again: it reads as any other rung
-                losses.append(f"{r['rung']} idle {idle} days, {RETIRED[r['rung']]}.")
-                continue
+        if r["rung"] in RETIRED:                         # the details table still lists it; the brief stays quiet
+            continue
         if idle is not None and idle > IDLE_FIX_DAYS:
             fixes.append(f"{r['rung']} idle {idle} days: restart it or retire it from the report.")
         if r["rung"] == "openproblems.bio":
