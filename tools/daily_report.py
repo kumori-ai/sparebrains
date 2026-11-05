@@ -11,7 +11,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
     python3 tools/daily_report.py --now 2026-10-28T12:00:00+00:00 --out /tmp/daily
 """
 import argparse, json, subprocess, sys
-import ledger_files
+import daily_brief, ledger_files
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -313,6 +313,8 @@ def render(d):
     out += [f"**{d['day']}** ({span}): **{len(d['first_solves'])} first-time solves**, "
             f"{t['accepted']} accepts from {t['answered']} answered tries by {t['lanes']} lanes on {t['problems']} problems. "
             f"{t['solved_ever']} problems solved ever, {t['open']} open.", ""]
+    if d.get("brief"):                                   # what changed against the prior week (tools/daily_brief.py)
+        out += [daily_brief.render(d["brief"]), "**The details**", ""]
     if t.get("errors"):
         out += ["Lost before the kernel: " + ", ".join(f"{n} {k}" for k, n in sorted(t["errors"].items(), key=lambda x: -x[1])), ""]
     if t.get("recovered"):
@@ -372,6 +374,9 @@ def main(argv=None):
         print(f"::warning::daily report counted by row time, not arrival: {d['window']['reason']}")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    earlier = [f for f in sorted(out.glob("*.json")) if f.stem < d["day"]]          # filter first: a backfill reads its own week
+    history = [json.loads(f.read_text()) for f in earlier[-daily_brief.HISTORY_DAYS:] if f.read_text().strip()]
+    d["brief"] = daily_brief.brief(d, history)
     (out / f"{d['day']}.json").write_text(json.dumps(d, indent=1, sort_keys=True) + "\n")
     (out / f"{d['day']}.md").write_text(render(d))
     print(f"wrote {out / d['day']}.{{json,md}}: {len(d['first_solves'])} first-time solves, {d['totals']['accepted']} accepts")
