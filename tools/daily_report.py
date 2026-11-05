@@ -215,12 +215,17 @@ def rungs(ledger, rows, now, since):
     last = {}
     for r in rows:
         last[r["mode"]] = max(last.get(r["mode"], ""), r["ts"])
-        if r.get("try_mode") == "goal-closer":          # the prover's goal batches are goal-closer tries too (#461)
-            last["goal-closer"] = max(last.get("goal-closer", ""), r["ts"])
+        # two tools write goal-closer tries: decomposition (Leanstral, mode goal-closer, backend *-decompose) and the
+        # prover's GPU goal batches (try_mode goal-closer, retired 2026-11-02); one rung each, so one can't hide the other
+        if r["mode"] == "goal-closer" and str(r.get("backend", "")).endswith("-decompose"):
+            last["decompose"] = max(last.get("decompose", ""), r["ts"])
+        if r.get("try_mode") == "goal-closer":
+            last["goal batches (GPU)"] = max(last.get("goal batches (GPU)", ""), r["ts"])
     out = [{"rung": "competition math (ladder)", "last": last.get("ladder-x3"), "idle_days": _days(now, last.get("ladder-x3"))},
            {"rung": "relay", "last": last.get("relay"), "idle_days": _days(now, last.get("relay"))},
            {"rung": "prover", "last": last.get("prover"), "idle_days": _days(now, last.get("prover"))},
-           {"rung": "goal-closer", "last": last.get("goal-closer"), "idle_days": _days(now, last.get("goal-closer"))}]
+           {"rung": "decompose", "last": last.get("decompose"), "idle_days": _days(now, last.get("decompose"))},
+           {"rung": "goal batches (GPU)", "last": last.get("goal batches (GPU)"), "idle_days": _days(now, last.get("goal batches (GPU)"))}]
     fc = _load_jsonl(Path(ledger) / "fc")
     fc_last = max((_ts(r) for r in fc), default=None)
     out.append({"rung": "formal-conjectures", "last": fc_last, "idle_days": _days(now, fc_last),

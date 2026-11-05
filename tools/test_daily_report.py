@@ -138,13 +138,16 @@ class DailyReport(unittest.TestCase):
         self.assertAlmostEqual(r["formal-conjectures"]["idle_days"], 6.4, places=1)
         self.assertTrue(self.report["relay"]["backed_off"])
 
-    def test_the_provers_goal_batches_count_as_goal_closer_activity(self):
+    def test_decompose_and_the_gpu_goal_batches_are_separate_rungs(self):
         # 2026-11-05: the rung read only decompose's mode=goal-closer rows (last 10-21) and showed 14.9 days idle while
         # the prover's goal batches (try_mode goal-closer) ran daily to 11-02
         write(self.ledger / "minif2f" / "test" / "2.jsonl", [dict(row("2026-10-28T06:00:00+00:00", "hard", "reject",
                                                                      mode="prover"), try_mode="goal-closer")])
+        write(self.ledger / "minif2f" / "test" / "3.jsonl", [row("2026-10-27T06:00:00+00:00", "hard2", "reject",
+                                                                 mode="goal-closer", backend="leanstral-decompose")])
         r = {x["rung"]: x for x in daily_report.build(self.ledger, NOW)["rungs"]}
-        self.assertEqual(r["goal-closer"]["last"], "2026-10-28T06:00:00+00:00")
+        self.assertEqual(r["goal batches (GPU)"]["last"], "2026-10-28T06:00:00+00:00")
+        self.assertEqual(r["decompose"]["last"], "2026-10-27T06:00:00+00:00", "its own rung: idle stays visible")
 
     def test_markdown_carries_the_headline_and_every_grade(self):
         md = daily_report.render(self.report)

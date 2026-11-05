@@ -21,7 +21,8 @@ TODAY = {"day": "2026-11-05", "first_solves": [],
                    {"lane": "agnes", "size_b": None, "week": "2026-11-02", "targets": 20, "accepted": 13, "refused": 0,
                     "prev_week": "2026-10-26", "prev_targets": 26, "prev_accepted": 12}],
          "kaggle": {"finished": [{"batch": "b1", "answers": 56}], "failed": []},
-         "rungs": [{"rung": "competition math (ladder)", "idle_days": 0.1}, {"rung": "goal-closer", "idle_days": 14.9},
+         "rungs": [{"rung": "competition math (ladder)", "idle_days": 0.1}, {"rung": "goal batches (GPU)", "idle_days": 3.0},
+                   {"rung": "decompose", "idle_days": 14.9},
                    {"rung": "formal-conjectures", "idle_days": 3.1, "accepts_ever": 0},
                    {"rung": "openproblems.bio", "idle_days": 0.3, "scored": 144, "crashed": 138}]}
 # (day, accepted, answered, judged, lost) for 10-29..11-04: rates 21 24 23 22 19 29 15, median 22%; lost 23..34%
@@ -74,11 +75,9 @@ class Brief(unittest.TestCase):
 
     def test_idle_and_crashing_rungs_are_fixes(self):
         fixes = " | ".join(brief()["fixes"])
-        self.assertNotIn("goal-closer", fixes, "retired on purpose is not a fix (DECISIONS.md, 2026-11-02)")
-        self.assertFalse(any("goal-closer" in x for x in brief()["losses"] + brief()["wins"]), "nor a daily loss line")
-        t = copy.deepcopy(TODAY)
-        t["rungs"].append({"rung": "decompose", "idle_days": 14.9})
-        self.assertIn("decompose idle 14.9 days", " ".join(brief(t)["fixes"]))
+        self.assertNotIn("goal batches", fixes, "retired on purpose is not a fix (DECISIONS.md, 2026-11-02)")
+        self.assertFalse(any("goal batches" in x for x in brief()["losses"] + brief()["wins"]), "nor a daily loss line")
+        self.assertIn("decompose idle 14.9 days", fixes, "a tool stopped by accident still is one")
         self.assertIn("138 crashed beside 144 scored (49% of rounds)", fixes)   # disjoint sets in rungs(): errors vs rmse rows
         self.assertNotIn("competition math", fixes)           # 0.1 days idle is running
 

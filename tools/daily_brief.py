@@ -23,7 +23,7 @@ COMPARABLE = 0.6         # the smaller week must have tried at least this share 
 BEST_MIN = 10            # answered tries before a lane can be named the day's most-accepts lane
 HISTORY_DAYS = 7
 # Rungs stopped on purpose: never a fix to restart, never a daily line. Take one off this list when it runs again.
-RETIRED = {"goal-closer": "retired 2026-11-02: its bar (3 first-time solves in 7 days) was missed with 1, and the Kaggle "
+RETIRED = {"goal batches (GPU)": "retired 2026-11-02: its bar (3 first-time solves in 7 days) was missed with 1, and the Kaggle "
                           "GPU went back to whole problems (DECISIONS.md, kumori #461)"}
 HEADLINE_MAX = 70        # kumori prefixes "sparebrAIns: "; past this the optional parts drop, least important first
 

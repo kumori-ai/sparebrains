@@ -3,6 +3,21 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-05
+
+- **Decomposition goes back on the open problems, and its bar is written before the read.** Solved has sat at 338
+  since 11-02 with 40 open. The goal closer's GPU arm was retired 11-02 (below), but decomposition (Leanstral writes a
+  goal as `have` steps, Lean closes what it can, 2 levels, `tools/decompose.py`) is a different tool and the best
+  measured one on these problems: 3 runs 10-19..10-21, 207 goals, 8 solved, 3 more proved that did not splice
+  (`ledger/decompose/`), and 4 first-time solves in its first run, at $0. It stopped only because it is dispatched by
+  hand and nobody dispatched it after 10-21, though its gate on the bar's problems opened 10-24. The queue holds 37
+  goals it never tried, all readable, 21 of them real steps, on 21 of the 40 open problems. Run 42060800492
+  (max_goals 40, Leanstral). **Bar: at least 1 first-time solve among the 40.** The 10-19..21 rate (8 of 207 goals,
+  3.9%) predicts about 1.4 goals proved of 37, so 0 is a plausible miss and says the queue's goals, not the tool, are
+  spent. Also read: proved-but-not-spliced goals (3 of 11 before), a recoverable loss of its own.
+  The 2026-11-05 daily report's "goal-closer idle" line counted decomposition's rows only; the rung now counts the
+  prover's goal batches too, and the brief lists the rung as retired, which applies to the GPU arm, not to this.
+
 ## 2026-11-04
 
 - **C2 R5 built: a registered experiment is a manifest, a dispatch record per arm, and a freeze (kumori #477).**
