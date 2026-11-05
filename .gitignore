@@ -18,3 +18,4 @@ __pycache__/
 # Scratch + antiquated (never committed)
 _oneoff/
 _antiquated*/
+.verified-*.partial

@@ -117,11 +117,53 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(row["outcome"], "failed")
         self.assertNotIn("body", row)
 
-    def test_a_solve_keeps_no_body_in_the_row(self):   # the proof is published through judge_goals, not duplicated here
+    def test_a_solve_keeps_its_body_in_the_row(self):
+        # 2026-11-05 run 42061251877: mathd_numbertheory_495 and _711 were kernel-accepted at 16:23 and 16:58, the step
+        # hit its 310 min cap before the end-of-run publish, and with no body in the rows both proofs were lost
         row, solves = self.run_one_with_close({"verdict": "accept", "stage": "problem", "candidate": "c", "output": ""})
         self.assertEqual(row["outcome"], "solved")
-        self.assertNotIn("body", row)
+        self.assertEqual(row["body"], "  trivial\n")
+        self.assertEqual((row["goal"], row["sketches"]), ("theorem sb_goal : True := by\n  sorry", []),
+                         "the row alone can publish it later")
         self.assertEqual(len(solves), 1)
+
+    def test_a_solved_goal_is_not_tried_so_a_lost_solve_is_asked_again(self):
+        rows = [{"sha": "s", "outcome": "solved", "levels": [{"outcome": "proved"}]},
+                {"sha": "f", "outcome": "failed", "levels": [{"outcome": "x"}]}]
+        self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"f"})
+        rows.insert(0, {"sha": "s", "outcome": "failed", "levels": [{"outcome": "x"}]})   # Codex f3: a solve wins
+        self.assertEqual(decompose.tried_by(rows, decompose.LANE["backend"]), {"f"})
+
+    def test_a_solve_on_a_goal_outside_the_stored_queue_still_publishes(self):   # Codex f2: the temp queue is gone
+        rows = [{"sha": "s", "target_set": "minif2f/test", "target": "t", "outcome": "solved", "body": "  trivial\n",
+                 "goal": "theorem sb_goal : True := by", "sketches": ["x"]}]
+        seen = {}
+        def judge_goals(answers, prover_rows, goals, **kw):
+            seen.update(goals=goals)
+            return {"accept": 1}
+        self.assertEqual(decompose.publish_rows(rows, {}, judge_goals=judge_goals, prover_rows=[], judge_text=None,
+                                                record=None, lane=decompose.LANE), {"accept": 1})
+        self.assertEqual(seen["goals"]["s"]["sketches"], ["x"])
+
+    def test_publish_takes_the_lane_the_rows_were_written_under(self):
+        self.assertEqual(decompose.lane_from_rows([{"backend": decompose.LANE["backend"]}], "auto"), decompose.LANE)
+        self.assertEqual(decompose.lane_from_rows([{"backend": "groq-x-decompose"}], "auto")["model"], "groq-x")
+
+    def test_publish_rebuilds_the_solves_from_the_rows(self):
+        goal = {"sha": "s", "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by", "sketches": ["x"]}
+        rows = [{"sha": "s", "target_set": "minif2f/test", "target": "t", "outcome": "solved", "body": "  trivial\n"},
+                {"sha": "f", "target_set": "minif2f/test", "target": "u", "outcome": "failed"},
+                {"sha": "lost", "target_set": "minif2f/test", "target": "v", "outcome": "solved"}]   # no body: nothing to publish
+        seen = {}
+        def judge_goals(answers, prover_rows, goals, **kw):
+            seen.update(answers=answers, goals=goals)
+            return {"accept": len(answers)}
+        out = decompose.publish_rows(rows, {"s": goal}, judge_goals=judge_goals, prover_rows=[], judge_text=None,
+                                     record=None, lane=decompose.LANE)
+        self.assertEqual(out, {"accept": 1})
+        self.assertEqual([a["goal"] for a in seen["answers"]], ["s"])
+        self.assertIn("  trivial", seen["answers"][0]["text"])
+        self.assertEqual(list(seen["goals"]), ["s"])
 
     def test_reachable_problems_go_first_and_the_bar_joins_only_when_allowed(self):
         q = [{"sha": s, "target_set": "minif2f/test", "target": t, "file_ok": True}
@@ -207,6 +249,7 @@ class WorkflowBudget(unittest.TestCase):
         capped = {st["name"]: st.get("timeout-minutes") for st in job["steps"] if "name" in st}
         for name in ("lean + mathlib cache + build", "decompose", "publish the ledger"):
             self.assertTrue(capped.get(name), f"{name} has no timeout of its own (Codex f4)")
+        self.assertTrue(capped.get("publish the solves"), "solves publish in a step of their own, after a timeout too")
         self.assertLessEqual(sum(t for t in capped.values() if t) + 5, job["timeout-minutes"],
                              "every capped step at its limit still ends before the job does")
 

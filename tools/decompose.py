@@ -166,7 +166,10 @@ def tried_by(rows, backend):
     A goal whose every ask came back with no answer was not tried (2026-10-20: 45 of Leanstral's 83, mostly the
     40,000-token cap)."""
     blank = lambda r: r.get("levels") and all(str(e.get("stopped", "")).startswith("no answer") for e in r["levels"])
-    return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend and not blank(r)}
+    # a solved goal is not 'tried': its problem, if still open, lost the proof (2026-11-05, run 42061251877), so ask again
+    mine = [r for r in rows if r.get("backend", LANE["backend"]) == backend]
+    solved = {r["sha"] for r in mine if r.get("outcome") == "solved"}          # a solve wins over any failed row
+    return {r["sha"] for r in mine if not blank(r)} - solved
 
 
 def pick_lane(live, rows, now_iso):
@@ -227,9 +230,13 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, o
                "seconds": round(time.monotonic() - t0, 1)}
         if r:
             row["stage"] = r.get("stage")
-        if r and r["verdict"] != "accept" and r.get("stage") != "goal":
-            # the goal is proved: keep its proof for a later splice (2026-11-05: imo_1974_p3's goal, proved 10-21, was lost)
-            row.update(body=body, splice_output=(r.get("output") or "")[-600:])
+        if r and r.get("stage") != "goal":
+            # the goal is proved: keep its proof. A solve is published from these rows (publish_rows), so a job killed
+            # at its cap loses none (2026-11-05: two solves lost in run 42061251877); an unspliced goal waits for a
+            # later splice (imo_1974_p3's, proved 10-21, was lost)
+            row.update(body=body, goal=g["goal"], sketches=g.get("sketches", []))   # the row alone can publish it
+            if r["verdict"] != "accept":
+                row["splice_output"] = (r.get("output") or "")[-600:]
         if on_row:
             on_row(row)
         return row, ((g, body) if r and r["verdict"] == "accept" else None)
@@ -239,15 +246,64 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, o
     return [r for r, _ in out], [s for _, s in out if s]
 
 
+def publish_rows(rows, goals_by_sha, *, judge_goals, prover_rows, judge_text, record, lane, run_id=None):
+    """Every solved row that kept its body, judged again and published through the goal batches' own path
+    (prover.judge_goals: splice, the kernel, the ledger row, verified/, the site). The one way solves are published."""
+    # the goal from the queue, else from the row itself (a refreshed queue lives only in its job's temp dir)
+    goal_of = lambda r: goals_by_sha.get(r["sha"]) or ({k: r[k] for k in ("sha", "target_set", "target", "goal", "sketches")}
+                                                       if r.get("goal") and r.get("sketches") is not None else None)
+    solves = [(goal_of(r), r["body"]) for r in rows if r.get("outcome") == "solved" and r.get("body") and goal_of(r)]
+    if not solves:
+        return {}
+    run_id = run_id or "decompose-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+    answers = [{"batch": run_id, "target_set": g["target_set"], "target": g["target"], "sample": i, "goal": g["sha"],
+                "text": "```lean4\n" + g["goal"] + "\n" + body + "```"} for i, (g, body) in enumerate(solves)]
+    return judge_goals(answers, prover_rows, {g["sha"]: g for g, _ in solves}, judge_text=judge_text, record=record,
+                       run_id=run_id, lane=lane)
+
+
+def lane_from_rows(rows, given=None):
+    """The lane the rows were written under: each row carries its backend (keep()), so `--lane auto` is never guessed."""
+    backends = {r.get("backend") for r in rows if r.get("backend")}
+    if len(backends) == 1:
+        b = backends.pop()
+        return LANE if b == LANE["backend"] else lane_of(b.removesuffix("-decompose"))
+    return lane_of(None if given in (None, "", "auto") else given)
+
+
+def publish_main(a):
+    """`publish`: the solves in a run's rows file, after the run step (a timeout included)."""
+    import lean_tools, prover
+    out = Path(a.out)
+    rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()] if out.exists() else []
+    lane = lane_from_rows(rows, a.lane)
+    qfile = Path(a.queue) if a.queue and Path(a.queue).exists() else goal_closer.QUEUE
+    goals = {g["sha"]: g for g in json.loads(qfile.read_text())}
+    from utilities.kumori_api_client import init, sparebrains_attempt
+    post = None
+    try:
+        init()
+        post = sparebrains_attempt
+    except Exception as e:
+        print(f"site recording off ({type(e).__name__}); the ledger still gets every row", flush=True)
+    published = publish_rows(rows, goals, judge_goals=prover.judge_goals, prover_rows=prover.prover_rows(lane=lane),
+                             judge_text=lean_tools.judge_text, record=prover.Recorder("run", post, lane), lane=lane)
+    solved = sorted({r["target"] for r in rows if r.get("outcome") == "solved"})
+    print(f"decompose publish: {len(rows)} rows, solved {solved}; published {published}", flush=True)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["run"])
+    ap.add_argument("cmd", choices=["run", "publish"])
     ap.add_argument("--max-goals", type=int, default=40)
     ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral, or `auto` for the "
                     "strongest live one")
     ap.add_argument("--out", required=True)
     ap.add_argument("--queue", help="a goal queue to read instead of ledger/goal-queue.json (goal_closer.py refresh --out)")
     a = ap.parse_args()
+    if a.cmd == "publish":
+        return publish_main(a)
     max_tokens = 16000
     if a.lane == "auto":
         import attempt
@@ -291,24 +347,10 @@ def main():
     rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
                        fix=lambda proof, out: fixer.fix(proof, out, *names_ix), on_row=keep,
                        effort_of=lambda g: "none" if g["sha"] in cut else None)
-    published = {}
-    if solves:
-        from utilities.kumori_api_client import init, sparebrains_attempt
-        post = None
-        try:
-            init()
-            post = sparebrains_attempt
-        except Exception as e:
-            print(f"site recording off ({type(e).__name__}); the ledger still gets every row", flush=True)
-        run_id = "decompose-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
-        answers = [{"batch": run_id, "target_set": g["target_set"], "target": g["target"], "sample": i, "goal": g["sha"],
-                    "text": "```lean4\n" + g["goal"] + "\n" + body + "```"} for i, (g, body) in enumerate(solves)]
-        published = prover.judge_goals(answers, prover.prover_rows(lane=lane), {g["sha"]: g for g, _ in solves},
-                                       judge_text=lean_tools.judge_text,
-                                       record=prover.Recorder("run", post, lane), run_id=run_id, lane=lane)
+    # solves are published by `publish`, the workflow's next step, from the rows file: a run cut at its cap keeps them
     asks = sum(r["asks"] for r in rows)
     print(f"decompose: {len(rows)} goals, {asks} {a.lane or 'Leanstral'} asks, {len(solves)} problems solved "
-          f"{sorted(g['target'] for g, _ in solves)}; published {published}"
+          f"{sorted(g['target'] for g, _ in solves)} (published by the publish step)"
           + (f"; Leanstral stopped: {pacer.stop}" if pacer.stop else ""))
     return 0
 

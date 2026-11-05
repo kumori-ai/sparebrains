@@ -477,6 +477,10 @@ class Recorder:
         self.batch, self.post, self.lane = batch, post, lane
 
     def __call__(self, row, response, proof, candidate, lean_out):
+        if row.get("verdict") == "accept" and candidate:
+            # the proof first, then its ledger row: an accept row without its verified/ file is skipped as done by
+            # every later call, so a job killed between the two lost the proof (Codex 20261105 decompose publish f1)
+            self.verified(row["target_set"], row["target"], candidate)
         path = ROOT / "ledger" / row["target_set"] / f"{self.lane['file']}-{self.batch}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as fh:
@@ -486,9 +490,22 @@ class Recorder:
                        "lean_output": (lean_out or "")[-20000:]})
 
     def verified(self, tset, name, candidate):
+        """Atomic, and a no-op when the file already holds this proof: a truncating rewrite killed half way left a
+        0-byte proof behind an accepted row (Codex 20261105T212508667868Z f1). The temp file sits at the repo root,
+        outside ledger/ and verified/, so publish.py never sees a partial one."""
+        import tempfile
         out = ROOT / "verified" / tset / name / f"{self.lane['backend']}.lean"
+        if out.exists() and out.read_text() == candidate:
+            return
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(candidate)
+        fd, tmp = tempfile.mkstemp(dir=ROOT, prefix=".verified-", suffix=".partial")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(candidate)
+            os.replace(tmp, out)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
 
 BATCHES = ROOT / "ledger" / "prover-batches.jsonl"

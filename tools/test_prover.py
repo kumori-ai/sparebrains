@@ -400,6 +400,44 @@ class TpuLimits(unittest.TestCase):
         self.assertTrue(body["versions"].endswith("failed to map segment"), "the traceback keeps its last line")
 
 
+class RecorderOrder(unittest.TestCase):
+    """Codex 20261105 publish f1: the ledger row went first, so a job killed before verified/ was written left an accept
+    that every later call skipped as done, and the proof was never published."""
+    def test_an_accepted_proof_is_on_disk_before_its_ledger_row(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(prover, "ROOT", Path(d)):
+            rec = prover.Recorder("b", None, prover.PROVER)
+            row = {"target_set": "minif2f/test", "target": "t", "verdict": "accept"}
+            (Path(d) / "ledger").write_text("not a directory")       # the ledger write fails, as a kill would
+            with self.assertRaises(OSError):
+                rec(row, "text", "proof", "theorem t : True := trivial", "")
+            out = Path(d) / "verified" / "minif2f/test" / "t" / f"{prover.PROVER['backend']}.lean"
+            self.assertEqual(out.read_text(), "theorem t : True := trivial")
+
+    def test_a_rewrite_killed_half_way_keeps_the_proof(self):   # Codex 20261105T212508667868Z f1
+        import os, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(prover, "ROOT", Path(d)):
+            rec = prover.Recorder("b", None, prover.PROVER)
+            rec.verified("s", "t", "proof one")
+            out = Path(d) / "verified" / "s" / "t" / f"{prover.PROVER['backend']}.lean"
+            with mock.patch.object(os, "replace", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    rec.verified("s", "t", "proof two")
+            self.assertEqual(out.read_text(), "proof one", "the old proof is intact, never truncated")
+            self.assertEqual([p.name for p in Path(d).glob(".verified-*")], [], "no partial left")
+            with mock.patch.object(os, "replace", side_effect=AssertionError("a same-text rewrite must not write")):
+                rec.verified("s", "t", "proof one")
+
+    def test_a_reject_writes_no_proof(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(prover, "ROOT", Path(d)):
+            prover.Recorder("b", None, prover.PROVER)({"target_set": "s", "target": "t", "verdict": "reject"}, "", "", "c", "")
+            self.assertFalse((Path(d) / "verified").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
 
