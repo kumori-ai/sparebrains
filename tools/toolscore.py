@@ -34,7 +34,7 @@ the problem, not of an attempt id), a few first solved that week and a few still
 their statement hashes in ledger/speed/sample.jsonl. Each run week asks every frozen problem RESOLVE_TRIES times;
 a problem no try solves is censored at that budget, and router errors are kept apart from tries.
 """
-import argparse, hashlib, json, os, re, subprocess, sys, time, uuid
+import argparse, hashlib, json, os, random, re, subprocess, sys, time, uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -94,6 +94,23 @@ class Refused(RuntimeError):
 REFUSAL_CODES = {"rate_limited_429", "quota_paced", "rpm_spacing", "benched", "pool_gated", "daily_cap_exhausted"}
 NO_RETRY_CODES = {"daily_cap_exhausted"}     # does not come back within a run
 REFUSAL_WAIT_MAX_S = 600
+
+
+# kumori's own spacing between calls to one lane (rpm_spacing, quota_paced: api_v1_llm_bp _WAITABLE) frees up in
+# seconds. Waited out with jitter and not counted as a refusal (RFC 9110 Retry-After; the client-side pattern kumori's
+# SHORT_WAIT_S cites). Run week 2026-11-02: 90 refused rows per ministral lane; this gate was all 90 for 3b and 8b and
+# 80 for 14b (9 upstream rate limits, 1 breaker); slices drew three each and dropped the lane for their run
+# (8b: 18 of the frozen 45 tried, 44 the week before; Codex 20261105T153704630686Z f3 corrected a double count).
+# kumori's benched body carries no error_code, so its reason text is matched too.
+PACING_CODES = {"rpm_spacing", "quota_paced"}
+PACING_TEXT = re.compile(r"RPM spacing", re.I)
+PACING_RETRIES = 30      # waits per lane per process before a pacing refusal counts like any other
+PACING_WAIT_MAX_S = 30
+PACING_JITTER_S = 1.5    # slices meeting one lane's clock together spread out
+
+
+def is_pacing(e):
+    return e.error_code in PACING_CODES or bool(PACING_TEXT.search(str(e)))
 
 
 REFUSAL_WAIT_S = 180   # a refused lane is waited for and asked again, like the relay's PARK_WAIT_S (run 40114239227: every
@@ -309,7 +326,7 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
     when a later item raises."""
     budget = max_requests if isinstance(max_requests, Budget) else Budget(max_requests)
     gone = [] if gone is None else gone
-    refused, raw_hit, refusals = set(), set(), defaultdict(int)
+    refused, raw_hit, refusals, paced = set(), set(), defaultdict(int), defaultdict(int)
 
     def counted(ask):
         def go(prompt):                                  # every request: the deadline, then the budget
@@ -331,23 +348,38 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
             text, prefix = text_for(s)
             where = {"lane": lane, "cohort": cohort_of(s), "week": s["week"], "target_set": s["target_set"],
                      "target": s["target"], "try": t}
+            waits = spent = 0                            # this item's pacing waits and the requests they cost
             while True:                                  # a refusal is waited out, up to REFUSAL_RETRIES a run
                 if deadline is not None and now() > deadline:   # every request, a retry after a wait included
+                    if spent:                            # paced requests already made stay on the record
+                        write({**where, "verdict": "error", "reason": "deadline reached", "requests": spent,
+                               "paced_waits": waits})
                     return gone
                 ask = counted(ask_for(lane))
                 try:
                     r = resolve_one(s, t, text, prefix, ask, judge, chain_fn)
                 except CapReached as e:
-                    if ask.n:
-                        write({**where, "verdict": "error", "reason": str(e), "requests": ask.n})
+                    if ask.n or spent:
+                        write({**where, "verdict": "error", "reason": str(e), "requests": ask.n + spent,
+                               "paced_waits": waits})
                     return gone
                 except LaneGone as e:
                     gone.append(lane)
-                    write({**where, "verdict": "lane_gone", "reason": str(e), "requests": ask.n})
+                    write({**where, "verdict": "lane_gone", "reason": str(e), "requests": ask.n + spent,
+                           **({"paced_waits": waits} if waits else {})})
                     r = None
                 except Refused as e:
+                    wait = e.retry_after if e.retry_after else REFUSAL_WAIT_S
+                    jittered = wait + random.uniform(0, PACING_JITTER_S)   # the deadline sees the wait actually taken
+                    if is_pacing(e) and paced[lane] < PACING_RETRIES and wait <= PACING_WAIT_MAX_S \
+                            and (deadline is None or now() + jittered <= deadline):
+                        paced[lane] += 1
+                        waits, spent = waits + 1, spent + ask.n
+                        sleep(jittered)
+                        continue
                     write({**where, "verdict": "refused", "reason": str(e), "error_code": e.error_code,
-                           "requests": ask.n})
+                           "requests": ask.n + spent, **({"paced_waits": waits} if waits else {})})
+                    waits = spent = 0
                     refusals[lane] += 1
                     wait = e.retry_after if e.retry_after else REFUSAL_WAIT_S
                     if refusals[lane] > REFUSAL_RETRIES or e.error_code in NO_RETRY_CODES \
@@ -361,6 +393,8 @@ def resolve_round(queue, lanes, ask_for, text_for, judge, chain_fn, write, max_r
                 break
             if r is None:
                 continue
+            if waits:
+                r = {**r, "paced_waits": waits, "requests": r.get("requests", 0) + spent}
             if stop_at_raw and r.get("cold") == "accept":
                 raw_hit.add((lane, s["week"], s["target_set"], s["target"]))
             write({**r, "lane": lane})

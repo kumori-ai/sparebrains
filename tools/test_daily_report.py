@@ -138,6 +138,14 @@ class DailyReport(unittest.TestCase):
         self.assertAlmostEqual(r["formal-conjectures"]["idle_days"], 6.4, places=1)
         self.assertTrue(self.report["relay"]["backed_off"])
 
+    def test_the_provers_goal_batches_count_as_goal_closer_activity(self):
+        # 2026-11-05: the rung read only decompose's mode=goal-closer rows (last 10-21) and showed 14.9 days idle while
+        # the prover's goal batches (try_mode goal-closer) ran daily to 11-02
+        write(self.ledger / "minif2f" / "test" / "2.jsonl", [dict(row("2026-10-28T06:00:00+00:00", "hard", "reject",
+                                                                     mode="prover"), try_mode="goal-closer")])
+        r = {x["rung"]: x for x in daily_report.build(self.ledger, NOW)["rungs"]}
+        self.assertEqual(r["goal-closer"]["last"], "2026-10-28T06:00:00+00:00")
+
     def test_markdown_carries_the_headline_and_every_grade(self):
         md = daily_report.render(self.report)
         self.assertIn("**2 first-time solves**", md)

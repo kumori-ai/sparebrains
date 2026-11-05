@@ -16,9 +16,9 @@ TODAY = {"day": "2026-11-05", "first_solves": [],
                     "recovered": {"attempted": 318, "answers": 1, "accepted": 0, "failed": 317}},
          "grades": [{"grade": "kindergarten", "open": 0, "lanes": [LANE("flint", 22, 24), LANE("qwen", 13, 14)]},
                     {"grade": "high school", "open": 40, "lanes": [LANE("flint", 27, 43), LANE("leanstral", 15, 39)]}],
-         "speed": [{"lane": "ministral-8b", "size_b": 8, "week": "2026-11-02", "targets": 18, "accepted": 1, "refused": 90,
+         "speed": [{"lane": "ministral-8b", "size_b": 8, "week": "2026-11-02", "targets": 30, "accepted": 2, "refused": 90,
                     "prev_week": "2026-10-26", "prev_targets": 44, "prev_accepted": 15},
-                   {"lane": "agnes", "size_b": None, "week": "2026-11-02", "targets": 17, "accepted": 11, "refused": 70,
+                   {"lane": "agnes", "size_b": None, "week": "2026-11-02", "targets": 20, "accepted": 13, "refused": 0,
                     "prev_week": "2026-10-26", "prev_targets": 26, "prev_accepted": 12}],
          "kaggle": {"finished": [{"batch": "b1", "answers": 56}], "failed": []},
          "rungs": [{"rung": "competition math (ladder)", "idle_days": 0.1}, {"rung": "goal-closer", "idle_days": 14.9},
@@ -71,15 +71,18 @@ class Brief(unittest.TestCase):
 
     def test_idle_and_crashing_rungs_are_fixes(self):
         fixes = " | ".join(brief()["fixes"])
-        self.assertIn("goal-closer", fixes)
-        self.assertIn("14.9", fixes)
+        self.assertNotIn("goal-closer", fixes, "retired on purpose is not a fix (DECISIONS.md, 2026-11-02)")
+        self.assertTrue(any("goal-closer" in l and "retired 2026-11-02" in l for l in brief()["losses"]))
+        t = copy.deepcopy(TODAY)
+        t["rungs"].append({"rung": "decompose", "idle_days": 14.9})
+        self.assertIn("decompose idle 14.9 days", " ".join(brief(t)["fixes"]))
         self.assertIn("138 crashed beside 144 scored (49% of rounds)", fixes)   # disjoint sets in rungs(): errors vs rmse rows
         self.assertNotIn("competition math", fixes)           # 0.1 days idle is running
 
     def test_lift_regression_is_a_loss_and_refusals_become_an_idea(self):
         b = brief()
-        self.assertTrue(any("ministral-8b" in l and "34%" in l and "6%" in l for l in b["losses"]), b["losses"])
-        self.assertTrue(any("ministral-8b (90 refusals, 18 targets)" in i for i in b["ideas"]), b["ideas"])
+        self.assertTrue(any("ministral-8b" in l and "34%" in l and "7%" in l for l in b["losses"]), b["losses"])
+        self.assertTrue(any("ministral-8b (90 refusals, 30 targets)" in i for i in b["ideas"]), b["ideas"])
 
     def test_refusing_lanes_share_one_idea_line(self):
         t = copy.deepcopy(TODAY)
@@ -158,6 +161,15 @@ class Brief(unittest.TestCase):
         fix = [f for f in brief(history=gap)["fixes"] if "before the kernel" in f][0]
         self.assertIn("3 days running", fix)                  # 11-03, 11-04, 11-05
         self.assertNotIn("at least", fix)
+
+    def test_weeks_that_tried_different_numbers_of_problems_are_not_compared(self):
+        t = copy.deepcopy(TODAY)
+        t["speed"][0].update(targets=18, prev_targets=44)        # the real 2026-11-05 ministral-8b row
+        b = brief(t)
+        self.assertFalse(any("ministral-8b" in l for l in b["losses"] + b["wins"]), b["losses"])
+        self.assertTrue(any("ministral-8b is not comparable: 18 problems tried this week against 44" in f
+                            for f in b["fixes"]), b["fixes"])
+        self.assertTrue(any("ministral-8b (90 refusals, 18 targets)" in i for i in b["ideas"]), b["ideas"])
 
     def test_markdown_puts_the_brief_first(self):
         md = daily_brief.render(brief())

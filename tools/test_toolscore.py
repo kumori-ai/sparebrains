@@ -492,6 +492,83 @@ class FirstRunFixes(unittest.TestCase):
         self.assertEqual(len(written), toolscore.REFUSAL_RETRIES + 1)
         self.assertEqual(len(slept), toolscore.REFUSAL_RETRIES)
 
+    PACED = "kumori /api/v1/llm/chat HTTP 503 : mistral-ministral-8b-2512 is benched: per-lane RPM spacing (self-imposed pacing on the free tier)"
+
+    def paced_ask(self, n_paced, retry_after=2):
+        calls = []
+        def ask(prompt):
+            calls.append(1)
+            if len(calls) <= n_paced:
+                e = RuntimeError(self.PACED)
+                e.retry_after = retry_after
+                raise e
+            return "```lean\n" + PREFIX + "\n  rfl\n```", {}
+        return ask, calls
+
+    def test_rpm_spacing_is_waited_out_and_is_not_a_strike(self):
+        # 2026-11-02 week: kumori's own ~1 s spacing was 90 of 90 refused rows for 3b and 8b (80 for 14b); slices on one
+        # lane drew three each and dropped the lane for the run, so 8b tried 18 of the frozen 45 against 44 the week before
+        ask, calls = self.paced_ask(toolscore.REFUSAL_RETRIES + 3)
+        written, slept = [], []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(99), sleep=slept.append)
+        self.assertEqual([w["verdict"] for w in written], ["accept"], written)
+        self.assertEqual(written[0]["paced_waits"], toolscore.REFUSAL_RETRIES + 3, "every wait stays on the record")
+        self.assertEqual(len(slept), toolscore.REFUSAL_RETRIES + 3)
+        self.assertTrue(all(2 <= w <= 2 + toolscore.PACING_JITTER_S for w in slept), slept)
+
+    def test_pacing_is_bounded_then_it_is_a_refusal(self):
+        ask, _ = self.paced_ask(10 ** 6)
+        written, slept = [], []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(10 ** 6), sleep=slept.append)
+        self.assertEqual(len(slept), toolscore.PACING_RETRIES + toolscore.REFUSAL_RETRIES)
+        self.assertEqual([w["verdict"] for w in written], ["refused"] * (toolscore.REFUSAL_RETRIES + 1))
+        self.assertEqual(written[0]["paced_waits"], toolscore.PACING_RETRIES, "the waits before the strike are kept")
+        self.assertEqual(sum(w["requests"] for w in written), toolscore.PACING_RETRIES + toolscore.REFUSAL_RETRIES + 1)
+
+    def test_pacing_spends_the_budget(self):
+        ask, _ = self.paced_ask(10 ** 6)
+        budget, written = toolscore.Budget(5), []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, budget, sleep=lambda s: None)
+        self.assertEqual(budget.left, 0)
+        self.assertEqual([w["verdict"] for w in written], ["error"], "the cap cut a paced try short: on the record")
+
+    def test_a_long_pacing_clock_is_not_waited_here(self):
+        ask, _ = self.paced_ask(10 ** 6, retry_after=toolscore.PACING_WAIT_MAX_S + 1)
+        written, slept = [], []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(99), sleep=slept.append)
+        self.assertEqual(written[0]["verdict"], "refused")
+
+    def test_a_paced_wait_that_would_cross_the_deadline_keeps_its_requests(self):   # Codex f1: jitter past it
+        ask, calls = self.paced_ask(10 ** 6, retry_after=1)
+        clock = {"t": 0.0}
+        written = []
+        def sleep(w):
+            clock["t"] += w
+        with mock.patch.object(toolscore.random, "uniform", lambda a, b: b):
+            toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                    written.append, toolscore.Budget(99), deadline=2, sleep=sleep, now=lambda: clock["t"])
+        self.assertTrue(written, "a request was spent: it must be on the record")
+        self.assertEqual(sum(w["requests"] for w in written), len(calls), "every request made is on the record")
+        self.assertLessEqual(clock["t"], 2, "no wait was taken past the deadline")
+
+    def test_pacing_then_a_gone_lane_keeps_every_request(self):   # Codex f2
+        calls = []
+        def ask(prompt):
+            calls.append(1)
+            if len(calls) == 1:
+                e = RuntimeError(self.PACED)
+                e.retry_after = 1
+                raise e
+            raise RuntimeError("kumori /api/v1/llm/chat HTTP 404 : unknown backend: l")
+        written = []
+        toolscore.resolve_round([(self.ITEM, 1)], ["l"], lambda lane: ask, self.TEXT, FakeLean().judge_text, None,
+                                written.append, toolscore.Budget(99), sleep=lambda w: None)
+        self.assertEqual([(w["verdict"], w["requests"], w.get("paced_waits")) for w in written], [("lane_gone", 2, 1)])
+
     def test_untried_problems_are_owed_not_failures(self):
         sample = [{"week": "solved-x", "target_set": "primer", "target": t, "cohort": "solved", "rung": "primer"}
                   for t in ("a", "b", "c")]

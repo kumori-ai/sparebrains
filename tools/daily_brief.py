@@ -19,8 +19,12 @@ LADDER_IDLE_DAYS = 1
 CRASH_FIX = 0.40         # openproblems rounds crashing at this share of all rounds
 LIFT_PTS = 10            # tool-lift move in points, both weeks with at least LIFT_MIN targets
 LIFT_MIN = 10
+COMPARABLE = 0.6         # the smaller week must have tried at least this share of the larger week's problems
 BEST_MIN = 10            # answered tries before a lane can be named the day's most-accepts lane
 HISTORY_DAYS = 7
+# Rungs stopped on purpose: listed with the decision, never as a fix to restart. A rung comes off this list when it runs again.
+RETIRED = {"goal-closer": "retired 2026-11-02: its bar (3 first-time solves in 7 days) was missed with 1, and the Kaggle "
+                          "GPU went back to whole problems (DECISIONS.md, kumori #461)"}
 HEADLINE_MAX = 70        # kumori prefixes "sparebrAIns: "; past this the optional parts drop, least important first
 
 
@@ -32,9 +36,17 @@ def _lost(t):
     return sum((t.get("errors") or {}).values())
 
 
+def _comparable(s):
+    """2026-11-05: ministral-8b's '34% to 6%' was 18 problems against 44, kumori's pacing having dropped the lane."""
+    lo, hi = sorted((s.get("targets", 0), s.get("prev_targets", 0)))
+    return hi == 0 or lo / hi >= COMPARABLE
+
+
 def _lift(s):
     """(this week %, week before %) for a speed row both of whose weeks are big enough to compare, else None."""
     if not s.get("prev_week") or s.get("targets", 0) < LIFT_MIN or s.get("prev_targets", 0) < LIFT_MIN:
+        return None
+    if not _comparable(s):
         return None
     return _pct(s["accepted"], s["targets"]), _pct(s["prev_accepted"], s["prev_targets"])
 
@@ -106,6 +118,10 @@ def brief(d, history):
                 fixes.append(f"The ladder has been idle {idle} days.")
                 problems.append((1, f"ladder idle {idle}d"))
             continue
+        if r["rung"] in RETIRED:
+            if idle is not None and idle > 1:            # running again: it reads as any other rung
+                losses.append(f"{r['rung']} idle {idle} days, {RETIRED[r['rung']]}.")
+                continue
         if idle is not None and idle > IDLE_FIX_DAYS:
             fixes.append(f"{r['rung']} idle {idle} days: restart it or retire it from the report.")
         if r["rung"] == "openproblems.bio":
@@ -115,6 +131,12 @@ def brief(d, history):
 
     regressed, refusing = [], []
     for s in d.get("speed") or []:
+        if s.get("prev_week") and not _comparable(s):
+            fixes.append(f"Tool lift for {s['lane']} is not comparable: {s['targets']} problems tried this week against "
+                         f"{s['prev_targets']} the week before.")
+            if s.get("refused", 0) >= s.get("targets", 0):
+                refusing.append(f"{s['lane']} ({s['refused']} refusals, {s['targets']} targets)")
+            continue
         move = _lift(s)
         if move is None:
             continue
@@ -130,7 +152,7 @@ def brief(d, history):
             wins.append("Up: " + line)
     if refusing:
         ideas.append("Refusals outnumber targets on " + ", ".join(refusing) +
-                     ": check whether refusals, not the tools, explain the drop before reading it as a regression.")
+                     ": refusals, not the tools, cut the problems tried.")
     # headline only for a lane newly regressed since the last report; the body lists every one, every day
     was = {s["lane"] for s in (prior[-1].get("speed") or [] if prior else []) if (m := _lift(s)) and m[1] - m[0] >= LIFT_PTS}
     if set(regressed) - was:

@@ -215,6 +215,8 @@ def rungs(ledger, rows, now, since):
     last = {}
     for r in rows:
         last[r["mode"]] = max(last.get(r["mode"], ""), r["ts"])
+        if r.get("try_mode") == "goal-closer":          # the prover's goal batches are goal-closer tries too (#461)
+            last["goal-closer"] = max(last.get("goal-closer", ""), r["ts"])
     out = [{"rung": "competition math (ladder)", "last": last.get("ladder-x3"), "idle_days": _days(now, last.get("ladder-x3"))},
            {"rung": "relay", "last": last.get("relay"), "idle_days": _days(now, last.get("relay"))},
            {"rung": "prover", "last": last.get("prover"), "idle_days": _days(now, last.get("prover"))},
