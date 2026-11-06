@@ -1,0 +1,1 @@
+{"run_id": "42171105015", "run_attempt": "1", "ts": "2026-11-06T05:56:35+00:00", "problem": "minif2f/test/imo_1982_p1", "calls": 45, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "daily"}, "backed_off": true}
