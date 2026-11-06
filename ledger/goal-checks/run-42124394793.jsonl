@@ -1,0 +1,111 @@
+{"sha": "7f62805c45a8", "target_set": "minif2f/test", "target": "mathd_numbertheory_451", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:66: error(lean.invalidField): Invalid field notation: Type of"}
+{"sha": "b519c025b226", "target_set": "minif2f/test", "target": "mathd_numbertheory_495", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "325f824359b5", "target_set": "minif2f/test", "target": "amc12_2001_p5", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "27ed109870cc", "target_set": "minif2f/test", "target": "imo_1982_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "4df12c278b41", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:11: error: typeclass instance problem is stuck"}
+{"sha": "03770fcf5f09", "target_set": "minif2f/test", "target": "imoshortlist_2007_algebra_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f21110db536e", "target_set": "minif2f/test", "target": "mathd_algebra_320", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "48404f6e7a76", "target_set": "minif2f/test", "target": "mathd_numbertheory_711", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "12a6a3beb476", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "reject", "reason": "lean exit 1: proof.lean:10:30: error(lean.synthInstanceFailed): failed to synthesize instance of type class"}
+{"sha": "569e1b7dce2e", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "95da09d8026f", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:39: error(lean.synthInstanceFailed): failed to synthesize instance of type class"}
+{"sha": "484f1a799b19", "target_set": "minif2f/test", "target": "aime_1995_p7", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "71d0a357b561", "target_set": "minif2f/test", "target": "aime_1995_p7", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "c4c6cde4680a", "target_set": "minif2f/test", "target": "aime_1995_p7", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "546cfbd6723d", "target_set": "minif2f/test", "target": "algebra_abpbcpcageq3_sumaonsqrtapbgeq3onsqrt2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "5b464de2044c", "target_set": "minif2f/test", "target": "algebra_abpbcpcageq3_sumaonsqrtapbgeq3onsqrt2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b57ca3e25a21", "target_set": "minif2f/test", "target": "algebra_abpbcpcageq3_sumaonsqrtapbgeq3onsqrt2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "c0baa414bc35", "target_set": "minif2f/test", "target": "algebra_abpbcpcageq3_sumaonsqrtapbgeq3onsqrt2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "36900fbfc793", "target_set": "minif2f/test", "target": "amc12_2001_p5", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "2463b18ea352", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "5aec23b550c7", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "81790cf5ca47", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "e45a9594bd70", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f847fb57ca70", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "012926ece49d", "target_set": "minif2f/test", "target": "amc12a_2019_p12", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "d5bbd4c8519e", "target_set": "minif2f/test", "target": "amc12a_2019_p12", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "6507a395ce96", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "22874796b780", "target_set": "minif2f/test", "target": "amc12a_2020_p4", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "0a0870d997fa", "target_set": "minif2f/test", "target": "amc12a_2021_p12", "verdict": "reject", "reason": "lean exit 1: proof.lean:17:15: error: don't know how to synthesize implicit argument `α`"}
+{"sha": "3c60e1b1ed64", "target_set": "minif2f/test", "target": "amc12a_2021_p12", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3e8fae9f5574", "target_set": "minif2f/test", "target": "amc12a_2021_p12", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "90f437dac948", "target_set": "minif2f/test", "target": "amc12a_2021_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f95e971d8bdc", "target_set": "minif2f/test", "target": "amc12b_2002_p4", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "fe7b9f07e47c", "target_set": "minif2f/test", "target": "amc12b_2002_p4", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "8dfb2ef3aa39", "target_set": "minif2f/test", "target": "imo_1965_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "947a8ec2582e", "target_set": "minif2f/test", "target": "imo_1965_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "134b99336f9d", "target_set": "minif2f/test", "target": "imo_1969_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "7eccac51de98", "target_set": "minif2f/test", "target": "imo_1969_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b3b0e003f280", "target_set": "minif2f/test", "target": "imo_1969_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f904c4b8f71a", "target_set": "minif2f/test", "target": "imo_1969_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "1654fab84ffb", "target_set": "minif2f/test", "target": "imo_1974_p3", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3c0c7535af93", "target_set": "minif2f/test", "target": "imo_1974_p3", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "4b59df03b981", "target_set": "minif2f/test", "target": "imo_1974_p3", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f3099d12ce28", "target_set": "minif2f/test", "target": "imo_1974_p3", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "c645cf429ded", "target_set": "minif2f/test", "target": "imo_1977_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "9eac533dd3e6", "target_set": "minif2f/test", "target": "imo_1982_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "ec2c4a8c2c9d", "target_set": "minif2f/test", "target": "imo_1982_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "0c9bcec14aa7", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "22741dc889f2", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "4644ec27ed52", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "4da224eb7244", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "769930e284dd", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "337bc1faddfd", "target_set": "minif2f/test", "target": "imo_1985_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "af552e68a7fc", "target_set": "minif2f/test", "target": "imo_1985_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "997e9dc9c424", "target_set": "minif2f/test", "target": "imo_1992_p1", "verdict": "reject", "reason": "lean exit 1: proof.lean:12:14: error: typeclass instance problem is stuck"}
+{"sha": "e15ef7c28485", "target_set": "minif2f/test", "target": "imo_1992_p1", "verdict": "reject", "reason": "lean exit 1: proof.lean:14:8: error: typeclass instance problem is stuck"}
+{"sha": "29384c799491", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "610372c91113", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "6a2ea82ea8d4", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:11: error: typeclass instance problem is stuck"}
+{"sha": "904bdb0915ec", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:13: error: typeclass instance problem is stuck"}
+{"sha": "915985516657", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:11: error: typeclass instance problem is stuck"}
+{"sha": "df57308d66f8", "target_set": "minif2f/test", "target": "imo_1997_p5", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:8: error: typeclass instance problem is stuck"}
+{"sha": "82fe81d4f8f8", "target_set": "minif2f/test", "target": "imo_2001_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "081b1dcfe686", "target_set": "minif2f/test", "target": "imo_2019_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "1a50ac8fa695", "target_set": "minif2f/test", "target": "imo_2019_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "4804724ff280", "target_set": "minif2f/test", "target": "imo_2019_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "614b81bb245e", "target_set": "minif2f/test", "target": "imo_2019_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "c4429c52c1b3", "target_set": "minif2f/test", "target": "imo_2019_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "73fecaa63f04", "target_set": "minif2f/test", "target": "imoshortlist_2007_algebra_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b31a14ce4e95", "target_set": "minif2f/test", "target": "imoshortlist_2007_algebra_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "00381ea4cb97", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3bd1e45ab128", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "55320c4aaecc", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "619d376126fa", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "d30f7e4420de", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "fc2406ecc3a4", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "39a97537df67", "target_set": "minif2f/test", "target": "mathd_algebra_320", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "77c8986e49f7", "target_set": "minif2f/test", "target": "mathd_numbertheory_427", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b002143329a7", "target_set": "minif2f/test", "target": "mathd_numbertheory_427", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f65a8c934855", "target_set": "minif2f/test", "target": "mathd_numbertheory_427", "verdict": "reject", "reason": "lean exit 1: proof.lean:11:6: error: typeclass instance problem is stuck"}
+{"sha": "35cce9db6b4e", "target_set": "minif2f/test", "target": "mathd_numbertheory_495", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "01ef4b640de2", "target_set": "minif2f/test", "target": "mathd_numbertheory_552", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "8396aaf2c44b", "target_set": "minif2f/test", "target": "mathd_numbertheory_552", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "9b9aa1617a98", "target_set": "minif2f/test", "target": "mathd_numbertheory_552", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "a2177eacea5c", "target_set": "minif2f/test", "target": "mathd_numbertheory_552", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "0886e8cecb4d", "target_set": "minif2f/test", "target": "mathd_numbertheory_711", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "d1c048627baa", "target_set": "minif2f/test", "target": "mathd_numbertheory_711", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "111cb018d504", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3de27fadb595", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "ca245096fb62", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "reject", "reason": "lean exit 1: proof.lean:11:30: error(lean.synthInstanceFailed): failed to synthesize instance of type class"}
+{"sha": "cadedfcd739e", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "e76ecbf2584e", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "ee23564135b8", "target_set": "minif2f/test", "target": "mathd_numbertheory_764", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:41: error(lean.synthInstanceFailed): failed to synthesize instance of type class"}
+{"sha": "287346bb12fe", "target_set": "minif2f/test", "target": "numbertheory_3pow2pownm1mod2pownp3eq2pownp2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "896b001c077b", "target_set": "minif2f/test", "target": "numbertheory_3pow2pownm1mod2pownp3eq2pownp2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b404e2ff6874", "target_set": "minif2f/test", "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "7c0462f1a5bc", "target_set": "minif2f/test", "target": "amc12b_2002_p4", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3e029f7b17d0", "target_set": "minif2f/test", "target": "mathd_numbertheory_451", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:66: error(lean.invalidField): Invalid field notation: Type of"}
+{"sha": "9044ba3713a8", "target_set": "minif2f/test", "target": "mathd_numbertheory_451", "verdict": "reject", "reason": "lean exit 1: proof.lean:9:54: error(lean.invalidField): Invalid field notation: Type of"}
+{"sha": "068cac700ebe", "target_set": "minif2f/test", "target": "mathd_numbertheory_552", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "7fc466e64697", "target_set": "minif2f/test", "target": "algebra_apbmpcneq0_aeq0anbeq0anceq0", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "eacd82207613", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "ae44e2c97ef3", "target_set": "minif2f/test", "target": "imo_1965_p2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "09268d0b3098", "target_set": "minif2f/test", "target": "imo_1982_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "3386990c8772", "target_set": "minif2f/test", "target": "imo_1984_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "48d2b84ac134", "target_set": "minif2f/test", "target": "imo_2001_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "f4cf3efa9733", "target_set": "minif2f/test", "target": "imo_2001_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "8e5ef73d3f56", "target_set": "minif2f/test", "target": "induction_pord1p1on2powklt5on2", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "77983f299de1", "target_set": "minif2f/test", "target": "mathd_algebra_320", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "dc65f2709a1f", "target_set": "minif2f/test", "target": "mathd_algebra_320", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "c461fb07b132", "target_set": "minif2f/test", "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
