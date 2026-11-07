@@ -1,0 +1,1 @@
+{"run_id": "42357679428", "run_attempt": "1", "ts": "2026-11-07T10:30:04+00:00", "problem": "minif2f/test/imo_1992_p1", "calls": 45, "accepts": 0, "relay_rows": 26, "woken_by": {"kind": "model", "model": "stealth/crouton-alpha"}, "backed_off": true}
