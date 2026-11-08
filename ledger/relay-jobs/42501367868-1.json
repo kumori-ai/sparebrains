@@ -1,0 +1,1 @@
+{"run_id": "42501367868", "run_attempt": "1", "ts": "2026-11-08T16:45:40+00:00", "problem": "minif2f/test/imoshortlist_2007_algebra_p6", "calls": 45, "accepts": 0, "relay_rows": 26, "woken_by": {"kind": "daily"}, "backed_off": true}
