@@ -12,7 +12,7 @@ on:
         default: "push"
       manifest:
         description: "the frozen protocol file"
-        default: "ledger/headtohead/manifest-skeleton-pilot-kaggle-2026-11-08.json"
+        default: "ledger/headtohead/manifest-skeleton-pilot-kaggle-4k-2026-11-08.json"
       smoke:
         description: "true: 2 targets x 2 arms x 2 samples, the gate before the pilot"
         default: "true"

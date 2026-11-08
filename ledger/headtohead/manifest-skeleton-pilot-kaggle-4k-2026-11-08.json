@@ -1,0 +1,97 @@
+{
+  "id": "skeleton-pilot-kaggle-4k-2026-11-08",
+  "kind": "exploratory pilot",
+  "lane": "kaggle-ministral-3-3b-instruct-2512",
+  "transport": "kaggle",
+  "checkpoint": "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+  "revision": "b6d637bef2393152b3da2b2fde72eecdee30557e",
+  "arms": [
+    "alone",
+    "skeleton"
+  ],
+  "calls": 16,
+  "max_tokens": 4000,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "cohort": "ledger/speed/sample-solved-2026-10-24.jsonl",
+  "schedule": [
+    [
+      "",
+      null
+    ],
+    [
+      "simp",
+      null
+    ],
+    [
+      "intro",
+      null
+    ],
+    [
+      "intros",
+      null
+    ],
+    [
+      "constructor",
+      null
+    ],
+    [
+      "refine ?_",
+      null
+    ],
+    [
+      "refine ⟨?_, ?_⟩",
+      null
+    ],
+    [
+      "aesop",
+      null
+    ],
+    [
+      "norm_num",
+      null
+    ],
+    [
+      "linarith",
+      null
+    ],
+    [
+      "nlinarith",
+      null
+    ],
+    [
+      "ring",
+      null
+    ],
+    [
+      "ring_nf",
+      null
+    ],
+    [
+      "simp\ntry aesop",
+      null
+    ],
+    [
+      "simp\ntry nlinarith",
+      null
+    ],
+    [
+      "",
+      "Start by simplifying the goal and hypotheses using simp."
+    ]
+  ],
+  "claim": "none: an exploratory pilot (n=45, about 9% power for the paper's 19 wins vs 3 losses split; ~170 targets for 80%). It checks the checkpoint generates 16 usable samples per target per arm and estimates discordance. A confirmatory run, if any, is sized from it and frozen in its own manifest; pilot rows are never pooled into it.",
+  "endpoint": "kernel acceptance in any of the 16 samples (pass@16), per target per arm; all 16 are generated and judged; first_accept_index is the counterfactual early-stop cost, generated/tokens/seconds the actual one",
+  "primary": "skeleton vs alone, exact two-sided sign test on the targets only one arm solved (the 2026-10-28 rule), over targets complete in both arms",
+  "scope": "operational re-solving of public solved targets by one fp16 copy of the open BF16 checkpoint on vLLM; not the router lane mistral-ministral-3b-2512 and not unseen-theorem generalization; model memorization not ruled out",
+  "system": "tools/attempt.py SYSTEM, both arms, with the checkpoint's chat template; its SYSTEM_PROMPT.txt is not used",
+  "adaptation": "the paper prefixes a completion model's output with the skeleton; this chat model is asked in the prompt to begin with it, and each row counts the answers that did (skeleton_followed)",
+  "source": "Burton, Structured Hints for Sample-Efficient Lean Theorem Proving, arXiv 2601.16172, Appendix A (read 2026-11-08)",
+  "supersedes_transport_of": "skeleton-pilot-2026-11-08 (refused by lane_budget in run 42496660867: 150 calls a day on the router lane)",
+  "verdicts": [
+    "20261108T161803773335Z_codex",
+    "20261108T162104656262Z_codex"
+  ],
+  "max_tokens_why": "1024 is the paper's, for a completion prover writing only the proof; smoke 20261108T1747 of manifest skeleton-pilot-kaggle-2026-11-08 cut all 8 samples at exactly 1024 tokens (2048 per 2-sample arm), and the router lane's 30 metered rejects have median 1,202 completion tokens. 4000 is the house cap for the small-model series (headtohead.ROUTER_MAX_TOKENS, tools/toolscore.py). Same value in both arms.",
+  "supersedes": "skeleton-pilot-kaggle-2026-11-08 (smoke only; no pilot rows under it)"
+}

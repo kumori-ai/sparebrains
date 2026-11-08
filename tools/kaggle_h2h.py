@@ -147,7 +147,8 @@ def targets(samples, ex, void):
                "status": "solved", "outcome": "solved" if ok else "failed", "first_accept_index": min(ok) if ok else None,
                "accepts": len(ok), "generated": len(rs), "judged": len(rs), "calls": len(rs),
                "tokens": None if any(s["tokens"] is None for s in rs) else sum(s["tokens"] for s in rs),
-               "seconds": round(sum(s["seconds"] or 0 for s in rs), 1), "writer": LANE}
+               "seconds": round(sum(s["seconds"] or 0 for s in rs), 1), "writer": LANE,
+               "cut": sum(s["finish"] == "length" for s in rs), "no_proof": sum(s["verdict"] == "no_proof" for s in rs)}
         if e["arm"] == "skeleton":
             row["skeleton_followed"] = sum(bool(s["followed"]) for s in rs)
         if bad:
@@ -157,11 +158,19 @@ def targets(samples, ex, void):
     return rows
 
 
+def already_judged(out):
+    """Why a batch must not be judged again (two collect runs on one batch doubled every row, smoke 20261108T1747)."""
+    out = Path(out)
+    return f"{out.name} exists: batch already judged; nothing written" if out.exists() and out.stat().st_size else None
+
+
 def report(rows, m, ex, void):
     ids = {e["id"] for e in ex}
     present = sum(r["generated"] for r in rows)
     s = {"writer": LANE, "manifest": m["id"], "claim": m["claim"], **h.summary(rows, tuple(m["arms"]), expected=len({e["target"] for e in ex}))}
     s.update(samples_expected=len(ids), samples_present=present, samples_void=len(void))
+    for f in ("cut", "no_proof"):               # the smoke's gate, auditable from the ledger (Codex 20261108T180533646354Z f1)
+        s[f"{f}_by_arm"] = {arm: sum(r.get(f, 0) for r in rows if r["arm"] == arm) for arm in m["arms"]}
     s["complete"] = s["complete"] and present == len(ids) and not void
     return s
 
@@ -183,6 +192,10 @@ def main():
     if a.cmd == "build":
         n = build(a.out, m, ex, a.batch, a.budget_s, a.sec_per_sample)
         print(f"kaggle_h2h: {n} samples for {m['id']}{' (smoke)' if a.smoke else ''}, batch {a.batch}, budget {a.budget_s:.0f} s")
+        return 0
+    why = already_judged(a.out)
+    if why:
+        print(f"kaggle_h2h: {why}")
         return 0
     import lean_tools
     answers = [json.loads(l) for l in Path(a.answers).read_text().splitlines() if l.strip()] if Path(a.answers).exists() else []

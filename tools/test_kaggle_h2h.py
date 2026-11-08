@@ -108,6 +108,16 @@ class Ingest(unittest.TestCase):
         self.assertIn("m/s/t1/skeleton/3", {v["id"] for v in void})
 
 
+class Once(unittest.TestCase):
+    def test_a_batch_already_judged_is_refused_not_appended_again(self):
+        # smoke 20261108T1747: two collect runs judged the same batch and the file held every row twice
+        import tempfile
+        out = Path(tempfile.mkdtemp()) / "kaggle-b.jsonl"
+        self.assertIsNone(k.already_judged(out))
+        out.write_text('{"target": "t1"}\n')
+        self.assertIn("already judged", k.already_judged(out))
+
+
 class Judge(unittest.TestCase):
     def setUp(self):
         self.ex = k.expected(MAN, COHORT, read)
@@ -137,6 +147,20 @@ class Judge(unittest.TestCase):
         self.assertEqual(voided, {("t2", "alone"), ("t2", "skeleton")})
         s = k.report(rows, MAN, self.ex, [])
         self.assertEqual((s["complete"], s["problems_paired"], s["samples_present"]), (False, 1, 63))
+
+    def test_cut_and_unextracted_samples_are_counted_per_arm_and_in_the_report(self):
+        # Codex 20261108T180533646354Z f1: the re-smoke's gate (no more than 4 of 8 cut at max_tokens, not piled in one arm)
+        ans = full(self.ex)
+        for a in ans:
+            if a["id"].startswith("m/s/t1/skeleton/"):
+                a["finish"], a["text"] = "length", "Let me think about this step by step"
+        rows = self.judge(ans)
+        by = {(r["target"], r["arm"]): r for r in rows}
+        self.assertEqual((by[("t1", "skeleton")]["cut"], by[("t1", "skeleton")]["no_proof"]), (16, 16))
+        self.assertEqual((by[("t1", "alone")]["cut"], by[("t1", "alone")]["no_proof"]), (0, 0))
+        s = k.report(rows, MAN, self.ex, [])
+        self.assertEqual(s["cut_by_arm"], {"alone": 0, "skeleton": 16})
+        self.assertEqual(s["no_proof_by_arm"], {"alone": 0, "skeleton": 16})
 
     def test_a_rejected_proof_is_never_repaired(self):
         import fixer
