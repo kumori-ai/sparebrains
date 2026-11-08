@@ -149,6 +149,15 @@ class DailyReport(unittest.TestCase):
         self.assertEqual(r["goal batches (GPU)"]["last"], "2026-10-28T06:00:00+00:00")
         self.assertEqual(r["decompose"]["last"], "2026-10-27T06:00:00+00:00", "its own rung: idle stays visible")
 
+    def test_a_decompose_run_that_wrote_no_try_rows_still_counts_as_activity(self):
+        # 2026-11-08: the retro showed "decompose idle 18.1 days" while ledger/decompose/ held runs on 11-05 and 11-06
+        # (42061251877, 42124394793): a run whose goals all failed writes run rows there and no try row
+        write(self.ledger / "minif2f" / "test" / "3.jsonl", [row("2026-10-21T03:56:00+00:00", "hard2", "reject",
+                                                                 mode="goal-closer", backend="leanstral-decompose")])
+        write(self.ledger / "decompose" / "run-1.jsonl", [{"at": "2026-10-28T23:06:21+00:00", "target": "x", "outcome": "failed"}])
+        r = {x["rung"]: x for x in daily_report.build(self.ledger, NOW)["rungs"]}
+        self.assertEqual(r["decompose"]["last"], "2026-10-28T23:06:21+00:00")
+
     def test_a_down_data_source_shows_on_the_openproblems_rung(self):
         write(self.ledger / "sources" / "openproblems.jsonl", [
             {"at": "2026-10-27T06:40:00+00:00", "ok": True, "status": 206, "code": None},

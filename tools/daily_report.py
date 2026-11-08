@@ -221,6 +221,10 @@ def rungs(ledger, rows, now, since):
             last["decompose"] = max(last.get("decompose", ""), r["ts"])
         if r.get("try_mode") == "goal-closer":
             last["goal batches (GPU)"] = max(last.get("goal batches (GPU)", ""), r["ts"])
+    # a decompose run whose goals all failed writes ledger/decompose/ rows and no try row (2026-11-08: the retro said
+    # idle 18.1 days with runs on 11-05 and 11-06 there)
+    runs = [_ts(r) for r in _load_jsonl(Path(ledger) / "decompose")]
+    last["decompose"] = max([last.get("decompose", "")] + runs) or None
     out = [{"rung": "competition math (ladder)", "last": last.get("ladder-x3"), "idle_days": _days(now, last.get("ladder-x3"))},
            {"rung": "relay", "last": last.get("relay"), "idle_days": _days(now, last.get("relay"))},
            {"rung": "prover", "last": last.get("prover"), "idle_days": _days(now, last.get("prover"))},
