@@ -1,0 +1,1 @@
+{"batch": "20261108T1747", "chunks": [{"samples": 8, "seconds": 36.3}], "started_at": "2026-11-08T17:47:56+00:00", "load_s": 471.6, "vllm": "0.33.0", "tokenizer": "MistralTokenizer", "mistral_common": "1.13.1", "gpus": "Tesla T4", "finished_at": "2026-11-08T17:56:24+00:00"}
