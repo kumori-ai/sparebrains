@@ -162,6 +162,22 @@ class Judge(unittest.TestCase):
         self.assertEqual(s["cut_by_arm"], {"alone": 0, "skeleton": 16})
         self.assertEqual(s["no_proof_by_arm"], {"alone": 0, "skeleton": 16})
 
+    def test_samples_are_judged_in_parallel_and_rows_keep_the_expected_order(self):
+        # 1,440 samples at ~5.5 s of Lean each is ~2.2 h serial, past the collect job's limit; headtohead judges on 3
+        import threading, time
+        live, peak, lock = [0], [0], threading.Lock()
+        def judge_text(t):
+            with lock:
+                live[0] += 1; peak[0] = max(peak[0], live[0])
+            time.sleep(0.01)
+            with lock:
+                live[0] -= 1
+            return {"verdict": "reject"}
+        valid, _ = k.ingest(full(self.ex), self.ex)
+        rows = k.judge(valid, self.ex, read, judge_text, jobs=4)
+        self.assertGreater(peak[0], 1)
+        self.assertEqual([r["id"] for r in rows], [e["id"] for e in self.ex])
+
     def test_a_rejected_proof_is_never_repaired(self):
         import fixer
         with mock.patch.object(fixer, "fix", side_effect=AssertionError("repair ran")):

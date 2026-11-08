@@ -102,13 +102,13 @@ def ingest(answers, ex):
     return valid, list({v["id"]: v for v in void}.values())
 
 
-def judge(valid, ex, read, judge_text):
-    """One row per present sample: extracted and judged raw, as headtohead's arms judge (no fixer, no loop)."""
-    rows = []
-    for e in ex:
-        a = valid.get(e["id"])
-        if a is None:
-            continue
+def judge(valid, ex, read, judge_text, jobs=4):
+    """One row per present sample, in the expected order: extracted and judged raw, as headtohead's arms judge (no
+    fixer, no loop), on `jobs` threads (1,440 samples at ~5.5 s of Lean each is ~2.2 h serial; headtohead runs 3)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(e):
+        a = valid[e["id"]]
         text = read(e["target_set"], e["target"])
         name = h.re.search(r"theorem\s+(\S+)", text).group(1)
         proof = extract_proof(a.get("text") or "", name)
@@ -119,9 +119,11 @@ def judge(valid, ex, read, judge_text):
             if e["arm"] == "skeleton":
                 want = h.schedule()[e["index"] % 16][0].splitlines()
                 followed = [l.strip() for l in proof.strip().splitlines() if l.strip()][:len(want)] == want
-        rows.append({**{k: e[k] for k in ("id", "target_set", "target", "rung", "arm", "index")}, "verdict": verdict,
-                     "followed": followed, "tokens": a.get("tokens"), "seconds": a.get("seconds"), "finish": a.get("finish")})
-    return rows
+        return {**{k: e[k] for k in ("id", "target_set", "target", "rung", "arm", "index")}, "verdict": verdict,
+                "followed": followed, "tokens": a.get("tokens"), "seconds": a.get("seconds"), "finish": a.get("finish")}
+
+    with ThreadPoolExecutor(jobs) as pool:
+        return list(pool.map(one, [e for e in ex if e["id"] in valid]))
 
 
 def targets(samples, ex, void):
