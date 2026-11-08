@@ -101,12 +101,7 @@ jobs:
 
       - name: lean + mathlib cache + build
         if: inputs.phase == 'judge'
-        uses: leanprover/lean-action@v1.6.0
-        with:
-          auto-config: false
-          build: true
-          use-mathlib-cache: true
-          use-github-cache: false
+        uses: ./.github/actions/lean-build
 
       - name: mathlib packages (save, before untrusted Lean)
         if: (inputs.phase == 'judge') && steps.lakecache.outputs.cache-hit != 'true'

@@ -12,7 +12,12 @@ on:
       - "Sparebrains.lean"
       - "checks/**"
       - "tools/**"
+      - ".github/actions/**"
   workflow_dispatch:
+    inputs:
+      canary_fail_first:
+        description: "canary: fail lean-build's first try so its retry runs"
+        default: "false"
 
 permissions:
   contents: read
@@ -45,12 +50,9 @@ jobs:
           key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
 
       - name: lean + mathlib cache + build
-        uses: leanprover/lean-action@v1.6.0
+        uses: ./.github/actions/lean-build
         with:
-          auto-config: false
-          build: true
-          use-mathlib-cache: true
-          use-github-cache: false
+          fail-first: ${{ inputs.canary_fail_first || 'false' }}
 
       - name: mathlib packages (save, before untrusted Lean)
         if: steps.lakecache.outputs.cache-hit != 'true'

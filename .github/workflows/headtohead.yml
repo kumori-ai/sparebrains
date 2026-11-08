@@ -76,12 +76,7 @@ jobs:
           key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
 
       - name: lean + mathlib cache + build
-        uses: leanprover/lean-action@v1.6.0
-        with:
-          auto-config: false
-          build: true
-          use-mathlib-cache: true
-          use-github-cache: false
+        uses: ./.github/actions/lean-build
 
       - name: mathlib packages (save, before untrusted Lean)
         if: steps.lakecache.outputs.cache-hit != 'true'

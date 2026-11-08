@@ -52,12 +52,7 @@ jobs:
 
       - name: lean + mathlib cache + build
         timeout-minutes: 15             # measured 1m39s and 1m40s on 2026-11-05 (runs 42060800492, 42061251877)
-        uses: leanprover/lean-action@v1.6.0
-        with:
-          auto-config: false
-          build: true
-          use-mathlib-cache: true
-          use-github-cache: false
+        uses: ./.github/actions/lean-build
 
       - name: mathlib packages (save, before untrusted Lean)
         if: steps.lakecache.outputs.cache-hit != 'true'
