@@ -71,6 +71,23 @@ class DailyReport(unittest.TestCase):
         self.assertEqual(t["errors"], {"upstream timeout (504)": 1})
         self.assertEqual(self.report["window"]["kind"], "ts", "no git checkout: the last 24 hours by row time")
 
+    def test_router_failures_are_bucketed_by_their_error_code(self):
+        # kumori 4e0f0c98 (live 17:25:51Z 2026-11-08): the pinned chat answers its own failures as 503 + error_code,
+        # which the client writes into the reason as "HTTP 503 [code] : ..."; before it they read as HTML 502/504
+        rows = [row("2026-10-28T05:00:00+00:00", f"e{i}", "error") for i in range(5)]
+        for r, why in zip(rows, ["KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [upstream_timeout] : x",
+                                 "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [reasoning_truncated] : y",
+                                 "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [reasoning_truncated] : z",
+                                 "KumoriAPIError: kumori /api/v1/llm/chat HTTP 504 : timed out",
+                                 "KumoriAPIError: kumori /api/v1/llm/chat HTTP 502 : unknown"]):
+            r["reason"] = why
+        write(self.ledger / "minif2f" / "test" / "9.jsonl", rows)
+        e = daily_report.build(self.ledger, NOW)["totals"]["errors"]
+        self.assertEqual(e["upstream timeout"], 1)
+        self.assertEqual(e["reasoning cut at max_tokens"], 2)
+        self.assertEqual(e["upstream timeout (504)"], 2, "the old HTML 504 rows keep their bucket (fixture's 1 + this 1)")
+        self.assertEqual(e["router 5xx"], 1)
+
     def test_recovered_answers_are_counted_apart_with_their_verdicts(self):
         """#597 (2026-11-01): kumori's shared client rescues an answer after Cloudflare's 125 s cut by polling
         /result/<id>, and marks it inference["recovery"] (kumori-96). The report counts those rows apart, by what

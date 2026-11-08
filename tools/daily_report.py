@@ -10,7 +10,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
     python3 tools/daily_report.py                        # writes ledger/daily/<today>.{json,md}
     python3 tools/daily_report.py --now 2026-10-28T12:00:00+00:00 --out /tmp/daily
 """
-import argparse, json, subprocess, sys
+import argparse, json, re, subprocess, sys
 import daily_brief, ledger_files, source_probe
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -210,6 +210,22 @@ def _days(now, ts):
     return round((now - datetime.fromisoformat(ts)).total_seconds() / 86400, 1) if ts else None
 
 
+# kumori 4e0f0c98 (live 2026-11-08 17:25:51Z): the pinned chat answers its own failures as 503 + error_code, written by
+# the client into the reason as "HTTP 503 [code] : ..." (kumori shared/kumori_api_client/README.md section 8). Rows
+# before it read as Cloudflare's HTML 502/504 and keep their old buckets.
+ERROR_CODES = {"upstream_timeout": "upstream timeout", "reasoning_truncated": "reasoning cut at max_tokens",
+               "empty_answer": "empty answer", "upstream_error": "upstream error", "deadline_exceeded": "deadline exceeded",
+               "call_failed": "call failed"}
+CODE = re.compile(r"HTTP \d{3} \[([a-z_]+)\]")
+
+
+def lost_bucket(reason):
+    m = CODE.search(reason)
+    if m:
+        return ERROR_CODES.get(m.group(1), m.group(1).replace("_", " "))
+    return "upstream timeout (504)" if "HTTP 504" in reason else "router 5xx" if "HTTP 5" in reason else "other error"
+
+
 def rungs(ledger, rows, now, since):
     """How long each rung has been idle, and what the college rungs did."""
     last = {}
@@ -271,9 +287,7 @@ def build(ledger, now, hours=24, daily=None):
     judged = [r for r in window if r["verdict"] in ("accept", "reject", "error")]
     answered = [r for r in judged if r["verdict"] != "error"]
     g, firsts = grades(rows, since)
-    errors = Counter("upstream timeout (504)" if "HTTP 504" in (r.get("reason") or "") else
-                     "router 5xx" if "HTTP 5" in (r.get("reason") or "") else "other error"
-                     for r in judged if r["verdict"] == "error")
+    errors = Counter(lost_bucket(r.get("reason") or "") for r in judged if r["verdict"] == "error")
     return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours, "window": win,
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
                        "errors": dict(errors), "recovered": recovered(judged),
