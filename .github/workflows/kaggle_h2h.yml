@@ -1,0 +1,132 @@
+# The Kaggle head-to-head (tools/kaggle_h2h.py, DECISIONS.md 2026-11-08): the skeleton pilot's samples generated on
+# Kaggle's free T4s from the open Ministral 3 3B checkpoint, judged here, raw. Dispatch by hand: cmd=push builds and
+# pushes one batch (smoke: 8 samples, the gate), cmd=collect reads its status and, once COMPLETE, judges and publishes.
+# The Kaggle token lives only in the steps that call Kaggle; none of them runs Lean.
+name: kaggle_h2h
+
+on:
+  workflow_dispatch:
+    inputs:
+      cmd:
+        description: "push (build + push one batch) or collect (judge a COMPLETE batch)"
+        default: "push"
+      manifest:
+        description: "the frozen protocol file"
+        default: "ledger/headtohead/manifest-skeleton-pilot-kaggle-2026-11-08.json"
+      smoke:
+        description: "true: 2 targets x 2 arms x 2 samples, the gate before the pilot"
+        default: "true"
+      budget_h:
+        description: "push: the batch's GPU hours (the kernel starts no chunk that does not fit); checked against the week's quota"
+        default: "1"
+      sec_per_sample:
+        description: "push: this lane's measured seconds per sample (the smoke's); 0 for the smoke itself"
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kaggle-h2h
+  cancel-in-progress: false
+
+jobs:
+  h2h:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: python deps
+        run: python3 -m pip install -q requests "kaggle>=2.2.4"
+
+      - name: push one batch
+        if: inputs.cmd == 'push'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          python3 - "${{ inputs.budget_h }}" <<'PY'
+          import sys; sys.path[:0] = ["tools"]
+          import prover
+          total, used, reserved = prover.quota()
+          left = total - used - reserved - prover.MARGIN_H
+          need = float(sys.argv[1])
+          print(f"Kaggle GPU quota: {used:.2f} used + {reserved:.2f} reserved of {total:.2f} h; {left:.2f} h left; this batch {need} h")
+          sys.exit(0 if need <= left else f"not pushed: {need} h needed, {left:.2f} h left this week")
+          PY
+          smoke=""; [ "${{ inputs.smoke }}" = "true" ] && smoke="--smoke"
+          python3 tools/kaggle_h2h.py build --manifest "${{ inputs.manifest }}" $smoke --out "$RUNNER_TEMP/kernel" \
+            --budget-s "$(python3 -c "print(int(float('${{ inputs.budget_h }}') * 3600))")" --sec-per-sample "${{ inputs.sec_per_sample }}"
+          kaggle kernels push -p "$RUNNER_TEMP/kernel"
+
+      - name: read the batch
+        id: kaggle
+        if: inputs.cmd == 'collect'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          out=$(kaggle kernels status kumoriai/sparebrains-h2h 2>&1) && rc=0 || rc=$?
+          status=$(printf '%s\n' "$out" | tail -1)
+          echo "kaggle: $status"
+          [ "$rc" = 0 ] || { echo "::error::kaggle kernels status exited $rc: $status"; exit 1; }
+          case "$status" in
+            *RUNNING*|*QUEUED*) echo "still running; collect again later"; echo "state=running" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *COMPLETE*) ;;
+            *) mkdir -p "$RUNNER_TEMP/kout"; kaggle kernels output kumoriai/sparebrains-h2h -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
+               tail -40 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+               echo "::error::the batch did not complete: $status"; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/kout"
+          kaggle kernels output kumoriai/sparebrains-h2h -p "$RUNNER_TEMP/kout" >/dev/null
+          cat "$RUNNER_TEMP/kout/timing.json" 2>/dev/null || true
+          [ -s "$RUNNER_TEMP/kout/answers.jsonl" ] || { echo "::error::the batch completed with no answers"; exit 1; }
+          echo "state=judge" >> "$GITHUB_OUTPUT"
+
+      - name: mathlib packages (restore)
+        id: lakecache
+        if: steps.kaggle.outputs.state == 'judge'
+        uses: actions/cache/restore@v5
+        with:
+          path: .lake/packages
+          key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
+      - name: lean + mathlib cache + build
+        if: steps.kaggle.outputs.state == 'judge'
+        uses: ./.github/actions/lean-build
+
+      - name: mathlib packages (save, before untrusted Lean)
+        if: (steps.kaggle.outputs.state == 'judge') && steps.lakecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .lake/packages
+          key: ${{ steps.lakecache.outputs.cache-primary-key }}
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        if: steps.kaggle.outputs.state == 'judge'
+        run: bash tools/judge_sandbox.sh
+
+      - name: judge every sample, raw
+        if: steps.kaggle.outputs.state == 'judge'
+        run: |
+          smoke=""; [ "${{ inputs.smoke }}" = "true" ] && smoke="--smoke"
+          batch=$(python3 -c "import json; print(json.loads(open('$RUNNER_TEMP/kout/answers.jsonl').readline())['batch'])")
+          cp "$RUNNER_TEMP/kout/timing.json" "ledger/headtohead/kaggle-$batch-timing.json" 2>/dev/null || true
+          python3 tools/kaggle_h2h.py judge --manifest "${{ inputs.manifest }}" $smoke --answers "$RUNNER_TEMP/kout/answers.jsonl" \
+            --out "ledger/headtohead/kaggle-$batch.jsonl" | tee "$RUNNER_TEMP/out.txt"
+          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-400)" >> "$GITHUB_ENV"
+          echo "BATCH=$batch" >> "$GITHUB_ENV"
+
+      - name: publish the ledger
+        if: steps.kaggle.outputs.state == 'judge'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "sparebrains-bot"
+          git config user.email "sparebrains-bot@users.noreply.github.com"
+          python3 tools/publish.py --message "kaggle head-to-head batch $BATCH: $SUMMARY
+
+          Generated-by: mistralai/Ministral-3-3B-Instruct-2512-BF16 on Kaggle's free T4 x2, cost \$0, via tools/kaggle_h2h.py; verifier Lean v4.33.1 + mathlib v4.33.1 (tools/check.py)"

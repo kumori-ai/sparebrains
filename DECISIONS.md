@@ -32,6 +32,29 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   arm measures the schedule plus the attempt-16 hint together, not skeletons alone, and not prefix-locked generation.
   Crouton's proofs are kept for a later fine-tune data set and a skeleton miner on a disjoint development corpus. 683 OK.
 
+- **The skeleton pilot moves to Kaggle, on the open checkpoint, under its own lane name.** Run 42496660867 was
+  refused by lane_budget before any call (mistral-ministral-3b-2512: 150 calls a day, 1,440 needed), so the router
+  cannot host a 16-sample design on a small lane. Now `tools/kaggle_h2h.py` + `tools/kaggle_h2h_kernel.py` +
+  `kaggle_h2h.yml` generate the same frozen protocol (`manifest-skeleton-pilot-kaggle-2026-11-08.json`) on Kaggle's
+  free T4 x2 from `mistralai/Ministral-3-3B-Instruct-2512-BF16` at revision b6d637bef239 (Apache-2.0), fp16 on vLLM,
+  attempt.SYSTEM in both arms with the checkpoint's chat template, top_p 0.95 now settable. Lane
+  `kaggle-ministral-3-3b-instruct-2512`, kept apart from the router lane's series: the same weights are not shown equal
+  to Mistral's API; both arms share one copy, so the within-run comparison holds. Not through the prover workflow, which
+  has no arm in its resume identity and routes unknown models to Goedel (Codex f2). Every sample carries an id
+  `<manifest>/<set>/<target>/<arm>/<i>` and its prompt sha, re-derived at judge time; a duplicate, unknown or
+  mismatched sample is void and named; a target missing any of its 32 samples is void in both arms; a trimmed batch reads
+  complete false (Codex f1). All 16 per arm are generated and judged raw; first_accept_index is the early-stop
+  counterfactual, generated/tokens/seconds the actual cost (f4). The pilot's GPU reservation comes from the smoke's
+  measured rate x 1,440 x 1.5, never the prover's mixed prior (f3); the push checks the week's quota first. An
+  8-sample smoke is the gate. Verdicts 20261108T161803773335Z (DISAGREE), 20261108T162104656262Z (AGREE; f5: test that
+  repair never runs, not import reachability; f6: the Kaggle CLI calls live in the workflow, prover.py has none). Tests
+  fail first (11, `test_kaggle_h2h`); 705 OK. Also today: CI's lean-build retries only the steps that download (elan,
+  toolchain, Mathlib cache), 4 attempts with 15/30/60 s backoff, and runs lake build once; canary run 42498621740
+  showed "attempt 1 of 4 failed (exit 22)" then a green build (Codex 20261108T160100530734Z DISAGREE,
+  20261108T160945856866Z AGREE). Crouton's proofs need no harvest tool: the ladder already holds 469 of its rows on 288
+  targets and 226 accepted proofs in verified/; only rejected texts are not kept (proof_sha only), deferred until a
+  fine-tune is planned.
+
 ## 2026-11-05
 
 - **Decomposition goes back on the open problems, and its bar is written before the read.** Solved has sat at 338
