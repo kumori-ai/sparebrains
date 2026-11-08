@@ -254,3 +254,129 @@ class Bounded(unittest.TestCase):
         lines = [c.args[0] for c in p.call_args_list if c.args]
         self.assertTrue(any(l.startswith("t0 alone: solved") for l in lines), lines)
         self.assertTrue(any(l.startswith("t0 lessons: solved") for l in lines), lines)
+
+
+class Skeleton(unittest.TestCase):
+    """The skeleton pilot (Burton, arXiv 2601.16172, Appendix A; Codex 20261108T152000037394Z and
+    20261108T152326970171Z): the paper's fixed 16-attempt schedule against 16 unguided samples, run from a frozen
+    manifest, through the router's budget gates, with no claim from an exploratory pilot."""
+    T = {"target_set": "s", "target": "t1", "status": "solved", "rung": "aime"}
+
+    def test_the_schedule_is_the_papers_16_entries_in_order(self):
+        s = h.schedule()
+        self.assertEqual(len(s), 16)
+        self.assertEqual([k for k, _ in s[:15]], ["", "simp", "intro", "intros", "constructor", "refine ?_",
+                         "refine ⟨?_, ?_⟩", "aesop", "norm_num", "linarith", "nlinarith", "ring", "ring_nf",
+                         "simp\ntry aesop", "simp\ntry nlinarith"])
+        self.assertEqual(s[15], ("", "Start by simplifying the goal and hypotheses using simp."))
+        self.assertTrue(all(hint is None for _, hint in s[:15]))
+
+    def test_call_i_carries_skeleton_i_and_the_arm_stops_at_the_first_accept(self):
+        prompts = []
+        replies = iter([answer("  nlinarith\n"), answer("  simp\n  positivity\n")])
+        ask = lambda p: (prompts.append(p), next(replies))[1]
+        cand, k, followed = h.skeleton(TARGET, ask, lambda t: {"verdict": "accept" if "positivity" in t else "reject"}, calls=16)
+        self.assertEqual(k, 2)
+        self.assertEqual(len(prompts), 2)
+        self.assertNotIn("must begin", prompts[0])                     # entry 1 is the empty skeleton
+        self.assertIn("```lean4\nsimp\n```", prompts[1])
+        self.assertEqual(followed, 2)                                    # empty is followed by anything; call 2 began with simp
+
+    def test_the_sixteenth_call_carries_the_hint_and_a_proof_that_ignores_its_skeleton_is_counted(self):
+        prompts = []
+        ask = lambda p: (prompts.append(p), answer("  positivity\n"))[1]
+        cand, k, followed = h.skeleton(TARGET, ask, lambda t: {"verdict": "reject"}, calls=16)
+        self.assertEqual((cand, k, len(prompts)), (None, None, 16))
+        self.assertIn("Hint: Start by simplifying", prompts[15])
+        self.assertEqual(followed, 2, "only the two empty-skeleton calls were followed")
+
+    def test_the_skeleton_arm_runs_beside_alone_and_is_paired_against_it(self):
+        call = lambda p: {"text": answer("  simp\n  positivity\n" if "must begin" in p else "  nlinarith\n"), "tokens": 5}
+        rows, _ = h.run([self.T], lambda s, n: TARGET, call, None,
+                        lambda x: {"verdict": "accept" if "positivity" in x else "reject"}, calls=16, arms=("alone", "skeleton"))
+        by = {r["arm"]: r for r in rows}
+        self.assertEqual((by["alone"]["outcome"], by["skeleton"]["outcome"]), ("failed", "solved"))
+        self.assertEqual(by["alone"]["calls"], 16)
+        self.assertEqual(by["skeleton"]["calls_to_solve"], 2)
+        self.assertIn("skeleton_followed", by["skeleton"])
+        s = h.summary(rows, arms=("alone", "skeleton"))
+        self.assertEqual((s["only_skeleton"], s["only_alone_vs_skeleton"]), (["t1"], []))
+
+    def test_the_router_call_sends_the_manifests_sampling_and_counts_http_requests(self):
+        from utilities.kumori_api_client import KumoriAPIError
+        seen = []
+        def llm_chat(backend, messages, **kw):
+            seen.append(kw)
+            if len(seen) < 3:
+                raise KumoriAPIError("per-lane RPM spacing", status_code=429, retry_after=1)
+            return answer("  positivity\n"), backend, {"usage": {"completion_tokens": 9}}
+        r = h.router_call("x", llm_chat, max_tokens=1024, temperature=0.6, sleep=lambda s: None)("prove it")
+        self.assertEqual(r["chat_requests"], 3)
+        self.assertTrue(all(k["max_tokens"] == 1024 and k["temperature"] == 0.6 for k in seen))
+        m = h.Meter(lambda p: r)
+        m.ask("p")
+        self.assertEqual((m.calls, m.chat_requests), (1, 3), "a logical call and its chat POSTs are counted apart (f6)")
+
+    def test_a_call_refused_locally_sends_no_request(self):
+        sent = [0]
+        def call(p):
+            sent[0] += 1
+            return {"error": "benched", "reason": "benched", "chat_requests": 1}
+        rows, _ = h.run([self.T], lambda s, n: TARGET, call, None, lambda x: {"verdict": "reject"}, calls=16, jobs=1,
+                        arms=("alone", "skeleton"), breaker=2)
+        self.assertEqual(sent[0], 2)
+        self.assertEqual(sum(r["chat_requests"] for r in rows), 2, "a breaker or deadline refusal is 0 requests (Codex r3 f6)")
+
+    def manifest(self, **over):
+        m = {"id": "skeleton-pilot-test", "kind": "exploratory pilot", "lane": "mistral-ministral-3b-2512",
+             "arms": ["alone", "skeleton"], "calls": 16, "max_tokens": 1024, "temperature": 0.6,
+             "top_p": "provider default, unreported", "jobs": 2, "max_minutes": 300,
+             "cohort": "ledger/speed/sample-solved-2026-10-24.jsonl",
+             "schedule": [[k, v] for k, v in h.schedule()], "claim": "none"}
+        m.update(over)
+        return m
+
+    def test_a_manifest_must_carry_the_frozen_schedule_and_every_protocol_key(self):
+        self.assertEqual(h.check_manifest(self.manifest())["calls"], 16)
+        with self.assertRaises(AssertionError):
+            h.check_manifest(self.manifest(schedule=[["simp", None]] * 16))
+        with self.assertRaises(AssertionError):
+            h.check_manifest({k: v for k, v in self.manifest().items() if k != "temperature"})
+        with self.assertRaises(AssertionError):
+            h.check_manifest(self.manifest(top_p=0.95))       # never a sampling value the transport does not send
+
+    def test_the_cohort_is_the_frozen_speed_sample_not_the_rung_selection(self):
+        rows = h.cohort("ledger/speed/sample-solved-2026-10-24.jsonl")
+        self.assertEqual(len(rows), 45)
+        self.assertTrue(all(r["status"] == "solved" for r in rows))
+        self.assertIn("primer", {r["rung"] for r in rows} | {r["target_set"].split("/")[0] for r in rows})
+
+    def test_a_preflight_refusal_is_one_void_row_and_no_claim(self):
+        row = h.refused_row(self.manifest(), "lane budget: x has 10 of 100 left")
+        self.assertEqual((row["void"], row["manifest"], row["claim"]), ("preflight", "skeleton-pilot-test", "none"))
+        s = h.summary([row], arms=("alone", "skeleton"))
+        self.assertEqual((s["problems_paired"], s["void_rows"]), (0, 1))
+        s = h.refused_summary(self.manifest(), row, expected=45)
+        self.assertEqual((s["complete"], s["problems_paired"], s["chat_requests"], s["claim"]), (False, 0, 0, "none"))
+
+    def test_a_partial_run_says_it_is_incomplete(self):
+        rows = [{"arm": "alone", "target": "a", "outcome": "solved", "calls": 1, "tokens": 1, "seconds": 1},
+                {"arm": "skeleton", "target": "a", "outcome": "solved", "calls": 1, "tokens": 1, "seconds": 1}]
+        s = h.summary(rows, arms=("alone", "skeleton"), expected=45)
+        self.assertEqual((s["complete"], s["problems_paired"]), (False, 1))
+
+    def test_main_with_a_refused_budget_writes_one_void_row_and_reports_an_incomplete_run(self):
+        import io, json, tempfile, contextlib, lane_budget, relay
+        from utilities import kumori_api_client as k
+        out = Path(tempfile.mkdtemp()) / "run.jsonl"
+        argv = ["headtohead.py", "run", "--manifest", "ledger/headtohead/manifest-skeleton-pilot-2026-11-08.json", "--out", str(out)]
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(k, "init", lambda *a, **kw: None), \
+             mock.patch.object(relay, "fetch_json", lambda p: {"open": [], "solved": []}), \
+             mock.patch.object(lane_budget, "preflight", side_effect=SystemExit("lane budget: no room")), \
+             contextlib.redirect_stdout(buf):
+            self.assertEqual(h.main(), 0)
+        rows = [json.loads(l) for l in out.read_text().splitlines()]
+        self.assertEqual([r["void"] for r in rows], ["preflight"])
+        last = json.loads(buf.getvalue().strip().splitlines()[-1].split("headtohead: ", 1)[1])
+        self.assertEqual((last["complete"], last["problems_paired"], last["chat_requests"]), (False, 0, 0))

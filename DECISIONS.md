@@ -3,6 +3,35 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-08
+
+- **Crouton's six, and the next small-lane tool is a fixed tactic-skeleton schedule, not lessons (pilot, no claim).**
+  The 11-08 retro's 6 first-time solves (amc12b_2002_p4, amc12_2000_p1, amc12a_2021_p22, amc12a_2019_p12,
+  mathd_numbertheory_427, imo_1982_p1) are all `openrouter-crouton` (`stealth/crouton-alpha`, tier unknown, first row
+  11-06, priced 0/0 on OpenRouter's public models endpoint read 11-08), each after 277-455 judged tries by 50-59 lanes;
+  4 cold, 2 through repair. A model's lift, not a tool's: the same-model table stayed flat (ministral-3b 19/45 vs 20/45).
+  Deep-search 11-08 (research profile; Reddit via the custom scraper, DDG harvest + Arctic Shift, 3 phrasings, 1
+  off-topic hit, 2 subreddits HTTP 422): retrieval-style context adds at most 3 points across 5 models while Lean
+  fine-tuning adds 33-38 (Nabi et al., arXiv 2609.34460, 2026-09-28), as our lessons 6 vs 6 found; repair pairs lift
+  through training (arXiv 2602.02990: Qwen3-4B 1.1% -> 27.4% fine-tuned); the one no-training lever with a paired win
+  is a fixed 16-attempt tactic-skeleton schedule (Burton, arXiv 2601.16172: DeepSeek-Prover-V1.5-RL 37 -> 53 of 244
+  pass@16, 19 wins vs 3). Built: `headtohead --manifest` runs a frozen protocol file
+  (`ledger/headtohead/manifest-skeleton-pilot-2026-11-08.json`: ministral-3b via the router, alone vs skeleton, 16
+  calls, 1024 tokens, temperature 0.6, top_p recorded as unreported because the router sends none, the 45-target
+  speed sample, the paper's Appendix A schedule verbatim and checked); the `skeleton` arm asks a chat lane to begin
+  with skeleton i (the paper prefix-locks a completion model; each row counts `skeleton_followed`); rows count chat
+  POSTs apart from logical calls (`chat_requests`, the client's recovery GETs not counted); a lane-budget refusal is
+  one void row and a `complete: false` summary. Pilot only: n=45 has about 9% power for the paper's split (~170 for
+  80%, Codex's figures); no lift claim either way, a confirmatory run is sized from it in its own manifest and never
+  pooled with it. Verdicts 20261108T152000037394Z (DISAGREE: unfixed endpoint, mining verified/ leaks answers into
+  hints, a direct Mistral path skips the router's cost gate; all three taken: no mining, router kept),
+  20261108T152326970171Z (AGREE), 20261108T154012903462Z (round 3, DISAGREE: local refusals counted as requests,
+  the refused path printed no `complete`). After the third round the call is mine: both fixed to the bar that verdict
+  named (tests for 0 requests on a local refusal, the narrower `chat_requests` name, `main()` exercised on a refused
+  budget printing complete false, 0 paired, 0 requests; a canary that drops `complete` makes it fail). Residual: the
+  arm measures the schedule plus the attempt-16 hint together, not skeletons alone, and not prefix-locked generation.
+  Crouton's proofs are kept for a later fine-tune data set and a skeleton miner on a disjoint development corpus. 683 OK.
+
 ## 2026-11-05
 
 - **Decomposition goes back on the open problems, and its bar is written before the read.** Solved has sat at 338
