@@ -80,6 +80,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   slow. The change is kept if whole-ladder accepts per run-hour do not fall and the slow lanes' accepts per call
   rise; otherwise reverted, with the numbers. Codex DISAGREE 20261108T215514099971Z (f1 this entry was owed, f2 the
   cost model), both fixed here.
+- **The 4B prover pilot's final read: under its bar, no claim (kumori #480).** The 11 owed answers (pushed 11-05,
+  run 41944629725) were never judged until today: judge run 42529507767, Kaggle COMPLETE. `prover_pilot.py read`:
+  complete, 30 problems, 240 answers, solved raw 13, through the Lean-only chain 16, R = 3 (mathd_numbertheory_175,
+  _296, _765), absolute lift 0.1, under the pre-registered bar R >= 5, so no claim; 17,953 s generating, 1,194 s
+  Lean, 2,899 s chain. As of 2026-11-08 the chain rescues 3 of 30 for this 4B checkpoint, too few to call. #480's
+  re-scoped question (a small model with and without a tool, paired) continues in the skeleton head-to-head.
 
 ## 2026-11-05
 

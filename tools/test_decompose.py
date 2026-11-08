@@ -174,6 +174,16 @@ class RouterLane(unittest.TestCase):
         self.assertEqual(pick(False), ["g3", "g1"], "bar problem out, reachable first, a tried goal skipped")
         self.assertEqual(pick(True), ["g2", "g3", "g1"])
 
+    def test_a_lost_solve_goes_first(self):
+        """#642: run 42124394793 left the 4 goals whose solves were lost outside its first 25 (reachable first won)."""
+        q = [{"sha": s, "target_set": "minif2f/test", "target": t, "file_ok": True}
+             for s, t in (("r1", "imo_c"), ("lost", "imo_a"), ("r2", "imo_c"))]
+        rung = {("minif2f/test", "imo_a"): "imo", ("minif2f/test", "imo_c"): "imo"}
+        got = [g["sha"] for g in decompose.pick_goals(q, rung, set(), {("minif2f/test", "imo_c")}, True, 2, first={"lost"})]
+        self.assertEqual(got, ["lost", "r1"])
+        rows = [{"sha": "lost", "outcome": "solved"}, {"sha": "x", "outcome": "failed"}, {"sha": "o", "outcome": "solved", "backend": "other"}]
+        self.assertEqual(decompose.solved_by(rows, decompose.LANE["backend"]), {"lost"})
+
     def test_a_goal_restating_its_theorem_goes_last(self):
         q = [{"sha": "r", "target_set": "minif2f/test", "target": "imo_c", "file_ok": True, "restates": True},
              {"sha": "s", "target_set": "minif2f/test", "target": "imo_a", "file_ok": True}]

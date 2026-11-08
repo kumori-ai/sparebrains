@@ -136,15 +136,17 @@ def lane_of(backend):
             "file": "decompose"}
 
 
-def pick_goals(queue, rung, tried, reachable, bar, n):
+def pick_goals(queue, rung, tried, reachable, bar, n, first=()):
     """The goals to try: readable, untried by this lane, outside the bar's rungs unless `bar` (once the plan arm is
     judged, as for the Leanstral lane and the 32B), goals on problems a published prover reached as stated first
-    (tools/reachable.py), else the queue's order (real steps first)."""
+    (tools/reachable.py), else the queue's order (real steps first). `first`: goals this lane solved whose problem is
+    still open, so the solve was lost; they go ahead of everything (#642: run 42124394793 left 4 of them past its 25)."""
     ok = [g for g in queue if g.get("file_ok") and (g["target_set"], g["target"]) in rung and g["sha"] not in tried
           and (bar or rung[(g["target_set"], g["target"])] not in goal_closer.BAR_RUNGS)]
     # a goal that restates its whole theorem goes last (2026-10-22: 20 of 20 failed in runs 39513404578 and
     # 39541439510, 25% and 34% of their goals, pulled forward because their problems are reachable)
-    return sorted(ok, key=lambda g: (bool(g.get("restates")), (g["target_set"], g["target"]) not in reachable))[:n]
+    return sorted(ok, key=lambda g: (g["sha"] not in first, bool(g.get("restates")),
+                                     (g["target_set"], g["target"]) not in reachable))[:n]
 
 
 def cut_at_cap(rows, backend):
@@ -168,8 +170,11 @@ def tried_by(rows, backend):
     blank = lambda r: r.get("levels") and all(str(e.get("stopped", "")).startswith("no answer") for e in r["levels"])
     # a solved goal is not 'tried': its problem, if still open, lost the proof (2026-11-05, run 42061251877), so ask again
     mine = [r for r in rows if r.get("backend", LANE["backend"]) == backend]
-    solved = {r["sha"] for r in mine if r.get("outcome") == "solved"}          # a solve wins over any failed row
-    return {r["sha"] for r in mine if not blank(r)} - solved
+    return {r["sha"] for r in mine if not blank(r)} - solved_by(rows, backend)     # a solve wins over any failed row
+
+
+def solved_by(rows, backend):
+    return {r["sha"] for r in rows if r.get("backend", LANE["backend"]) == backend and r.get("outcome") == "solved"}
 
 
 def pick_lane(live, rows, now_iso):
@@ -330,7 +335,7 @@ def main():
     qfile = Path(a.queue) if a.queue and Path(a.queue).exists() else goal_closer.QUEUE
     print(f"queue: {qfile}", flush=True)
     goals = pick_goals(json.loads(qfile.read_text()), rung, tried, reach, prover.plan_owed(open_keys=set(rung)) is None,
-                       a.max_goals)
+                       a.max_goals, first=solved_by(past, lane["backend"]))
     read = lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text()
     ask, pacer = router_ask(a.lane, max_tokens=max_tokens) if a.lane else leanstral_ask(key)
     import fixer
