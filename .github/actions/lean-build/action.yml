@@ -1,36 +1,31 @@
-# Lean + Mathlib cache + build, with one retry (2026-11-08). lean-action always installs elan by downloading it
-# from GitHub's releases with a plain curl, no retry (elan-init.sh, ELAN_UPDATE_ROOT fixed in the script); on
-# 2026-11-08 a 504 there failed attempt 42466336624 and tactics 42470456174 in their first minute. A failed first
-# try waits 60 s and runs lean-action once more; a real build error fails twice and the job fails as before.
-# `fail-first` is the canary: it points the first try at a directory that does not exist, so the retry must run.
+# Lean + Mathlib cache + build (2026-11-08). The steps of leanprover/lean-action v1.6.0 for the inputs every workflow
+# here used (auto-config false, build true, use-mathlib-cache true, use-github-cache false), with the two that download
+# retried and the build run once. lean-action downloads elan with a plain curl and no retry; a GitHub releases 504 failed
+# attempt 42466336624 and tactics 42470456174 in their first minute. Practice followed: retry only what talks to a machine
+# we do not control, never a compile error (WarpBuild retry guidance, read 2026-11-08). Codex 20261108T160100530734Z.
+# Per-attempt deadlines live in retry.sh: composite run steps take no timeout-minutes (runner 2.338.2 schema).
 name: lean-build
-description: leanprover/lean-action v1.6.0 (no GitHub cache, Mathlib cache on), retried once
+description: elan + toolchain and the Mathlib cache, each up to 4 attempts (3 retries) with backoff; lake build once
 inputs:
   fail-first:
-    description: "canary only: make the first try fail so the retry path runs"
+    description: "canary only: the first elan attempt fails, so the retry path runs"
     default: "false"
 runs:
   using: composite
   steps:
-    - name: lean (first try)
-      id: first
-      continue-on-error: true
-      uses: leanprover/lean-action@v1.6.0
-      with:
-        auto-config: false
-        build: true
-        use-mathlib-cache: true
-        use-github-cache: false
-        lake-package-directory: ${{ inputs.fail-first == 'true' && 'no-such-dir-canary' || '.' }}
-    - name: lean (retry after 60 s)
-      if: steps.first.outcome == 'failure'
+    - name: install elan and the toolchain (retried)
       shell: bash
-      run: echo "::warning::lean-action failed on its first try; retrying once in 60 s" && sleep 60
-    - name: lean (second try)
-      if: steps.first.outcome == 'failure'
-      uses: leanprover/lean-action@v1.6.0
-      with:
-        auto-config: false
-        build: true
-        use-mathlib-cache: true
-        use-github-cache: false
+      env:
+        LEAN_BUILD_FAIL_FIRST: ${{ inputs.fail-first }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/retry.sh" 900 bash "$GITHUB_ACTION_PATH/install_elan.sh"
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+    - name: dependencies are pinned
+      shell: bash
+      run: test -f lake-manifest.json || { echo "::error::lake-manifest.json is missing, so the dependencies are not pinned (lean-action's config.sh guard)"; exit 1; }
+    - name: mathlib cache (retried)
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/retry.sh" 1800 "$HOME/.elan/bin/lake" exe cache get
+    - name: lake build (once)
+      shell: bash
+      run: '"$HOME/.elan/bin/lake" build'

@@ -1,4 +1,4 @@
-"""Every workflow that builds Lean shares one Mathlib-packages cache: restored before lean-action, saved right after it,
+"""Every workflow that builds Lean shares one Mathlib-packages cache: restored before lean-build, saved right after it,
 before the judge sandbox or any untrusted Lean, under the build's own condition. lean-action's per-commit cache
 (2.4 GB per commit) filled the repo's 10 GB on 2026-11-05 and evicted every other cache, openproblems' data included."""
 import unittest
@@ -13,7 +13,7 @@ def lean_jobs():
     for f in sorted(WORKFLOWS.glob("*.yml")):
         for name, job in (yaml.safe_load(f.read_text()).get("jobs") or {}).items():
             steps = job.get("steps") or []
-            at = [i for i, st in enumerate(steps) if "lean-action" in str(st.get("uses", ""))]
+            at = [i for i, st in enumerate(steps) if str(st.get("uses", "")) == "./.github/actions/lean-build"]
             if at:
                 yield f.name, name, steps, at[0]
 
@@ -27,7 +27,6 @@ class LeanCache(unittest.TestCase):
             restore, lean, save = steps[i - 1], steps[i], steps[i + 1]
             self.assertIn("actions/cache/restore", restore.get("uses", ""), where)
             self.assertIn("actions/cache/save", save.get("uses", ""), where)
-            self.assertEqual(lean["with"].get("use-github-cache"), False, f"{where}: lean-action's per-commit cache is off")
             self.assertEqual(restore["with"]["path"], ".lake/packages", where)
             self.assertEqual(save["with"]["path"], ".lake/packages", where)
             self.assertNotIn("github.sha", restore["with"]["key"], f"{where}: one key per Mathlib version, not per commit")
@@ -38,6 +37,10 @@ class LeanCache(unittest.TestCase):
             before = [st.get("name", "") for st in steps[:i - 1]]
             self.assertFalse(any("sandbox" in n for n in before), f"{where}: the save comes before the judge sandbox")
         self.assertGreaterEqual(seen, 12, "the walk found the Lean workflows (a 0 here would make this test pass on nothing)")
+
+    def test_lean_build_keeps_no_per_commit_cache(self):
+        text = (WORKFLOWS.parent / "actions" / "lean-build" / "action.yml").read_text()
+        self.assertNotIn("actions/cache", text, "the shared .lake/packages cache is the workflow's, never per commit")
 
 
 if __name__ == "__main__":
