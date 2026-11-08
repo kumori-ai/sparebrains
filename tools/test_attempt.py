@@ -280,15 +280,19 @@ class DeadLaneTests(RetryPacingTests):
         row = env['record'].call_args[0][0]
         self.assertEqual((row['verdict'], row['inference']['recovery']), ('error', rec))
 
-    def test_every_cold_try_asks_the_same_bound_which_stays_under_the_edges_125_s(self):
-        """2026-11-01: a 240 s bound for the slow lanes was drafted and dropped the same day: kumori.ai's Cloudflare
-        zone cuts any response at 125 s, so a longer ask cannot bring an answer back (kumori session, #316)."""
+    def test_a_cold_try_asks_the_long_bound_only_on_a_lane_running_slow(self):
+        """2026-11-01 held every cold try at 120 s because Cloudflare cuts at 125 s; the client has fetched the saved
+        answer after the cut since that evening (kumori 364afa74), so a slow lane now asks 240 s (#658, 2026-11-08)."""
         env, lane = self.runner()
         env['llm_chat'].side_effect = attempt.KumoriAPIError('kumori /api/v1/llm/chat HTTP 504 : timed out', status_code=504)
-        for backend in ('sealion-qwen-sea-lion-v4-5-27b-it', 'test-lane'):
-            env['run_one']('demo', dict(lane, backend=backend), 1)
-            self.assertEqual(env['llm_chat'].call_args.kwargs['timeout_s'], attempt.LADDER_CALL_S)
-        self.assertLessEqual(attempt.LADDER_CALL_S, 125)
+        attempt.RUNNING_SLOW.add('sealion-qwen-sea-lion-v4-5-27b-it')
+        try:
+            for backend, bound in (('sealion-qwen-sea-lion-v4-5-27b-it', 240), ('test-lane', attempt.LADDER_CALL_S)):
+                env['run_one']('demo', dict(lane, backend=backend), 1)
+                self.assertEqual(env['llm_chat'].call_args.kwargs['timeout_s'], bound, backend)
+                self.assertEqual(env['record'].call_args[0][0]['request_config']['router_timeout_s'], bound)
+        finally:
+            attempt.RUNNING_SLOW.discard('sealion-qwen-sea-lion-v4-5-27b-it')
 
     def test_upstream_seconds_sums_the_calls_alone_and_leaves_out_the_retry_sleep(self):
         env, lane = self.runner()

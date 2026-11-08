@@ -54,6 +54,32 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   20261108T160945856866Z AGREE). Crouton's proofs need no harvest tool: the ladder already holds 469 of its rows on 288
   targets and 226 accepted proofs in verified/; only rejected texts are not kept (proof_sha only), deferred until a
   fine-tune is planned.
+- **Ladder lane settings from the router's error codes: a slow lane's cold try asks 240 s, and the dry and timed-out
+  detectors read the new codes (#658). This reverses 2026-11-01's "a longer cold try cannot help the slow lanes".**
+  (1) A bug: kumori 4e0f0c98 (live 17:25Z today) answers its own failures as "HTTP 503 [code] : ..."; `relay.EMPTY`
+  ("HTTP 502 : unknown") and `TIMED_OUT` ("HTTP 504") matched none of them, so 7 `reasoning_truncated` rows since then
+  went unseen. They now also match `[reasoning_truncated|empty_answer]` and `[upstream_timeout|deadline_exceeded]`.
+  Cloudflare's HTML 502 from before stays out of EMPTY: it also carried the provider's own 5xx (Codex agreed). So
+  RUNNING_DRY picks no lane today and fills as coded rows arrive; Flint (kumori's trace: 195 of 232 failures
+  `reasoning_truncated`, 11,938 of 16,000 thinking tokens on average) is the expected first catch. (2) The reversal:
+  11-01 held every cold try at 120 s because kumori.ai's Cloudflare zone cuts at 125 s. That evening the shared
+  client began fetching the saved answer after the cut (kumori 364afa74), and from 11-02 to 11-08, 13 answers came
+  back past 125 s (relay, 240 s asks, `inference.recovery.succeeded`). Since then Sea Lion's cold errors read
+  "llm/result/<id> HTTP 504", the rescue fetching the router's own 120 s timeout, so the bound that binds is
+  `timeout_s`. kumori allows 240 s for `sparebrains.write` keys on any path (api_v1_llm_bp.py:423, read by Codex).
+  `relay.running_slow`: a lane whose last 10 cold calls are at least half timed out asks `relay.LONG_CALL_S` on cold
+  tries (picked today: sealion-qwen-sea-lion-v4-5-27b-it, iteracompute-qwen3-8-27b). (3) Not parked: kumori's 48 h
+  trace suggested parking lanes failing over 90%, but over 7 days (relay and ladder) those lanes hold some of the
+  most accepts per call: groq-qwen3-8-27b 95 of 478, Flint 254 of 946, Leanstral 1.5 186 of 617, Sea Lion 146 of 589,
+  against 1-8% on the meganova lanes (accepts include re-proofs of solved targets). **The cost is shared:** attempt.yml
+  runs 3 workers and each call holds one, so a 240 s call takes a third of the ladder's capacity for that time, not
+  only its provider's (Codex f2). **Measured before/after, ladder-x3 only.** Before, 2026-11-01T00Z to 11-08T22Z: 34
+  runs, 176.0 run-hours (first to last row per run), 7,297 calls, 1,376 accepts, 7.8 accepts per run-hour, 0.189 per
+  call, 1,349 timeouts; Sea Lion 580 calls, 146 accepts, 351 timeouts; iteracompute 211 calls, 1 accept, 201
+  timeouts. After: the 7 days from this deploy, the same three numbers for the whole ladder and for each lane picked
+  slow. The change is kept if whole-ladder accepts per run-hour do not fall and the slow lanes' accepts per call
+  rise; otherwise reverted, with the numbers. Codex DISAGREE 20261108T215514099971Z (f1 this entry was owed, f2 the
+  cost model), both fixed here.
 
 ## 2026-11-05
 
@@ -417,7 +443,7 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   dmesg exists on the runner. The smoke itself spends Kaggle TPU quota and is Andy's call. Codex DISAGREE
   20261101T185014 (a death-time guarantee that the code did not give; stdout hiding a failed import),
   DISAGREE 20261101T185413714105Z (this entry was promised and absent), then AGREE 20261101T185605304327Z.
-- **A longer cold try cannot help the slow lanes: the edge cuts at ~125 s; every ladder row now carries the call's own
+- *(Superseded 2026-11-08, #658: the client rescues answers past the cut, see that day.)* **A longer cold try cannot help the slow lanes: the edge cuts at ~125 s; every ladder row now carries the call's own
   time (kumori #316, read with the kumori session).** Since 10-29 the three slow lanes (sealion 27B, iteracompute
   qwen3 27B, gemma 31B) lost 51-64% of their ladder tries as 504s at the 120 s line while accepting two thirds of what
   they answered (sealion 108 of 159), and a 240 s cold try for them was drafted today. Dropped before it ran: the

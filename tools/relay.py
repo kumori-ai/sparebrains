@@ -52,9 +52,14 @@ USER_AGENT = "sparebrains-relay (+https://github.com/kumori-ai/sparebrains)"
 REPO = "kumori-ai/sparebrains"
 
 
-EMPTY = re.compile(r"HTTP 502 : unknown")    # how an answer that never came (out of thought) reaches the ledger
-TIMED_OUT = re.compile(r"HTTP 504")          # the lane did not answer in time
+# How an answer that never came (out of thought) and a lane that did not answer in time reach the ledger. Since kumori
+# 4e0f0c98 (live 2026-11-08 17:25Z) the router names them: "HTTP 503 [reasoning_truncated]" and so on (#658). Rows
+# before it read "HTTP 502 : unknown" or Cloudflare's HTML 502/504; an HTML 502 is not counted empty, as it also
+# carried the provider's own 5xx, and each window below fills with coded rows within a day of calls.
+EMPTY = re.compile(r"HTTP 502 : unknown|\[(reasoning_truncated|empty_answer)\]")
+TIMED_OUT = re.compile(r"HTTP 504|\[(upstream_timeout|deadline_exceeded)\]")
 DRY_LAST, DRY_SHARE = 10, 0.6                # last 10 calls at least 60% empty: ask for less thinking
+SLOW_LAST, SLOW_SHARE = 10, 0.5              # last 10 cold calls at least half timed out: ask the long bound (#658)
 BENCH_LAST, BENCH_DAYS = 6, 3                # last 6 relay calls all empty or timed out: out of the relay for 3 days
 FAIL_LAST, FAIL_MIN, FAIL_HOURS = 12, 8, 24    # 8+ of a lane's last 12 relay calls in 24 h were errors: it sits out
                                               # the job (2026-10-09: openrouter lanes failed 9-11 of 12, often after
@@ -88,6 +93,13 @@ def running_dry(rows, backend):
 
 def is_timed_out(r):
     return r.get("verdict") == "error" and bool(TIMED_OUT.search(r.get("reason") or ""))
+
+
+def running_slow(rows, backend):
+    """A lane whose cold tries mostly die at the ladder's bound: its cold tries ask LONG_CALL_S instead (#658,
+    2026-11-08). Relay calls already ask it, so only cold ones count."""
+    last = [r for r in _calls(rows, backend) if not is_relay(r)][-SLOW_LAST:]
+    return len(last) == SLOW_LAST and sum(map(is_timed_out, last)) >= SLOW_SHARE * SLOW_LAST
 
 
 def relay_benched(rows, backend, now_iso):

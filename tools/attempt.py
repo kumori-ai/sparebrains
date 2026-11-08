@@ -112,13 +112,15 @@ def lane_max_tokens(lane, default):
 
 
 LADDER_CALL_S = 120                 # a cold try's long_call bound: twice the old 60 s ceiling, half the relay's 240
-# Not raised past this (2026-11-01, kumori session): kumori.ai sits behind Cloudflare's 125 s proxy read timeout (Free
-# plan, not editable), so nothing slower than ~125 s comes back whatever timeout_s asks; a 240 s cold try for the slow
-# 27-31B lanes was drafted that day and dropped before it ran. The lever for those lanes is kumori's (#316).
+RUNNING_SLOW = set()                # lanes whose recent cold tries mostly timed out, from the ledger at job start
+# A slow lane's cold try asks the relay's 240 s (#658, 2026-11-08). The 11-01 reason for holding every lane at 120 s
+# (Cloudflare cuts kumori.ai at 125 s, so nothing slower comes back) was overtaken that evening: the shared client
+# fetches the saved answer after the cut (kumori 364afa74), and 13 relay answers came back past 125 s from 11-02 to
+# 11-08. Sea Lion 27B's cold tries 11-01..08: 352 of 580 died at the 120 s bound, answered ones p90 106 s, max 123 s.
 
 
 def ladder_call_s(lane):
-    return LADDER_CALL_S
+    return relay.LONG_CALL_S if lane.get("backend") in RUNNING_SLOW else LADDER_CALL_S
 
 
 def bench_delay(retry_after, consecutive):
@@ -319,6 +321,9 @@ def main():
     RUNNING_DRY.update(l["backend"] for l in known + unknown if relay.running_dry(ledger_rows, l["backend"]))
     for b in sorted(RUNNING_DRY):
         print(f"  {b}: most recent calls came back empty; asked for low reasoning effort")
+    RUNNING_SLOW.update(l["backend"] for l in known + unknown if relay.running_slow(ledger_rows, l["backend"]))
+    for b in sorted(RUNNING_SLOW):
+        print(f"  {b}: most recent cold tries timed out; asked for {relay.LONG_CALL_S} s")
     if args.max_per_provider:
         kept, seen = [], defaultdict(int)
         for l in sorted(known, key=lambda l: (-l["rank"], l["backend"])):   # strongest first within a provider

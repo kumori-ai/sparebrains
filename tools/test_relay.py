@@ -331,6 +331,39 @@ class EmptyLaneTests(unittest.TestCase):
         rows[-1]["reason"] = "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 : pacing"
         self.assertFalse(relay.relay_benched(rows, "d", "2026-10-08T00:00:00+00:00"), "a pacing refusal is not the lane's")
 
+    def test_the_routers_error_codes_count_as_empty_and_timed_out(self):
+        """kumori 4e0f0c98 (live 2026-11-08 17:25Z) answers its own failures as 503 + error_code; the old patterns matched
+        none of them, so a lane out of thought was never asked for less (#658)."""
+        for reason in ("KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [reasoning_truncated] : backend x returned no text",
+                       "KumoriAPIError: kumori /api/v1/llm/result/0abf HTTP 503 [empty_answer] : backend x returned no text"):
+            self.assertTrue(relay.is_empty({"verdict": "error", "reason": reason}), reason)
+        for reason in ("KumoriAPIError: kumori /api/v1/llm/result/0abf HTTP 503 [upstream_timeout] : x",
+                       "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [deadline_exceeded] : x"):
+            self.assertTrue(relay.is_timed_out({"verdict": "error", "reason": reason}), reason)
+        busy = {"verdict": "error", "reason": "KumoriAPIError: kumori /api/v1/llm/chat HTTP 503 [provider_busy] : one at a time"}
+        self.assertFalse(relay.is_empty(busy) or relay.is_timed_out(busy))
+
+    def test_running_slow_needs_ten_cold_calls_half_timed_out(self):
+        timed_out = "KumoriAPIError: kumori /api/v1/llm/result/0abf HTTP 503 [upstream_timeout] : x"
+        def rows(n_out, n_ok, mode="cold"):
+            rs = self.rows("s", ["error"] * n_out + ["reject"] * n_ok, mode=mode)
+            for r in rs[:n_out]:
+                r["reason"] = timed_out
+            return rs
+        self.assertTrue(relay.running_slow(rows(5, 5), "s"))
+        self.assertFalse(relay.running_slow(rows(4, 6), "s"))
+        self.assertFalse(relay.running_slow(rows(9, 0), "s"), "not enough calls to judge")
+        self.assertFalse(relay.running_slow(rows(10, 0, mode="relay"), "s"), "relay calls already ask the long bound")
+
+    def test_a_slow_lane_gets_the_long_bound_on_a_cold_try(self):
+        import attempt
+        attempt.RUNNING_SLOW.add("slow-lane")
+        try:
+            self.assertEqual(attempt.ladder_call_s({"backend": "slow-lane"}), relay.LONG_CALL_S)
+            self.assertEqual(attempt.ladder_call_s({"backend": "ok-lane"}), attempt.LADDER_CALL_S)
+        finally:
+            attempt.RUNNING_SLOW.discard("slow-lane")
+
     def test_a_dry_thinking_model_is_asked_for_low_effort(self):
         import attempt
         attempt.RUNNING_DRY.add("dry-lane")
