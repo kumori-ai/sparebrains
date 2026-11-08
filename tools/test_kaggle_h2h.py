@@ -68,6 +68,15 @@ class Identity(unittest.TestCase):
         self.assertEqual((meta["id"], meta["code_file"]), (k.KERNEL_ID, "kaggle_h2h_kernel.py"))
         compile(src, "kernel", "exec")
 
+    def test_the_kernel_uses_mistrals_tokenizer_through_llm_chat(self):
+        # smoke 20261108T1651 died at load + 70 s: vLLM loads Mistral's own tokenizer for this checkpoint (the card's
+        # `--tokenizer_mode mistral`), which has no chat_template and no HF apply_chat_template contract
+        src = (ROOT / "tools" / "kaggle_h2h_kernel.py").read_text()
+        self.assertIn('tokenizer_mode="mistral"', src)
+        self.assertIn("llm.chat(", src)
+        self.assertNotIn("chat_template", src.replace("chat_template_sha", ""))
+        self.assertNotIn("apply_chat_template", src)
+
 
 class Ingest(unittest.TestCase):
     def setUp(self):

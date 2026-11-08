@@ -22,11 +22,18 @@ subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchaudi
 import vllm
 from vllm import LLM, SamplingParams
 
+# Mistral's own tokenizer and its chat format, as the model card's vLLM command sets (`--tokenizer_mode mistral`);
+# vLLM picked it unasked in smoke 20261108T1651, whose HF-template call then failed. llm.chat formats each conversation
+# with whatever tokenizer was loaded, so the prompt format is the one Mistral ships.
 llm = LLM(model=MODEL, revision=REVISION, dtype="half", tensor_parallel_size=2, max_model_len=MAX_TOKENS + 4096,
-          gpu_memory_utilization=0.9, limit_mm_per_prompt={"image": 0})
+          gpu_memory_utilization=0.9, limit_mm_per_prompt={"image": 0}, tokenizer_mode="mistral")
 tok = llm.get_tokenizer()
-timing.update(load_s=round(time.time() - t0, 1), vllm=vllm.__version__,
-              chat_template_sha=hashlib.sha256((tok.chat_template or "").encode()).hexdigest(),
+try:
+    import mistral_common
+    mc = mistral_common.__version__
+except Exception:
+    mc = None
+timing.update(load_s=round(time.time() - t0, 1), vllm=vllm.__version__, tokenizer=type(tok).__name__, mistral_common=mc,
               gpus=subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
                                   text=True).stdout.split("\n")[0])
 params = SamplingParams(n=1, temperature=TEMPERATURE, top_p=TOP_P, max_tokens=MAX_TOKENS)
@@ -38,10 +45,9 @@ with open(OUT, "a") as out:
             print(json.dumps({"stopped": "budget", "done": i}), flush=True)
             timing["stopped"] = {"budget": True, "done": i}
             break
-        prompts = [tok.apply_chat_template([{"role": "system", "content": SYSTEM}, {"role": "user", "content": it["prompt"]}],
-                                           tokenize=False, add_generation_prompt=True) for it in chunk]
+        convs = [[{"role": "system", "content": SYSTEM}, {"role": "user", "content": it["prompt"]}] for it in chunk]
         t = time.time()
-        results = llm.generate(prompts, params)
+        results = llm.chat(convs, params, use_tqdm=False)
         secs = time.time() - t
         for it, r in zip(chunk, results):
             o = r.outputs[0]
