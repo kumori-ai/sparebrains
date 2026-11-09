@@ -38,3 +38,21 @@ Inputs for `tools/replay.py`: a lane's stored answers, re-run with zero model ca
   20261109T164835638082Z DISAGREE (attribution), round 2 AGREE.
 - Public already: the same rows are served at https://sparebrains.kumori.ai/attempts/<id> (the first and last ids,
   9510 and 46290, both 200 signed out, 2026-11-09), as for the allam cohort.
+
+## repair-open-2026-11-09.jsonl.gz
+
+- What: every rejected `repair` try (the model's second answer after Lean's error) with a proof, on the 18 problems
+  open at freeze time (sparebrains.kumori.ai/targets.json, 2026-11-09): 845 rows from 55 lanes, ids 3968 to 101911.
+  Fields: id, created_at, run_id, target_set, target, backend, quality_tier, rung, proof, lean_output. 773,912 bytes;
+  sha256 begins 00dff2c65955c499.
+- From: kumori's `sparebrains_attempts`, 2026-11-09, one read-only query as `adhoc_session`: `SELECT id, created_at,
+  run_id, target_set, target, backend, quality_tier, rung, proof, lean_output FROM sparebrains_attempts WHERE
+  try_mode = 'repair' AND verdict = 'reject' AND proof IS NOT NULL AND proof <> '' AND run_id NOT LIKE 'smoke%' AND
+  (target_set || '/' || target) = ANY(<the 18 open>) ORDER BY id`.
+- Why (#574): the nightly retro gives the free chain (fixer, holes, Lean's automation; no model) only to cold tries
+  (kumori `_COLD_REJECT`), and the ladder repairs inline only relay tries, so no repair try was ever chained (19,919
+  rejects). On the Ministral cohort above, 69 of the 107 chain rescues were repair tries. Run: attempt.yml
+  `fixer_target=retro:repair-open-2026-11-09.jsonl.gz`, which records an open-problem solve for the lane that wrote
+  the reply and sends no ablation row. Design: Codex 20261109T200739796471Z AGREE.
+- Public already: the first and last ids, 3968 and 101911, are served at https://sparebrains.kumori.ai/attempts/<id>,
+  both 200 signed out, 2026-11-09.

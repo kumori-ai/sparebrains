@@ -502,3 +502,73 @@ class BaselineSetAsideTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetroCohortTests(unittest.TestCase):
+    """`--retro --cohort FILE` (#574): the free chain on a frozen file of stored rejects (the repair tries the nightly
+    retro's cold-only queue never reaches), solves of open problems recorded as retro records them, no ablation row."""
+    def cohort(self, rows):
+        import gzip, json, tempfile
+        d = Path(tempfile.mkdtemp())
+        with gzip.open(d / "c.jsonl.gz", "wt") as fh:
+            fh.writelines(json.dumps(r) + "\n" for r in rows)
+        return d / "c.jsonl.gz"
+
+    def test_pages_come_from_the_file_in_slice_and_id_order_and_never_from_kumori(self):
+        path = self.cohort([{"id": i} for i in (9, 3, 6, 4, 12, 7)])
+        todo = Mock(side_effect=AssertionError("asked kumori"))
+        pages = list(attempt.retro_pages("0/3", todo, path, limit=2))
+        self.assertEqual([[r["id"] for r in p] for p in pages], [[3, 6], [9, 12]])
+        todo.assert_not_called()
+
+    def test_without_a_cohort_pages_come_from_the_todo_queue(self):
+        todo = Mock(side_effect=[[{"id": 5}], []])
+        self.assertEqual([[r["id"] for r in p] for p in attempt.retro_pages("1/6", todo, None)], [[5]])
+        self.assertEqual(todo.call_args_list[0].args, ("1/6", 0, 100))
+        self.assertEqual(todo.call_args_list[1].args, ("1/6", 5, 100))
+
+    def runner(self, chain):
+        import ast, hashlib, tempfile, threading, time
+        tree = ast.parse(Path(attempt.__file__).read_text())
+        node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'retro_one')
+        root = Path(tempfile.mkdtemp())
+        (root / "targets" / "s").mkdir(parents=True)
+        (root / "targets" / "s" / "demo.lean").write_text("theorem demo : True := by\n  sorry\n")
+        env = dict(vars(attempt), ROOT=root, hashlib=hashlib, time=time, lock=threading.Lock(), solved={}, run_id="r",
+                   state={"calls": 0, "accepts": 0}, record=Mock(), base_row=Mock(return_value={"target": "demo"}),
+                   toolscore=Mock(run_chain=Mock(side_effect=chain)), lean_tools=Mock())
+        exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
+        return env
+
+    A = {"id": 41, "target_set": "s", "target": "demo", "backend": "tiny-lane", "quality_tier": "tiny", "rung": "r1",
+         "proof": "  bogus", "lean_output": ""}
+    WIN = {"fixes": [], "b_verdict": "reject", "c_verdict": "accept", "rep": {"closed_by_lean": 1},
+           "final": "theorem demo : True := by\n  trivial"}
+
+    def test_an_open_solve_is_recorded_for_the_lane_that_wrote_it_and_no_ablation_row_is_sent(self):
+        env = self.runner(lambda *a: self.WIN)
+        self.assertEqual(env["retro_one"](self.A, {("s", "demo")}, None, None), ("accept", "reject"))
+        row = env["record"].call_args[0][0]
+        self.assertEqual((row["try_mode"], row["prev_id"], row["verdict"]), ("fixer+loop", 41, "accept"))
+        self.assertEqual(env["base_row"].call_args[0][1]["backend"], "tiny-lane")
+        self.assertEqual(env["solved"]["demo"]["backend"], "tiny-lane")
+        self.assertTrue((env["ROOT"] / "verified" / "s" / "demo" / "tiny-lane.lean").exists())
+
+    def test_the_nightly_retro_still_sends_its_ablation_row(self):
+        env, sent = self.runner(lambda *a: self.WIN), Mock()
+        env["retro_one"](self.A, {("s", "demo")}, None, sent)
+        self.assertEqual(sent.call_args[0][0]["attempt_id"], 41)
+        self.assertTrue(sent.call_args[0][0]["solved_open"])
+
+    def test_the_nightly_retro_measures_a_target_not_open_and_records_no_solve(self):
+        env, sent = self.runner(lambda *a: self.WIN), Mock()
+        self.assertEqual(env["retro_one"](self.A, set(), None, sent), ("accept", "reject"))
+        env["record"].assert_not_called()
+        self.assertFalse(sent.call_args[0][0]["solved_open"])
+
+    def test_a_cohort_row_on_a_target_not_open_or_already_solved_is_not_re_run(self):
+        env = self.runner(lambda *a: self.WIN)
+        self.assertIsNone(env["retro_one"](self.A, set(), None, None))
+        env["solved"]["demo"] = {"backend": "x"}
+        self.assertIsNone(env["retro_one"](self.A, {("s", "demo")}, None, None))
+        env["toolscore"].run_chain.assert_not_called()

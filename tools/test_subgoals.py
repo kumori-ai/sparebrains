@@ -86,6 +86,10 @@ class Holes(unittest.TestCase):
     def test_kept_steps(self):
         self.assertEqual(sg.kept_steps(PREFIX + "\n  sorry", TOP), 0)
         self.assertEqual(sg.kept_steps(PREFIX + "\n  constructor\n  · sorry\n  · omega", TOP), 2)
+        # a comment is not a step the model kept (Codex 20261109T200739796471Z f1): that is the whole goal to automation
+        self.assertEqual(sg.kept_steps(PREFIX + "\n  -- the key step\n  sorry", TOP), 0)
+        self.assertEqual(sg.kept_steps(PREFIX + "\n  /- a plan\n  in prose -/\n  sorry", TOP), 0)
+        self.assertEqual(sg.kept_steps(PREFIX + "\n  omega -- done", TOP), 1)
 
 
 class Executed(unittest.TestCase):

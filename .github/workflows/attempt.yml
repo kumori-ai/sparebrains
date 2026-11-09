@@ -191,6 +191,10 @@ jobs:
             # chain and tools alone, no model asked; Lean runs here, as the sandbox user, because the replies are untrusted
             python3 tools/replay.py --slice "${SLICE:-0/1}" --max-minutes 320
             python3 tools/replay.py --report || true
+          elif [ "${FIXER_TARGET#retro:}" != "$FIXER_TARGET" ]; then
+            # retro:<cohort>.jsonl.gz = the free chain on a frozen file of stored rejects in ledger/replay (#574: the
+            # repair tries the nightly cold-only queue never reaches); open-problem solves recorded, no ablation row
+            python3 tools/attempt.py --retro --cohort "${FIXER_TARGET#retro:}" --slice "${SLICE:-0/1}" --max-minutes 320 --max-calls 1000
           elif [ "${FIXER_TARGET#replay:}" != "$FIXER_TARGET" ]; then
             # replay:<cohort>.jsonl.gz = another frozen cohort in ledger/replay, the same arms, no model asked (#574)
             python3 tools/replay.py --cohort "${FIXER_TARGET#replay:}" --slice "${SLICE:-0/1}" --max-minutes 320

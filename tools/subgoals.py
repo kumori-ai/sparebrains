@@ -141,8 +141,10 @@ def holes(text, top_line):
 
 
 def kept_steps(text, top_line):
-    """How many proof lines are real steps, not holes: 0 means the proof was thrown away whole."""
-    return sum(1 for l in text.split("\n")[top_line:] if l.strip() and not HOLE.match(l))
+    """How many proof lines are real steps, not holes or comments: 0 means the proof was thrown away whole (a comment
+    kept above a whole-goal hole is the goal handed to automation, not a model's step: Codex 20261109T200739796471Z)."""
+    body = re.sub(r"/-.*?-/", "", "\n".join(text.split("\n")[top_line:]), flags=re.S)
+    return sum(1 for l in body.split("\n") if re.sub(r"--.*", "", l).strip() and not HOLE.match(l))
 
 
 def _with_tactics(text, plan):

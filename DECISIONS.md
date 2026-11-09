@@ -5,6 +5,25 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-09
 
+- **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
+  chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2
+  tested and did not prove (CI run 42663548076, zero model calls): 0 accepted as written, 107 accepted after
+  toolscore.run_chain (fixer, holes, Lean's automation), on 17 distinct targets (3B 7, 8B 9, 14B 12), Lean 3 recovery
+  0 extra. Baseline 2 ran every AUTO_TACTIC on each whole goal and rejected all 17, so as of 2026-11-09 this is
+  lift over that baseline from the model's structure plus automation, not tools alone. Spot check, attempt 39262
+  (aime_1990_p4, ministral-3b): the chain kept the model's `D = x^2 - 10x` substitution and `(D-13)(D-39) = 0`
+  factoring, cut its wrong case split, closed 3 holes (grind, nlinarith, nlinarith); kernel axioms propext,
+  Classical.choice, Quot.sound. None of the 17 is open, so no new solve. Step 2's premise ("post-hoc repair rescues
+  about 0") is false, so the names-up-front Kaggle pilot is not started on that premise. Coverage: 69 of the 107 were
+  `repair` tries, which the nightly retro never sees (kumori's ablation queue is cold-only) and the ladder never repairs
+  inline (relay tries only): 19,919 repair rejects never chained, 845 of them on the 18 open problems. Built:
+  `attempt.py --retro --cohort FILE` (open-problem solves recorded as retro records them; no ablation row, which keeps
+  /loop's cold A/C clean), frozen `ledger/replay/repair-open-2026-11-09.jsonl.gz`, and Codex's two follow-ups: a
+  comment no longer counts as a kept step (subgoals.kept_steps), and a cohort row whose problem is not open or already
+  solved this job is skipped before any Lean. Durable fix left for a kumori session: the nightly queue should include
+  repair tries, with try_mode on the ablation row so /loop can split them. Locally, `taskpolicy -b` throttled Lean into
+  judge timeouts and a false reject; reruns use `nice`. Codex 20261109T200739796471Z AGREE (f1, f2 follow-ups, fixed).
+
 - **One reasoning cut closes a ladder cell for that budget (#658 follow-up).** After a lane thought until max_tokens
   and wrote nothing (kumori 503 [reasoning_truncated]), the same cell's next try, 2026-11-01..09 (ladder-x3): 53
   cases, 0 accepts (43 cut again, 6 reject, 4 timeout); at low effort 0 of 21. 148 cuts in all (Flint 73, crouton 37,
