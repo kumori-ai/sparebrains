@@ -193,6 +193,20 @@ class Fairness(unittest.TestCase):
         self.assertEqual((s["only_lessons"], s["only_alone_vs_lessons"]), (["a", "c"], ["b"]))
         self.assertEqual(s["p_lessons"], 1.0)                    # 2 vs 1 is no evidence
 
+class OffBaselineTests(unittest.TestCase):
+    def test_off_the_no_model_set_is_reported_beside_the_totals_not_instead(self):
+        row = lambda t, arm, won: {"arm": arm, "target_set": "s", "target": t, "outcome": "solved" if won else "failed",
+                                   "calls": 1, "tokens": 1, "seconds": 1}
+        rows = [row("easy", "alone", False), row("easy", "skeleton", True), row("hard", "alone", False), row("hard", "skeleton", False)]
+        base = {"set": {("s", "easy")}, "targets": 2, "version": {"run_id": "1"}}
+        plain, split = h.summary(rows, ("alone", "skeleton")), h.summary(rows, ("alone", "skeleton"), baseline=base)
+        self.assertEqual(split["skeleton"], plain["skeleton"], "the totals are unchanged")
+        self.assertEqual(split["only_skeleton"], ["easy"])
+        off = split["off_baseline"]
+        self.assertEqual((off["problems_paired"], off["skeleton"]["solved"], off["only_skeleton"]), (1, 0, []))
+        self.assertEqual(split["in_baseline"], 1)
+        self.assertIn("not accepted by", split["off_baseline_means"])
+
 
 if __name__ == "__main__":
     unittest.main()

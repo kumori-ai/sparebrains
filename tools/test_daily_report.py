@@ -134,6 +134,18 @@ class DailyReport(unittest.TestCase):
         self.assertEqual((s["lane"], s["size_b"], s["week"], s["targets"], s["accepted"], s["refused"]), ("s3b", 3, "2026-10-26", 3, 1, 1))
         self.assertEqual((s["prev_week"], s["prev_accepted"], s["prev_targets"]), ("2026-10-19", 0, 1))
 
+    def test_speed_reads_off_the_no_model_baseline_beside_its_totals(self):
+        """#574: t1 is in the no-model baseline, so this week's one accept is not counted off it."""
+        self.assertNotIn("targets_off", self.report["speed"][0], "no baseline rows, no off-baseline column")
+        write(self.ledger / "replay" / "results-9-0.jsonl", [
+            {"arm": "tools_alone", "target_set": None, "target": "t1", "verdict": "accept", "run_id": "9", "lean_env": "e",
+             "tools_hash": "h", "ts": "2026-10-24T00:00:00+00:00"},
+            {"arm": "tools_alone", "target_set": None, "target": "t2", "verdict": "reject", "run_id": "9", "lean_env": "e",
+             "tools_hash": "h", "ts": "2026-10-24T00:00:00+00:00"}])
+        (s,) = daily_report.build(self.ledger, NOW)["speed"]
+        self.assertEqual((s["accepted"], s["targets"], s["accepted_off"], s["targets_off"]), (1, 3, 0, 2))
+        self.assertIn("off the no-model baseline", daily_report.render(daily_report.build(self.ledger, NOW)))
+
     def test_kaggle_batches_and_failures_in_the_window(self):
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["finished"]], ["goals-1"])
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["failed"]], ["tpu32-1"])

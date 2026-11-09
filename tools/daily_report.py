@@ -164,15 +164,20 @@ def grades(rows, since):
 
 def speed(ledger):
     """The size series (task #191): per lane and run week, targets tried, first accepts, refusals; beside the week before."""
+    try:                                                 # #574: the same read off the no-model baseline, beside it
+        import replay
+        base = replay.no_model_set(ledger)["set"]
+    except ValueError:
+        base = None
     by = defaultdict(lambda: {"targets": set(), "accepted": set(), "refused": 0, "size_b": None})
     for r in _load_jsonl(Path(ledger) / "speed"):
         if "run_week" not in r or "lane" not in r:
             continue
         s = by[(r["lane"], r["run_week"])]
         s["size_b"] = r.get("size_b")
-        s["targets"].add(r.get("target"))
+        s["targets"].add((r.get("target_set"), r.get("target")))
         if r.get("verdict") == "accept":
-            s["accepted"].add(r.get("target"))
+            s["accepted"].add((r.get("target_set"), r.get("target")))
         elif r.get("verdict") == "refused":
             s["refused"] += 1
     if not by:
@@ -186,7 +191,8 @@ def speed(ledger):
         p = by[(lane, prev[0])] if prev else None
         out.append({"lane": lane, "size_b": s["size_b"], "week": w, "targets": len(s["targets"]), "accepted": len(s["accepted"]),
                     "refused": s["refused"], "prev_week": prev[0] if prev else None,
-                    "prev_targets": len(p["targets"]) if p else 0, "prev_accepted": len(p["accepted"]) if p else 0})
+                    "prev_targets": len(p["targets"]) if p else 0, "prev_accepted": len(p["accepted"]) if p else 0,
+                    **({"targets_off": len(s["targets"] - base), "accepted_off": len(s["accepted"] - base)} if base is not None else {})})
     return sorted(out, key=lambda s: (s["size_b"] if s["size_b"] is not None else 1e9, s["lane"]))
 
 
@@ -359,10 +365,13 @@ def render(d):
         out.append(f"| {g['grade']} | {g['solved']} / {g['open']} | {g['answered']} | {g['accepts']} | {top} |")
     if d["speed"]:
         out += ["", "**Tool lift, same models, this week's tools** (ledger/speed; first accepts on the frozen solved set):", "",
-                "| lane | size | this week | week before | refused |", "|---|---:|---:|---:|---:|"]
+                "| lane | size | this week | week before | off the no-model baseline | refused |", "|---|---:|---:|---:|---:|---:|"]
         for s in d["speed"]:
             prev = f"{s['prev_accepted']}/{s['prev_targets']}" if s["prev_week"] else "none"
-            out.append(f"| {s['lane']} | {s['size_b'] or '?'}B | {s['accepted']}/{s['targets']} | {prev} | {s['refused']} |")
+            off = f"{s['accepted_off']}/{s['targets_off']}" if "targets_off" in s else "no baseline"
+            out.append(f"| {s['lane']} | {s['size_b'] or '?'}B | {s['accepted']}/{s['targets']} | {prev} | {off} | {s['refused']} |")
+        out.append("Off the no-model baseline: targets Lean's automation alone did not prove in replay's tools_alone arm "
+                   "(a reject there, not proof that automation cannot); a lift on small models is read there.")
     k = d["kaggle"]
     if k["finished"] or k["failed"]:
         out += ["", "**Kaggle prover batches:** " + "; ".join([f"{b['batch']} finished, {b['answers']} answers" for b in k["finished"]] +

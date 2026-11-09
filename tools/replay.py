@@ -225,5 +225,32 @@ def main():
     return 0
 
 
+# The no-model baseline's tactics by the tools hash its rows carry (the rows record no list). b6dddd8ade is run
+# 40123591430, 2026-10-24: subgoals.AUTO_TACTICS at ec8e9d25, hashed and read by Codex 20261109T032109853848Z.
+BASELINE_TACTICS = {"b6dddd8ade": ["omega", "linarith", "nlinarith", "positivity", "decide", "(norm_num; done)",
+                                   "(simp; done)", "(aesop; done)", "grind", "exact?"]}
+OFF_BASELINE_MEANS = ("not accepted by the recorded no-model baseline (replay tools_alone); not proof that automation "
+                      "cannot prove it: a timeout reads as a reject there")
+
+
+def no_model_set(ledger, run_id=None):
+    """The targets Lean's automation alone proved in a replay's tools_alone arm, with that run's version. #574: every
+    skeleton-pilot solve was in it. Refuses no rows (an empty set would make every off-set read pass) and a mix of
+    versions unless `run_id` names one."""
+    rows = [json.loads(l) for f in sorted((Path(ledger) / "replay").glob("results-*.jsonl"))
+            for l in f.read_text().splitlines() if l.strip()]
+    rows = [r for r in rows if r.get("arm") == "tools_alone" and (run_id is None or r.get("run_id") == run_id)]
+    if not rows:
+        raise ValueError("no tools_alone rows: no baseline recorded, so nothing can be read off it")
+    versions = {(r.get("run_id"), r.get("lean_env"), r.get("tools_hash")) for r in rows}
+    if len(versions) > 1:
+        raise ValueError(f"{len(versions)} baseline versions recorded {sorted(map(str, versions))}; name one with run_id")
+    (run, env, tools), = versions
+    return {"set": {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "accept"},
+            "targets": len({(r["target_set"], r["target"]) for r in rows}),
+            "version": {"run_id": run, "lean_env": env, "tools_hash": tools, "date": min(r.get("ts") or "" for r in rows)[:10],
+                        "tactics": BASELINE_TACTICS.get(tools)}}
+
+
 if __name__ == "__main__":
     sys.exit(main())

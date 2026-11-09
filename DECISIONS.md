@@ -101,6 +101,26 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   arm missed these because it rambled: 230 of 720 cut at the cap). The confirmatory run as designed would measure the
   sweep again, so it is not frozen. A next design, if any, scores the skeleton arm only on targets a bare sweep of the
   same 14 tactics fails, and carries a no-model arm. Pilot rows are not pooled into anything.
+- **Tool lift is read off the no-model baseline, which already existed: on it, the weekly small-model receipt is 0
+  (#574).** The baseline was there all along: replay run 40123591430 (2026-10-24, lean_env a9df6f095c, tools_hash
+  b6dddd8ade) tried subgoals.AUTO_TACTICS (omega, linarith, nlinarith, positivity, decide, norm_num, simp, aesop,
+  grind, exact?) on all 378 whole targets and proved 208; only tools/replay.py read it. (My design said no
+  whole-target pass had run; Codex found the rows, 20261109T031816634913Z DISAGREE.) Community practice reads an LLM's
+  gain over that automation (deep-search 2026-11-09: miniF2F-Dafny, arXiv 2512.10187v3, `grind` alone 79/244 miniF2F
+  test; DuoTactic, huggingface Duoia/duotactic 2026-09, a fixed 16-tactic table 32.8% of miniF2F test, its model 0 of
+  165; Lean4trace, ICML 2024, automation closes 23.6% of proof states; the skeleton paper, arXiv 2601.16172, has no
+  such control). Built: `replay.no_model_set` (the set and its version, the tactic list pinned by tools hash; refuses no
+  rows and mixed versions), and every head-to-head summary and the daily speed receipt now carry the same read off it,
+  beside the totals and never instead. "Off" means not accepted by that recorded baseline, not proof automation cannot
+  (its timeouts read as rejects). As of 2026-11-09 on the frozen solved cohort (ledger/speed, 45 targets, 26 in the
+  baseline): Ministral 3B 19/45, off the baseline 0/19; 8B 15/44, off 0/18; 14B 15/43, off 0/18; agnes-2.5-flash
+  14/29, off 6/20. The skeleton pilot off it: 19 paired, 0 solved in either arm. So the tool-lift series has so far
+  measured whether a small model writes out a tactic automation would have found; a lift claim on small models is read
+  off the baseline from here, any new head-to-head draws its cohort there or carries a no-model arm. Not done yet,
+  each its own step: extend the baseline with DuoTactic's entries it lacks (ring, ring_nf, field_simp; ring,
+  simp_all; ..., gcongr, bound) as a new version with timeouts kept apart; whether the ladder skips model calls on the
+  baseline set. Codex AGREE 20261109T032109853848Z (follow-ups: the version guard and the "off" wording, both built).
+  727 tests OK.
 - **Decompose's Leanstral calls get a total deadline, and the run stops before its timeout kills it (#642).** Run
   42531165741 was killed at the step's 220 min with 11 of 25 goals written (one solve, mathd_numbertheory_552,
   published): 7 asks had waited ~3,600 s each for streams that ended with no finish_reason. Cause: the 1,200 s urlopen

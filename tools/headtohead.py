@@ -38,7 +38,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
-import decompose, goal_closer, subgoals
+import decompose, goal_closer, replay, subgoals
 from proof_text import PROOF_SEP, extract_proof
 
 CALLS = 4
@@ -349,7 +349,15 @@ def wilson(k, n, z=1.96):
     return (round(100 * (c - h), 1), round(100 * (c + h), 1))
 
 
-def summary(rows, arms=None, expected=None):
+def baseline_or_why(ledger):
+    """The no-model baseline for a report, or why there is none: a report never fails for want of it."""
+    try:
+        return replay.no_model_set(ledger), None
+    except ValueError as e:
+        return None, str(e)
+
+
+def summary(rows, arms=None, expected=None, baseline=None):
     """Per arm: solved, interval, calls/tokens/seconds per solve; and the paired disagreements. Void rows (a
     deadline or a lane down touched the arm) are counted apart, and a problem is paired only when every configured
     arm (`arms`; the arms seen in the rows when not given) has a measured row for it: a treatment arm that finished
@@ -386,6 +394,12 @@ def summary(rows, arms=None, expected=None):
     out["problems_paired"], out["void_rows"] = len(complete), len(void)
     if expected is not None:                            # a run cut by quota or the clock says so (Codex f5)
         out["complete"] = len(complete) == expected
+    if baseline is not None:
+        # beside the totals, never instead (#574): the same paired read on targets the no-model baseline did not prove
+        key = lambda r: (r.get("target_set"), r["target"])
+        out["in_baseline"] = len({key(r) for r in rows if key(r) in baseline["set"]})
+        out["off_baseline"] = summary([r for r in rows if key(r) not in baseline["set"]], tuple(sorted(arms_ran)))
+        out["off_baseline_means"], out["baseline"] = replay.OFF_BASELINE_MEANS, baseline["version"]
     return out
 
 
@@ -514,9 +528,12 @@ def main():
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
     if solves:
         record(solves, datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"), lean_tools.judge_text, writer)
+    base, why = baseline_or_why(ROOT / "ledger")
     s = {"writer": writer["backend"], **({"lessons_by": a.lessons_by} if "lessons" in arms else {}),
          **({"manifest": man["id"], "claim": man["claim"], "chat_requests": sum(r["chat_requests"] for r in rows)} if man else {}),
-         **summary(rows, arms, expected=len(problems) if man else None)}
+         **summary(rows, arms, expected=len(problems) if man else None, baseline=base)}
+    if why:
+        s["baseline_missing"] = why
     print("headtohead: " + json.dumps(s) + (f"; Leanstral stopped: {pacer.stop}" if pacer.stop else ""))
     return 0
 

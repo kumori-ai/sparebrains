@@ -169,7 +169,11 @@ def already_judged(out):
 def report(rows, m, ex, void):
     ids = {e["id"] for e in ex}
     present = sum(r["generated"] for r in rows)
-    s = {"writer": LANE, "manifest": m["id"], "claim": m["claim"], **h.summary(rows, tuple(m["arms"]), expected=len({e["target"] for e in ex}))}
+    base, why = h.baseline_or_why(ROOT / "ledger")
+    s = {"writer": LANE, "manifest": m["id"], "claim": m["claim"],
+         **h.summary(rows, tuple(m["arms"]), expected=len({e["target"] for e in ex}), baseline=base)}
+    if why:
+        s["baseline_missing"] = why
     s.update(samples_expected=len(ids), samples_present=present, samples_void=len(void))
     for f in ("cut", "no_proof"):               # the smoke's gate, auditable from the ledger (Codex 20261108T180533646354Z f1)
         s[f"{f}_by_arm"] = {arm: sum(r.get(f, 0) for r in rows if r["arm"] == arm) for arm in m["arms"]}

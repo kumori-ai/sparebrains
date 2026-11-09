@@ -170,3 +170,34 @@ class ReportIntegrity(unittest.TestCase):
         r = replay.report(self.rows(), self.cohort, **self.V)
         self.assertEqual(r["by_rung"]["r"]["on"]["solved"], 1)
         self.assertIsNotNone(r["by_rung"]["r"]["on"]["wilson95"])
+
+class NoModelSetTests(unittest.TestCase):
+    """The recorded no-model baseline (replay tools_alone), read as a versioned set (#574, Codex 20261109T032109853848Z)."""
+    def ledger(self, rows):
+        import json, tempfile
+        d = Path(tempfile.mkdtemp())
+        (d / "replay").mkdir()
+        (d / "replay" / "results-1-0.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        return d
+
+    def row(self, t, v, run="1", env="e", tools="b6dddd8ade"):
+        return {"arm": "tools_alone", "target_set": "s", "target": t, "verdict": v, "run_id": run, "lean_env": env,
+                "tools_hash": tools, "ts": "2026-10-24T19:00:00+00:00"}
+
+    def test_the_set_and_its_version(self):
+        b = replay.no_model_set(self.ledger([self.row("a", "accept"), self.row("b", "reject"),
+                                             {"arm": "off", "target_set": "s", "target": "c", "verdict": "accept"}]))
+        self.assertEqual((b["set"], b["targets"]), ({("s", "a")}, 2))
+        self.assertEqual((b["version"]["run_id"], b["version"]["date"]), ("1", "2026-10-24"))
+        self.assertIn("grind", b["version"]["tactics"])
+
+    def test_no_rows_is_an_error_never_an_empty_set(self):
+        with self.assertRaises(ValueError):
+            replay.no_model_set(self.ledger([]))
+
+    def test_mixed_versions_are_refused_unless_one_is_named(self):
+        rows = [self.row("a", "accept"), self.row("b", "accept", run="2", tools="other")]
+        with self.assertRaises(ValueError):
+            replay.no_model_set(self.ledger(rows))
+        self.assertEqual(replay.no_model_set(self.ledger(rows), run_id="2")["set"], {("s", "b")})
+
