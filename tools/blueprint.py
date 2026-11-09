@@ -186,37 +186,54 @@ def lemma_text(prefix, stmts, i):
     return f"theorem sb_goal {binders}{earlier} : {stmts[i]} := by"
 
 
-def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None):
-    """Prove the holes: Lean's closers (FINAL) on each hole's lemma first, then the asks in turn (two tries each,
-    subgoals.prove_goal). Every hole is attempted while the budget lasts, so `failed` (asked, not proved) and
-    `unattempted` (the budget ran out first) stay apart (Codex 20261109T204513251417Z f6). closed_by maps a 1-based
-    hole to "lean" or the index of the ask that proved it. When every hole closes the bodies are spliced under their
-    `have` and the whole file is judged: `final` is that verdict, `accepted` the text on accept."""
+PASSES = (1, 2)          # breadth first: every open hole gets one try from each lane before any gets a second
+
+
+def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None, repair=None, passes=PASSES):
+    """Prove the holes: Lean's closers (FINAL) on each hole's lemma first; then the lanes, breadth first: pass 1 gives
+    every open hole one try from each ask in turn, pass 2 two tries (the second carrying Lean's error), so the easy
+    holes are reached before the hard ones eat the budget (run 42705124685: holes 1-3 took 12 asks, 4-6 were never
+    asked). `repair` is subgoals.prove_goal's hook, the free chain on a rejected lemma proof. `failed` (asked, not
+    proved) and `unattempted` (the budget ran out first) stay apart (Codex 20261109T204513251417Z f6). closed_by maps
+    a 1-based hole to "lean" or the index of the ask that proved it. When every hole closes the bodies are spliced
+    under their `have` and the whole file is judged: `final` is that verdict, `accepted` the text on accept."""
     sk = sketch(prefix, stmts)
     top = prefix.count("\n") + 1
     hole_lines = subgoals.holes(sk, top)
     budget, plan = {"asks": 0, "max": max_asks}, {}
     log = {"holes": len(stmts), "closed_by": {}, "failed": [], "unattempted": [], "tries": [], "answered": 0}
+    said, asked_here = {}, {}
+    # the hook gets the lemma file's own prefix (header + statement, ending `:= by`), what toolscore.run_chain needs
+    rep = (lambda body, stmt, out: repair(body, subgoals.lemma_file(prefix, stmt, "").rstrip("\n"), out)) if repair else None
     for i, s in enumerate(stmts):
         n, stmt = i + 1, lemma_text(prefix, stmts, i)
         r = judge_text(subgoals.lemma_file(prefix, stmt, "  " + FINAL))
         if r["verdict"] == "accept":
             plan[i], log["closed_by"][n] = [FINAL], "lean"
-            continue
-        said, asked_here = r.get("output") or "", 0
-        for who, ask in enumerate(asks):
-            body, tries = subgoals.prove_goal(prefix, stmt, sk, said, ask, judge_text, budget)
-            asked_here += len(tries)
-            for t in tries:
-                log["tries"].append({"hole": n, "by": who, "verdict": t["verdict"], "reason": (t.get("reason") or "")[:200]})
-                if on_try:
-                    on_try(n, who, stmt, t)
-            if body:
-                plan[i], log["closed_by"][n] = body, who
-                break
-        log["answered"] += asked_here
+        else:
+            said[i], asked_here[i] = r.get("output") or "", 0
+    # breadth first with rotation (Codex 20261109T220030181138Z f1: hole by hole, lane by lane spent three asks on hole 1
+    # before hole 2): round r gives each open hole one try from lane (hole + r) mod lanes, every hole before any repeat
+    for tries_max in passes:
+        for r in range(len(asks)):
+            for i in sorted(said):
+                if i in plan:
+                    continue
+                n, stmt, who = i + 1, lemma_text(prefix, stmts, i), (i + r) % len(asks)
+                body, tries = subgoals.prove_goal(prefix, stmt, sk, said[i], asks[who], judge_text, budget,
+                                                  tries_max=tries_max, repair=rep)
+                asked_here[i] += len(tries)
+                for t in tries:
+                    log["tries"].append({"hole": n, "by": who, "verdict": t["verdict"], "repaired": bool(t.get("repaired")),
+                                         "reason": (t.get("reason") or "")[:200]})
+                    if on_try:
+                        on_try(n, who, stmt, t)
+                if body:
+                    plan[i], log["closed_by"][n] = body, who
+    for i in sorted(said):
+        log["answered"] += asked_here[i]
         if i not in plan:
-            log["failed" if asked_here or not asks else "unattempted"].append(n)
+            log["failed" if asked_here[i] or not asks else "unattempted"].append(i + 1)
     # asked = budget consumed (prove_goal counts an ask before the lane answers); unanswered = asks a parked or capped
     # lane, or the call cap, swallowed with no reply (Codex 20261109T213007122693Z f3)
     log["asked"] = budget["asks"]

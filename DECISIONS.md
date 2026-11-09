@@ -59,7 +59,22 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   lane; the accepted text would have been committed by publish.py's ledger sweep; silent asks counted as asks),
   213553995086Z DISAGREE (a manifest fix I had claimed was not made), 213749180932Z AGREE. The accepted text of a
   guided solve is held in the run's artifact (SB_GUIDED_OUT), rows carry its hash; how guided solves are shown is
-  still to decide.
+  still to decide. **First run (42704626408 died on YAML indentation inside a two-line `python -c`, no call made;
+  42705124685 ran):** arm A realized 2 of 12 planned calls (the sweep skips a lane the router benched, all three
+  were, under per-lane RPM spacing); arm B 0 of 6 holes; arm C 12 asks, 6 answered, 6 refused by the same spacing
+  and counted against the budget, the 6 answers spent on holes 1-3 (the hardest), holes 4-6 never asked, all 6
+  rejected on form first (3 invented names, a Lean 3 token, a stuck typeclass, one unsolved). Starved, not refuted.
+  Three fixes, tests first: `attempt.patient` (an ask waits out the bench up to relay.PARK_WAIT_S, before and after a
+  refusal), `blueprint.fill` breadth first with lane rotation (round r: every open hole one try from lane (hole + r)
+  mod lanes, every hole before any repeat, then two-try passes; Codex 20261109T220030181138Z showed hole by hole, lane
+  by lane still starved holes 5-6 with 3 lanes), and the free chain on a rejected hole proof before it counts as
+  failed (`subgoals.prove_goal(repair=)`, a repaired try marked `repaired`; closed_by names the lane, summaries show
+  it as assisted). Manifest `pilot-guided-2026-11-09b` records the first run's realized counts, the changes, and a
+  REQUIRED line before any comparative claim: arm A waits out benches with C's bound and realized budgets are matched
+  and reported side by side; until then A vs C is feasibility only. Codex 220030181138Z DISAGREE (f1, fixed),
+  220521632877Z DISAGREE (the requirement was not yet in the manifest; a race with my edit), 220656062990Z DISAGREE
+  (f4: my claim said the sentence appeared twice, it appears once, at the top level, which Codex calls sufficient; no
+  operational objection). Rounds spent; the lab's call: dispatch the feasibility run, residual f4 is wording.
 
 - **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
   chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2

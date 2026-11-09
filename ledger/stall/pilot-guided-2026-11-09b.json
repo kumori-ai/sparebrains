@@ -1,0 +1,27 @@
+{
+  "id": "pilot-guided-2026-11-09b",
+  "kind": "feasibility pilot (1 problem), second run: no claim",
+  "supersedes": "pilot-guided-2026-11-09 (run 42705124685): arm A realized 2 of 12 planned calls (10 skipped, the router benched every lane for the run under per-lane RPM spacing); arm B 0 of 6 holes; arm C 12 asks, 6 answered, 6 refused by the same spacing and counted against the budget; the 6 answers went to holes 1-3 (two tries each), holes 4-6 never asked; all 6 rejected on form first (3 invented names, 1 Lean 3 token, 1 stuck typeclass, 1 unsolved)",
+  "changes": [
+    "asks wait out the router's bench up to relay.PARK_WAIT_S before and after a refusal (attempt.patient)",
+    "holes breadth first with lane rotation: round r gives every open hole one try from lane (hole + r) mod lanes, every hole before any repeat; pass 2 the same with two tries (blueprint.PASSES; Codex 20261109T220030181138Z f1: hole by hole, lane by lane still starved holes 5-6)",
+    "attribution: closed_by names the lane; a try the free chain rescued carries repaired=true and any summary shows it as assisted, not lane-only. Arm A keeps the sweep's bench skipping for this feasibility run; before any comparative claim A gets bounded waiting and matched realized budgets",
+    "a hole's rejected proof goes through the free chain (toolscore.run_chain on the lemma file) before it counts as failed; a repaired try is marked repaired and credited to the lane plus the chain"
+  ],
+  "problems": ["minif2f/test/mathd_numbertheory_451"],
+  "stalled_since_days": 68,
+  "guide": "codex (work ask 20261109T211612681102Z; gated blueprint ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json, unchanged)",
+  "lanes": ["mistral-ministral-3b-2512", "mistral-ministral-8b-2512", "meganova-manta-mini-1-0"],
+  "asks_per_problem": 12,
+  "arm_a_attempts_per_lane": 4,
+  "arms": {
+    "A": "control: the same lanes, cold tries on the problem, 4 attempts each (a PLANNED budget of 12 calls; realized calls are this run's normal ledger rows for these lanes and this target; the first run realized 2, since the sweep skips a benched lane for the whole run, a known asymmetry with C's waiting asks); its rejects get the free chain in the next nightly retro",
+    "B": "blueprint + Lean's closers on each hole, no model call (0 of 6 locally and in run 42705124685)",
+    "C": "blueprint + Lean's closers + the lanes above, breadth first, waiting out benches, the free chain on each rejected hole proof; 12 asks planned, realized = the rows' asked/answered/unanswered"
+  },
+  "endpoint": "whole-problem kernel acceptance per arm, first; then per hole: closed by Lean, by which lane (and whether the chain repaired it), failed, unattempted, kept apart",
+  "credit": "a C solve is guided: the guide chose the propositions, Lean and the small lanes (plus the free chain) proved every step; never 'free models plus tools'. Measurement rows committed; the accepted TEXT held in the run's recovery artifact (SB_GUIDED_OUT, 30 days), not in verified/, ledger/ or on the site, until the lab decides how guided solves are shown",
+  "claim": "none",
+  "before_any_comparative_claim": "REQUIRED (Codex 20261109T220030181138Z Q3, 220521632877Z f3): arm A must wait out router benches with the same bound as arm C (attempt.patient or equivalent in the sweep) and the arms' REALIZED call budgets must be matched and reported side by side; until then A vs C is feasibility evidence only, never tool lift",
+  "verdicts": ["20261109T204513251417Z_codex", "20261109T204946451069Z_codex", "20261109T205417832903Z_codex", "20261109T213007122693Z_codex", "20261109T213553995086Z_codex", "20261109T213749180932Z_codex"]
+}

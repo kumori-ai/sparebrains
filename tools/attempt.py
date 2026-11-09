@@ -139,6 +139,26 @@ def bench_delay(retry_after, consecutive):
 PAUSED_LANES = {}
 
 
+def patient(ask, is_benched, wait_s=relay.PARK_WAIT_S, sleep=time.sleep):
+    """An ask that waits out the router's bench instead of returning None: when the lane is benched before or right
+    after a refused call, wait in 5 s steps up to wait_s, then ask once more. The first guided pilot (run 42705124685)
+    lost 6 of 12 asks to per-lane RPM spacing, each counted against the budget with no reply."""
+    def wait():
+        waited = 0
+        while is_benched() and waited < wait_s:
+            sleep(5)
+            waited += 5
+        return not is_benched()
+
+    def patient_ask(prompt):
+        wait()
+        reply = ask(prompt)
+        if reply is None and wait():
+            reply = ask(prompt)
+        return reply
+    return patient_ask
+
+
 def set_aside_baseline(work, ledger):
     """The ladder's queue without cells on targets the no-model baseline proves, and a line saying what was set aside."""
     import replay
@@ -1029,7 +1049,7 @@ def main():
             state["calls"] += 1
         return c_verdict, b_verdict
 
-    def pilot_one(key, man, asks_for, out):
+    def pilot_one(key, man, asks_for, out, repair=None):
         """One problem of a guided pilot (tools/blueprint.py; the manifest in ledger/stall): arm B, Lean's closers on
         the holes of the latest gated blueprint, then arm C, the manifest's lanes on the holes left. Rows to `out`; an
         accepted text to SB_GUIDED_OUT (the run's artifact), never verified/, ledger/ or the public ledger (the manifest's
@@ -1056,7 +1076,7 @@ def main():
         names = [b for b, _ in live]                      # attribution by the asked list, never the manifest's (Codex
         result = {}                                       # 20261109T213007122693Z f1: a missing lane shifted the credit)
         for arm, asks in (("B", []), ("C", [a for _, a in live])):
-            f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"])
+            f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"], repair=repair)
             by = {str(k): ("lean" if v == "lean" else names[v]) for k, v in f["closed_by"].items()}
             row = {"arm": arm, "blueprint": str(bp.relative_to(ROOT)), "holes": f["holes"], "closed_by": by,
                    "failed": f["failed"], "unattempted": f["unattempted"], "asked": f["asked"], "answered": f["answered"],
@@ -1260,8 +1280,13 @@ def main():
         missing = [b for b in man["lanes"] if b not in live_lanes]
         if missing:
             print(f"pilot {man['id']}: lanes not live today: {missing}", flush=True)
-        asks_for = lambda names: [(b, make_ask(live_lanes[b])) for b in names if b in live_lanes]
-        results = {p: pilot_one(p, man, asks_for, out) for p in man["problems"]}
+        asks_for = lambda names: [(b, patient(make_ask(live_lanes[b]), lambda b=b: benched(b))) for b in names if b in live_lanes]
+        names_ix = lean_tools.index()
+
+        def repair(body, lemma_prefix, said):           # the free chain on a hole's rejected proof (blueprint.fill -> prove_goal)
+            ch = toolscore.run_chain(body, lemma_prefix, said, names_ix, lean_tools)
+            return ch["final"][len(lemma_prefix):].lstrip("\n") if ch["c_verdict"] == "accept" else None
+        results = {p: pilot_one(p, man, asks_for, out, repair) for p in man["problems"]}
         print(f"pilot {man['id']}: " + "; ".join(f"{p} {r}" for p, r in results.items()), flush=True)
     elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps
         open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}

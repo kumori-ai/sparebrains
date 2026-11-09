@@ -167,33 +167,61 @@ class Fill(unittest.TestCase):
         f = blueprint.fill(PREFIX, self.S3, self.judge(lean_closes=[self.S3[0]]), asks=[weak, strong])
         self.assertEqual(f["closed_by"], {1: "lean", 2: 1, 3: 1})
         self.assertEqual((f["failed"], f["unattempted"]), ([], []))
-        self.assertEqual(weak.call_count, 4, "two tries a hole for holes 2 and 3")
+        self.assertEqual(weak.call_count, 1, "rotation: hole 2 goes to the strong lane first; hole 3 to the weak one, then the strong")
         self.assertEqual(f["final"], "accept")
         body = f["accepted"][len(PREFIX):]
         self.assertIn(f"  have bp_1 : {self.S3[0]} := by\n    {blueprint.FINAL}\n", body)
         self.assertIn(f"  have bp_2 : {self.S3[1]} := by\n    exact good\n", body)
         self.assertNotIn("sorry", body)
         self.assertNotIn("exact bad", body)
-        self.assertEqual(sum(t["hole"] == 2 for t in f["tries"]), 3)
+        self.assertEqual([(t["hole"], t["by"], t["verdict"]) for t in f["tries"]],
+                         [(2, 1, "accept"), (3, 0, "reject"), (3, 1, "accept")])
 
     def test_a_hole_nobody_proves_is_failed_and_the_later_holes_are_still_attempted(self):
         weak = Mock(return_value="```lean\n  exact bad\n```")
         f = blueprint.fill(PREFIX, self.S3, self.judge(lean_closes=[self.S3[2]]), asks=[weak])
         self.assertEqual((f["failed"], f["unattempted"], f["closed_by"]), ([1, 2], [], {3: "lean"}))
-        self.assertEqual(weak.call_count, 4)
+        self.assertEqual(weak.call_count, 6, "pass 1 one try each, pass 2 two tries each, on the two open holes")
         self.assertNotIn("final", f)
 
     def test_holes_the_ask_budget_never_reached_are_unattempted_not_failed(self):
         weak = Mock(return_value="```lean\n  exact bad\n```")
         f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[weak], max_asks=2)
-        self.assertEqual((f["failed"], f["unattempted"]), ([1], [2, 3]))
+        self.assertEqual((f["failed"], f["unattempted"]), ([1, 2], [3]), "breadth first: one try each before any second")
         self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (2, 2, 0))
+
+    def test_every_open_hole_gets_one_try_before_any_gets_its_second(self):
+        weak = Mock(return_value="```lean\n  exact bad\n```")
+        f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[weak], max_asks=9)
+        order = [t["hole"] for t in f["tries"]]
+        self.assertEqual(order, [1, 2, 3, 1, 1, 2, 2, 3, 3], "run 42705124685: holes 1-3 ate the budget, 4-6 never asked")
+        self.assertEqual((f["failed"], f["unattempted"], f["asked"]), ([1, 2, 3], [], 9))
+
+    def test_six_holes_three_lanes_twelve_asks_reach_every_hole_before_any_second_ask_rotating_lanes(self):
+        """Codex 20261109T220030181138Z f1: hole by hole, lane by lane spent three asks on hole 1 before hole 2 was
+        reached; with the manifest's budget holes 5 and 6 were never asked."""
+        six = [f"n + {k} = {k} + n" for k in range(6)]
+        lanes = [Mock(return_value="```lean\n  exact bad\n```") for _ in range(3)]
+        f = blueprint.fill(PREFIX, six, self.judge(), asks=lanes, max_asks=12)
+        self.assertEqual([t["hole"] for t in f["tries"]], [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6])
+        self.assertEqual([t["by"] for t in f["tries"]], [0, 1, 2, 0, 1, 2, 1, 2, 0, 1, 2, 0], "lanes rotate across holes")
+        self.assertEqual((f["failed"], f["unattempted"], f["asked"]), ([1, 2, 3, 4, 5, 6], [], 12))
+        self.assertEqual([m.call_count for m in lanes], [4, 4, 4])
+
+    def test_a_rejected_hole_proof_goes_through_the_repair_hook_before_it_counts_as_failed(self):
+        weak = Mock(return_value="```lean\n  exact bad\n```")
+        repair = Mock(side_effect=lambda body, pre, said: "  exact good\n" if pre.endswith(": 0 < n → n ≠ 0 := by") else None)
+        f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[weak], repair=repair)
+        self.assertEqual(f["closed_by"], {2: 0})
+        self.assertEqual([t["repaired"] for t in f["tries"] if t["hole"] == 2], [True])
+        self.assertEqual(f["failed"], [1, 3])
+        self.assertEqual(repair.call_args_list[0].args[0], "  exact bad\n")
 
     def test_a_lane_that_never_answers_spends_budget_and_is_counted_as_unanswered_not_as_tries(self):
         silent = Mock(return_value=None)                   # parked, capped or erroring: make_ask returns None
         f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[silent], max_asks=12)
         self.assertEqual((f["failed"], f["unattempted"], f["tries"]), ([], [1, 2, 3], []))
-        self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (3, 0, 3), "Codex f3: budget spent, nothing answered")
+        self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (6, 0, 6), "Codex f3: budget spent, nothing answered")
 
 
 @unittest.skipUnless((Path(__file__).parent.parent / ".lake" / "packages" / "mathlib").is_dir(), "needs the local Mathlib build")

@@ -268,11 +268,13 @@ def real_names(said, names):
     return ("\nNames Lean did not know, and real mathlib names close to them:\n" + "\n".join(out) + "\n") if out else ""
 
 
-def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, names=None):
-    """(tactic lines or None, [tries]). The same model, up to two asks: the second carries Lean's error and
-    real names for any it invented (the first live ask, 2026-10-08: `Nat.coprime_pow_eq_pow_iff`)."""
+def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, names=None, tries_max=2, repair=None):
+    """(tactic lines or None, [tries]). The same model, up to `tries_max` asks: the second carries Lean's error and
+    real names for any it invented (the first live ask, 2026-10-08: `Nat.coprime_pow_eq_pow_iff`). `repair(body,
+    statement, lean_output)` -> a kernel-accepted body or None: the free chain on a rejected lemma proof (the guided
+    pilot's six rejects of 2026-11-09 all failed on form first); a repaired try is recorded `repaired`."""
     tries, last = [], None
-    for _ in range(2):
+    for _ in range(tries_max):
         if budget["asks"] >= budget.get("max", MAX_ASKS):
             break
         prompt = (SUBGOAL + "```lean\n" + statement + "\n```\n\nWhere it sits (the open step is `sorry`):\n```lean\n"
@@ -292,6 +294,10 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, na
             last = (reply, "no proof could be read from the reply")
             continue
         r = judge_text(lemma_file(prefix, statement, body))
+        if r["verdict"] != "accept" and repair:
+            fixed = repair(body, statement, r.get("output") or "")
+            if fixed:
+                body, r = fixed, {**r, "verdict": "accept", "repaired": True, "reason": "kernel accepted after the free chain"}
         tries.append({"prompt": prompt, "reply": reply, "proof": body, **r})
         if r["verdict"] == "accept":
             lines = [l for l in body.rstrip("\n").split("\n")]

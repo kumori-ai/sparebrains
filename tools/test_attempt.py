@@ -639,6 +639,31 @@ class PilotTests(unittest.TestCase):
         env["blueprint"].fill.assert_not_called()
 
 
+class PatientAskTests(unittest.TestCase):
+    """attempt.patient: a guided pilot's ask waits out the router's bench instead of spending budget on a refusal."""
+    def test_a_benched_lane_is_waited_for_then_asked_once_more(self):
+        state = {"benched": [True, True, False, False, False]}
+        ask = Mock(side_effect=[None, "reply"])
+        slept = []
+        p = attempt.patient(ask, lambda: state["benched"].pop(0) if state["benched"] else False, wait_s=60, sleep=slept.append)
+        self.assertEqual(p("q"), "reply")
+        self.assertEqual(ask.call_count, 2)
+        self.assertEqual(slept, [5, 5])
+
+    def test_a_lane_still_benched_after_the_wait_is_not_asked_again(self):
+        ask = Mock(return_value=None)
+        slept = []
+        p = attempt.patient(ask, lambda: True, wait_s=20, sleep=slept.append)
+        self.assertIsNone(p("q"))
+        self.assertEqual(ask.call_count, 1)
+        self.assertEqual(sum(slept), 40, "two bounded waits of wait_s, before and after the refused ask")
+
+    def test_an_unbenched_lane_is_asked_at_once(self):
+        ask = Mock(return_value="reply")
+        p = attempt.patient(ask, lambda: False, wait_s=60, sleep=Mock(side_effect=AssertionError("slept")))
+        self.assertEqual(p("q"), "reply")
+
+
 class LemmaRowTests(unittest.TestCase):
     def test_a_lemma_row_carries_the_full_statements_hash_beside_its_600_char_text(self):
         """Codex 20261109T204946451069Z f8: `lemma` keeps 600 chars, so two long statements can read as one; the hash
