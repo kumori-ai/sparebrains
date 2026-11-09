@@ -90,6 +90,80 @@ class Answers(unittest.TestCase):
         self.assertEqual(pacer.stop, "HTTP 429")
         self.assertEqual(calls.call_count, 1)                 # the second call never reached Mistral
 
+    def test_a_stream_past_its_deadline_stops_with_what_it_has(self):
+        """#642: decompose run 42531165741 waited 3,600 s on each of 7 Leanstral streams that never finished (thinking
+        chunks kept the 1,200 s socket timeout from firing); the slowest answer on record took 2,399 s."""
+        events = [{"choices": [{"delta": {"content": "pro"}}]}, {"choices": [{"delta": {"content": "of"}, "finish_reason": "stop"}]}]
+        with mock.patch.object(ls.time, "monotonic", side_effect=iter([0] + [ls.CALL_DEADLINE_S + 1] * 50)):
+            r = ls.read_stream(sse(events), deadline=ls.CALL_DEADLINE_S)
+        self.assertEqual((r["text"], r["finish"]), ("pro", "deadline"))
+        self.assertGreaterEqual(ls.CALL_DEADLINE_S, 2400)
+
+    def test_a_blocked_read_is_ended_at_the_deadline_and_not_retried(self):
+        """Codex f1 (20261109T023458450389Z): a deadline checked only between lines cannot end a read that blocks."""
+        import threading
+        gate = threading.Event()
+
+        class Blocked:
+            def __init__(self): self.n = 0
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def __iter__(self): return self
+            def __next__(self):
+                self.n += 1
+                if self.n == 1:
+                    return b'data: {"choices": [{"delta": {"content": "pro"}}]}'
+                gate.wait(5)                                   # blocks until close() releases it
+                raise ValueError("I/O operation on closed file")
+            def close(self): gate.set()
+        calls = mock.Mock(side_effect=lambda req, timeout=None: Blocked())
+        with mock.patch.object(ls, "CALL_DEADLINE_S", 0.2), mock.patch.object(ls.urllib.request, "urlopen", calls):
+            t = ls.time.monotonic()
+            r = ls.call_prompt("k", "p", ls.Pacer(0))
+        self.assertLess(ls.time.monotonic() - t, 2)
+        self.assertEqual((r["text"], r["finish"], calls.call_count), ("pro", "deadline", 1))
+
+    def test_a_real_socket_held_open_returns_at_the_deadline(self):
+        """Codex f1 round 2 (20261109T024528060534Z): a peer that sends one line and holds the connection open."""
+        import http.server, threading
+        hold = threading.Event()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(b'data: {"choices": [{"delta": {"content": "pro"}}]}\n\n')
+                self.wfile.flush()
+                hold.wait(10)                                  # keep the socket open, send nothing
+            def log_message(self, *a): pass
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            real = ls.urllib.request.urlopen                  # the socket's own timeout held at 10 s, as 1,200 s is live
+            with mock.patch.object(ls, "CALL_DEADLINE_S", 0.5), \
+                 mock.patch.object(ls.urllib.request, "urlopen", lambda req, timeout=None: real(req, timeout=10)), \
+                 mock.patch.object(ls, "API", f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"):
+                t = ls.time.monotonic()
+                r = ls.call_prompt("k", "p", ls.Pacer(0))
+                took = ls.time.monotonic() - t
+        finally:
+            hold.set()
+            srv.shutdown()
+        self.assertLess(took, 2, f"returned after {took:.2f} s")
+        self.assertEqual((r["text"], r["finish"]), ("pro", "deadline"))
+        self.assertIn("finish=deadline", ls.reply(r)["error"], "a cut reply is not an answer")
+
+    def test_no_retry_after_the_deadline(self):
+        def urlopen(req, timeout=None):
+            raise TimeoutError("read timed out")
+        calls = mock.Mock(side_effect=urlopen)
+        with mock.patch.object(ls, "CALL_DEADLINE_S", 0), mock.patch.object(ls.urllib.request, "urlopen", calls):
+            with self.assertRaises(TimeoutError):
+                ls.call_prompt("k", "p", ls.Pacer(0))
+        self.assertEqual(calls.call_count, 1, "a dropped connection past the deadline is not asked again")
+
     def test_the_stream_keeps_the_text_and_drops_the_thinking(self):
         events = [{"choices": [{"delta": {"content": [{"type": "thinking", "thinking": [{"type": "text", "text": "hmm"}]}]}}]},
                   {"choices": [{"delta": {"content": [{"type": "thinking", "thinking": []}, {"type": "text", "text": "pro"}]}}]},

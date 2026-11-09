@@ -1197,6 +1197,7 @@ class TimingAndGateFixes(unittest.TestCase):
         class R:
             def __enter__(self): return self
             def __exit__(self, *a): return False
+            def close(self): pass
 
         def urlopen(req, timeout=None):
             n[0] += 1
@@ -1205,7 +1206,7 @@ class TimingAndGateFixes(unittest.TestCase):
             return R()
         pacer = type("P", (), {"stop": None, "wait": lambda self: None})()
         with mock.patch.object(leanstral.urllib.request, "urlopen", urlopen), \
-             mock.patch.object(leanstral, "read_stream", lambda r: {"usage": {}, "text": "x"}):
+             mock.patch.object(leanstral, "read_stream", lambda r, deadline=None: {"usage": {}, "text": "x"}):
             leanstral.call_prompt("k", "p", pacer, on_attempt=lambda: ticks.append(1))
         self.assertEqual(len(ticks), 2)
 

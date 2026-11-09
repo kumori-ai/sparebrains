@@ -31,7 +31,7 @@ from proof_text import extract_proof
 
 DEPTH = 2              # a goal's steps, and their steps: deeper did not pay in Hilbert's ablation past a few levels
 MAX_ASKS = 8           # model calls per top goal, across every level
-WORKERS = 3            # goals at once; each Leanstral call takes ~45 s, so starts stay under 0.5 a second
+WORKERS = 3            # goals at once; a Leanstral ask took 236 s median, 2,031 s p99 (ledger/decompose to 2026-11-09)
 TACTICS = subgoals.AUTO_TACTICS            # grind among them since the stage-3 bar was graded (2026-10-19)
 STEPS = ("Prove the following Lean 4 lemma. Write the proof as a short sequence of `have` steps, each small "
          "enough that one of linarith, nlinarith, omega, norm_num, simp, positivity or grind closes it, then "
@@ -64,6 +64,9 @@ def decompose(statement, prefix, *, ask, run_lean, judge_text, depth=DEPTH, budg
     log = log if log is not None else []
     if budget["asks"] >= budget.get("max", MAX_ASKS):
         log.append({"depth": depth, "stopped": "ask budget"})
+        return None
+    if budget.get("deadline") is not None and time.monotonic() > budget["deadline"]:
+        log.append({"depth": depth, "stopped": "run deadline"})
         return None
     budget["asks"] += 1
     prompt = STEPS.format(statement=statement)
@@ -156,10 +159,13 @@ def cut_at_cap(rows, backend):
     untried, so it was asked the same way again every run."""
     import leanstral
     at_cap = f"finish=length, {leanstral.MAX_TOKENS} tokens"         # today's cap only, as effort_for counts
+    # a stream that ended with no finish (cut near an hour) or at leanstral.CALL_DEADLINE_S ran out the same way (#642)
+    stalled = ("finish=None", "finish=deadline")
     n = Counter()
     for r in rows:
         if r.get("backend", LANE["backend"]) == backend and not r.get("effort"):
-            n[r["sha"]] += sum(at_cap in str(e.get("stopped", "")) for e in r.get("levels") or [])
+            n[r["sha"]] += sum(at_cap in str(e.get("stopped", "")) or any(x in str(e.get("stopped", "")) for x in stalled)
+                           for e in r.get("levels") or [])
     return {sha for sha, k in n.items() if k >= 2}
 
 
@@ -168,9 +174,13 @@ def tried_by(rows, backend):
     A goal whose every ask came back with no answer was not tried (2026-10-20: 45 of Leanstral's 83, mostly the
     40,000-token cap)."""
     blank = lambda r: r.get("levels") and all(str(e.get("stopped", "")).startswith("no answer") for e in r["levels"])
+    # a goal cut by the run deadline, at any depth, was not tried either: it is asked whole next run (#642, Codex f2)
+    # and a call cut at leanstral.CALL_DEADLINE_S at any depth (Codex 20261109T025317855518Z f4: after a parent answer)
+    cut = lambda r: r.get("run_deadline") or any(e.get("stopped") == "run deadline" or "finish=deadline" in str(e.get("stopped", ""))
+                                                 for e in r.get("levels") or [])
     # a solved goal is not 'tried': its problem, if still open, lost the proof (2026-11-05, run 42061251877), so ask again
     mine = [r for r in rows if r.get("backend", LANE["backend"]) == backend]
-    return {r["sha"] for r in mine if not blank(r)} - solved_by(rows, backend)     # a solve wins over any failed row
+    return {r["sha"] for r in mine if not blank(r) and not cut(r)} - solved_by(rows, backend)   # a solve wins over any failed row
 
 
 def solved_by(rows, backend):
@@ -215,12 +225,32 @@ def router_ask(backend, chat=None, max_tokens=16000):
     return ask, NoPacer()
 
 
-def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, on_row=None, effort_of=None):
+def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, on_row=None, effort_of=None, deadline=None,
+        hard=None):
     """Each goal decomposed, then its proof spliced into its problem (goal_closer.close). Returns (rows, solves):
     rows are measurements; solves are [(goal, body)] the kernel accepted whole. `on_row` gets each row as its goal
-    finishes, so a run stopped by its time limit keeps every goal it finished (2026-10-21)."""
+    finishes, so a run stopped by its time limit keeps every goal it finished (2026-10-21). `deadline` (monotonic
+    seconds): past it no goal starts and no ask is made. `hard`: every Lean call's timeout is clamped to it and past it
+    a call is refused, so each goal ends and writes its row before the step's timeout kills it (#642, Codex f3). A goal
+    either one cut is marked run_deadline and stays untried."""
+    if hard is not None:
+        lean_fn, judge_fn = run_lean, judge_text
+        left = lambda: hard - time.monotonic()
+
+        def run_lean(text, timeout=180):
+            if left() <= 1:
+                return "run deadline: Lean not started", 0.0
+            return lean_fn(text, timeout=min(timeout, left()))
+
+        def judge_text(text, timeout=300):
+            if left() <= 1:
+                return {"verdict": "timeout", "reason": "run deadline: Lean not started", "seconds": 0.0, "output": ""}
+            return judge_fn(text, timeout=min(timeout, left()))
+
     def one(g):
-        t0, budget, log = time.monotonic(), {"asks": 0}, []
+        if deadline is not None and time.monotonic() > deadline:
+            return None
+        t0, budget, log = time.monotonic(), {"asks": 0, "deadline": deadline}, []
         effort = effort_of(g) if effort_of else None
         target_text = read_target(g["target_set"], g["target"])
         body = decompose(g["goal"], goal_closer.prefix_of(target_text),
@@ -233,6 +263,9 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, o
                "outcome": "solved" if r and r["verdict"] == "accept" else
                           ("goal proved, splice failed" if r and r.get("stage") != "goal" else "failed"),
                "seconds": round(time.monotonic() - t0, 1)}
+        if row["outcome"] != "solved" and (any(e.get("stopped") == "run deadline" for e in log)
+                                           or (hard is not None and time.monotonic() >= hard - 1)):
+            row["run_deadline"] = True                  # cut, not tried: asked again next run (tried_by)
         if r:
             row["stage"] = r.get("stage")
         if r and r.get("stage") != "goal":
@@ -247,7 +280,7 @@ def run(goals, read_target, ask, run_lean, judge_text, jobs=WORKERS, fix=None, o
         return row, ((g, body) if r and r["verdict"] == "accept" else None)
 
     with ThreadPoolExecutor(jobs) as pool:
-        out = list(pool.map(one, goals))
+        out = [o for o in pool.map(one, goals) if o]
     return [r for r, _ in out], [s for _, s in out if s]
 
 
@@ -302,6 +335,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["run", "publish"])
     ap.add_argument("--max-goals", type=int, default=40)
+    ap.add_argument("--stop-after", type=int, help="seconds from start: past it no goal starts and no ask is made (#642)")
+    ap.add_argument("--hard-stop", type=int, help="seconds from start: Lean calls are clamped to it and refused past it (#642)")
     ap.add_argument("--lane", help="a router lane (a backend name) to ask instead of Leanstral, or `auto` for the "
                     "strongest live one")
     ap.add_argument("--out", required=True)
@@ -351,7 +386,9 @@ def main():
           f"(cut at the token cap twice before)", flush=True)
     rows, solves = run(goals, read, ask, lean_tools.run_lean, lean_tools.judge_text,
                        fix=lambda proof, out: fixer.fix(proof, out, *names_ix), on_row=keep,
-                       effort_of=lambda g: "none" if g["sha"] in cut else None)
+                       effort_of=lambda g: "none" if g["sha"] in cut else None,
+                       deadline=time.monotonic() + a.stop_after if a.stop_after else None,
+                       hard=time.monotonic() + a.hard_stop if a.hard_stop else None)
     # solves are published by `publish`, the workflow's next step, from the rows file: a run cut at its cap keeps them
     asks = sum(r["asks"] for r in rows)
     print(f"decompose: {len(rows)} goals, {asks} {a.lane or 'Leanstral'} asks, {len(solves)} problems solved "

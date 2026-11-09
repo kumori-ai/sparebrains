@@ -86,6 +86,43 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   _296, _765), absolute lift 0.1, under the pre-registered bar R >= 5, so no claim; 17,953 s generating, 1,194 s
   Lean, 2,899 s chain. As of 2026-11-08 the chain rescues 3 of 30 for this 4B checkpoint, too few to call. #480's
   re-scoped question (a small model with and without a tool, paired) continues in the skeleton head-to-head.
+- **The skeleton pilot's read: an 8-0 split, and a bare tactic with no model proves all 8 (#574; exploratory, no
+  claim).** Batch 20261108T1829 (manifest skeleton-pilot-kaggle-4k-2026-11-08, Ministral 3B fp16 on Kaggle T4 x2;
+  collect run 42525056941; ledger/headtohead/kaggle-20261108T1829.jsonl): complete, 1,440 of 1,440 samples, 0 void,
+  45 targets paired. Skeleton solved 11, alone 3; only skeleton 8, only alone 0, exact sign p = 0.0078; cut at 4,000
+  tokens alone 230 of 720, skeleton 129; no proof alone 10, skeleton 3; the skeleton followed in 424 of 720; model
+  calls per solve 240 vs 65.5. **Control (2026-11-09, local tools/check.py):** each of the 14 non-empty skeletons as the
+  whole proof, no model, on the 11 targets the skeleton arm solved (154 files). Every one of the 11 is proved by at
+  least one bare skeleton, the 8 only-skeleton targets included; `linarith` alone proves 7 of the 8, and 7 of the 11
+  skeleton solves first landed on attempt 9, the `linarith` skeleton. So, as of 2026-11-09, what the pilot measured is
+  how often the 3B model writes out a tactic that closes the goal by itself when handed it, against a free pass that
+  tries those tactics with no model; it is not evidence that a skeleton lifts the model's own reasoning. The tool lift
+  it does show is the cheap one: a no-model tactic sweep first, the model only on what the sweep leaves (the alone
+  arm missed these because it rambled: 230 of 720 cut at the cap). The confirmatory run as designed would measure the
+  sweep again, so it is not frozen. A next design, if any, scores the skeleton arm only on targets a bare sweep of the
+  same 14 tactics fails, and carries a no-model arm. Pilot rows are not pooled into anything.
+- **Decompose's Leanstral calls get a total deadline, and the run stops before its timeout kills it (#642).** Run
+  42531165741 was killed at the step's 220 min with 11 of 25 goals written (one solve, mathd_numbertheory_552,
+  published): 7 asks had waited ~3,600 s each for streams that ended with no finish_reason. Cause: the 1,200 s urlopen
+  timeout is per read, and Leanstral's thinking chunks keep arriving, so nothing bounded a call. Community practice
+  agrees (deep-search 2026-11-09: agent0ai/agent-zero #1882, 2026-09-07, the same hang, fixed by a hard per-stream cap
+  beside the first-chunk timeout; apistatuscheck.com and kunavo.com 2026 streaming guides: a stream that ends with no
+  finish_reason was cut, and an idle timeout cannot bound a stream that keeps sending). Measured: ask time per row p50
+  236 s, p99 2,031 s, slowest answered 2,399 s (row level, so it includes Lean; Codex); the router's Leanstral rows
+  since 10-20 max 1,356 s. Built: (1) `leanstral.CALL_DEADLINE_S` 2,400, one deadline across connect, reads and the
+  one retry, enforced by a watchdog that shuts the socket down (closing the response does not interrupt a blocked
+  recv: a real-socket test holds the connection open and returns at the deadline, its mutant waits the full 10 s); a
+  cut reply is "no answer: cut at the call deadline (finish=deadline, N chars, T tokens)", never the partial text, so
+  each cut keeps how far it got. (2) `cut_at_cap` counts finish=None and finish=deadline like the token cap, so a goal
+  stalled twice is asked with reasoning_effort none. (3) `--stop-after 9000`: no goal or ask starts after it;
+  `--hard-stop 12600`: every Lean call is clamped to it and refused past it, so each goal writes its row with 10 min of
+  the step left. A goal cut by either, or by a call deadline at any depth, is marked and stays untried. The 2,400 s cap
+  is provisional and reviewed from those "N chars" cuts. Codex three rounds, DISAGREE each:
+  20261109T023458450389Z (the deadline could not end a blocked read and the retry ignored it; cut goals were marked
+  tried; no bound on Lean after the last ask), 20261109T024528060534Z (close() does not interrupt a real socket; a cut
+  reply was read as an answer), 20261109T025317855518Z (a call cut below an answered level still marked the goal
+  tried). All fixed with tests that fail on their mutants; the third was a one-condition fix to exactly what Codex said
+  would change its mind, recorded here by the three-round rule. 722 tests OK.
 
 ## 2026-11-05
 

@@ -191,6 +191,53 @@ class RouterLane(unittest.TestCase):
         got = [g["sha"] for g in decompose.pick_goals(q, rung, set(), {("minif2f/test", "imo_c")}, True, 10)]
         self.assertEqual(got, ["s", "r"], "a real step first, though only the restating goal's problem is reachable")
 
+    def test_a_stalled_or_deadline_stream_counts_as_a_cap_cut(self):
+        stall = {"stopped": "no answer: empty reply (finish=None, None tokens)"}
+        late = {"stopped": "no answer: empty reply (finish=deadline, None tokens)"}
+        self.assertEqual(decompose.cut_at_cap([{"sha": "s", "levels": [stall, late]}], decompose.LANE["backend"]), {"s"})
+
+    def test_past_the_run_deadline_no_goal_starts_and_no_ask_is_made(self):
+        """#642: run 42531165741 was killed at the step's 220 min with goals mid-ask; stop asking first, exit clean."""
+        asked = []
+        log = []
+        body = decompose.decompose("theorem sb_goal : True := by", "", ask=lambda p: asked.append(p), run_lean=None,
+                                   judge_text=None, budget={"asks": 0, "deadline": 0}, log=log)
+        self.assertEqual((body, asked, log[-1]["stopped"]), (None, [], "run deadline"))
+        goals = [{"sha": "g", "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by"}]
+        rows, solves = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask=None, run_lean=None,
+                                     judge_text=None, jobs=1, deadline=0)
+        self.assertEqual((rows, solves), ([], []), "a goal never started writes no row, so it stays untried")
+
+    def test_a_goal_cut_by_the_run_deadline_stays_untried(self):
+        """Codex f2: a row whose tree the deadline cut must not exclude the goal from the next run."""
+        b = decompose.LANE["backend"]
+        rows = [{"sha": "d", "levels": [{"stopped": "1 step(s) left for a model"}, {"stopped": "run deadline"}]},
+                {"sha": "z", "asks": 0, "levels": [], "run_deadline": True},
+                {"sha": "f", "levels": [{"stopped": "1 step(s) left for a model"}]},
+                {"sha": "c", "levels": [{"stopped": "1 step(s) left for a model"},      # Codex round 3: a child cut
+                                        {"stopped": "no answer: cut at the call deadline (finish=deadline, 7 chars, None tokens)"}]}]
+        self.assertEqual(decompose.tried_by(rows, b), {"f"})
+        q = [{"sha": "c", "target_set": "minif2f/test", "target": "imo_a", "file_ok": True}]
+        self.assertEqual([g["sha"] for g in decompose.pick_goals(q, {("minif2f/test", "imo_a"): "imo"},
+                                                                 decompose.tried_by(rows, b), set(), True, 5)], ["c"])
+
+    def test_lean_calls_are_clamped_to_the_hard_stop_and_refused_past_it(self):
+        """Codex f3: Lean after the last ask had no bound; each call now ends by `hard` and the goal writes its row."""
+        seen = []
+        def judge(text, timeout=300):
+            seen.append(timeout)
+            return {"verdict": "reject", "reason": "", "seconds": 0, "output": "error"}
+        goals = [{"sha": "g", "target_set": "minif2f/test", "target": "t", "goal": "theorem sb_goal : True := by"}]
+        ask = lambda p: "```lean4\ntheorem sb_goal : True := by\n  trivial\n```"
+        rows, _ = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask, lambda t, timeout=180: ("", 0),
+                                judge, jobs=1, hard=decompose.time.monotonic() + 50)
+        self.assertTrue(seen and all(t <= 50 for t in seen), seen)
+        rows, _ = decompose.run(goals, lambda s, t: "theorem t : True := by\n  sorry", ask, lambda t, timeout=180: ("", 0),
+                                judge, jobs=1, hard=decompose.time.monotonic())
+        self.assertEqual(len(rows), 1, "the goal still writes its row")
+        self.assertTrue(rows[0]["run_deadline"])
+        self.assertNotIn(rows[0]["sha"], decompose.tried_by(rows, decompose.LANE["backend"]))
+
     def test_a_goal_cut_at_the_cap_twice_is_asked_with_effort_none(self):
         cut = {"stopped": "no answer: empty reply (finish=length, 120000 tokens)"}
         rows = [{"sha": "a", "levels": [cut, cut]}, {"sha": "b", "levels": [cut]},

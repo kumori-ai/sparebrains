@@ -75,8 +75,11 @@ jobs:
           SPAREBRAINS_LEANSTRAL_KEY: ${{ secrets.SPAREBRAINS_LEANSTRAL_KEY }}
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         timeout-minutes: 220            # lean 15 + refresh 60 + this 220 + publish solves 20 + publish ledger 20 = 335 of 340
+        # --stop-after 9000 s (150 min): no goal or ask starts after it; an ask ends within leanstral.CALL_DEADLINE_S (40 min).
+        # --hard-stop 12600 s (210 min): every Lean call is clamped to it and refused past it, so each goal writes its row
+        # with 10 min left of this step's 220 (#642: run 42531165741 was killed at 220 with goals mid-ask; Codex f3)
         run: |
-          python3 tools/decompose.py run --max-goals "${{ inputs.max_goals }}" $( [ -n "${{ inputs.lane }}" ] && echo --lane "${{ inputs.lane }}" ) \
+          python3 tools/decompose.py run --max-goals "${{ inputs.max_goals }}" --stop-after 9000 --hard-stop 12600 $( [ -n "${{ inputs.lane }}" ] && echo --lane "${{ inputs.lane }}" ) \
             --queue "$RUNNER_TEMP/goal-queue.json" --out "ledger/decompose/run-${GITHUB_RUN_ID}.jsonl" | tee "$RUNNER_TEMP/out.txt"
           echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
 

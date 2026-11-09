@@ -29,6 +29,10 @@ TRIES = 8                        # answers that finished; one cut off at the tok
 MAX_CALLS = 3 * TRIES            # calls a problem may take in all, so one that always runs out still stops
 WORKERS = 4                      # calls in flight; each takes ~45 s, so starts stay far under 0.5 a second
 MIN_GAP_S = 2.0                  # between request starts: 0.5 a second at most
+# A total deadline per streamed call (#642, 2026-11-08): thinking chunks keep the socket timeout from firing, so 7 asks in
+# decompose run 42531165741 waited ~3,600 s and ended with no finish_reason; the slowest answer on record took 2,399 s.
+# Past it the stream is closed with what it has (finish 'deadline'), not retried.
+CALL_DEADLINE_S = 2400
 MAX_TOKENS = 120000               # 40,000 cut off 129 of 225 answers (DECISIONS 2026-10-20); 128k is the model's max output
 TEMPERATURE = 0.6
 API = "https://api.mistral.ai/v1/chat/completions"
@@ -103,12 +107,21 @@ def call_prompt(key, prompt, pacer, effort=None, on_attempt=None):
                        "temperature": TEMPERATURE, "stream": True, **({"reasoning_effort": effort} if effort else {})}).encode()
     req = urllib.request.Request(API, data=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t = time.time()
+    deadline = time.monotonic() + CALL_DEADLINE_S       # one deadline across connect, reads and the retry (Codex f1)
     for attempt in (0, 1):
         if on_attempt:
             on_attempt()
         try:
-            with urllib.request.urlopen(req, timeout=1200) as r:
-                d = read_stream(r)
+            with urllib.request.urlopen(req, timeout=max(1, min(1200, deadline - time.monotonic()))) as r:
+                # a read blocked with nothing arriving is ended at the deadline by shutting the socket down: closing the
+                # response alone does not interrupt a recv in progress (Codex f1, round 2: a real socket pair held 2 s)
+                watchdog = threading.Timer(max(0, deadline - time.monotonic()), cut_off, (r,))
+                watchdog.daemon = True
+                watchdog.start()
+                try:
+                    d = read_stream(r, deadline=deadline)
+                finally:
+                    watchdog.cancel()
             break
         except urllib.error.HTTPError as e:
             if e.code in (402, 429):          # out of pot or over the limit: stop the whole round, never hammer
@@ -116,19 +129,43 @@ def call_prompt(key, prompt, pacer, effort=None, on_attempt=None):
             raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode(errors='replace')}")
         # A dropped connection is retried once (8 of 68 decomposition asks, 2026-10-19); an HTTP error never is.
         except (http.client.RemoteDisconnected, ConnectionError, TimeoutError, urllib.error.URLError):
-            if attempt or pacer.stop:
+            if attempt or pacer.stop or time.monotonic() >= deadline:
                 raise
             pacer.wait()
     return {**d, "tokens": (d["usage"] or {}).get("completion_tokens"), "seconds": round(time.time() - t, 1),
             "retried": bool(attempt)}
 
 
-def read_stream(r):
+def cut_off(r):
+    """Shut a response's socket so a blocked read returns, then close it."""
+    import socket
+    sock = getattr(getattr(getattr(r, "fp", None), "raw", None), "_sock", None)    # HTTPResponse -> SocketIO -> socket
+    try:
+        if sock is not None:
+            sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    r.close()
+
+
+def read_stream(r, deadline=None):
     """A streamed reply (Mistral's docs, read 2026-10-20): delta.content is a list holding a thinking chunk while the
     model thinks, then a plain string for the answer. Streaming keeps bytes flowing on a long answer: 12 of 20 calls
     were dropped as idle when the reply came back whole (round 20261020T2158, after the 120,000 cap)."""
     text, finish, usage, other = [], None, None, []
-    for line in r:
+    past = lambda: deadline is not None and time.monotonic() >= deadline
+    lines = iter(r)
+    while True:
+        try:
+            line = next(lines)
+        except StopIteration:
+            break
+        except Exception:
+            if past():                                    # the watchdog closed the response: a cut, not a failure
+                return {"text": "".join(text), "finish": "deadline", "usage": usage}
+            raise
+        if past():
+            return {"text": "".join(text), "finish": "deadline", "usage": usage}
         line = line.decode().strip()
         if not line.startswith("data:"):
             other.append(line)
@@ -140,6 +177,8 @@ def read_stream(r):
             text.append(text_of((c.get("delta") or {}).get("content")))
             finish = c.get("finish_reason") or finish
         usage = e.get("usage") or usage
+    if finish is None and past():                         # a closed response can also just end the iteration
+        return {"text": "".join(text), "finish": "deadline", "usage": usage}
     if not text and "".join(other).startswith("{"):        # a whole JSON reply after all: read it as one
         d = json.loads("".join(other))
         c = d["choices"][0]
@@ -149,6 +188,9 @@ def read_stream(r):
 
 def reply(r):
     """A call's text, or why there is none: 16 of 68 decomposition asks came back empty with no reason kept."""
+    if r.get("finish") == "deadline":     # cut mid-answer: not an answer, so the goal stays untried (Codex f4)
+        return {"error": f"cut at the call deadline (finish=deadline, {len(r.get('text') or '')} chars, "
+                         f"{r.get('tokens')} tokens)"}
     if (r.get("text") or "").strip():
         return r["text"]
     return {"error": f"empty reply (finish={r.get('finish')}, {r.get('tokens')} tokens)"}
