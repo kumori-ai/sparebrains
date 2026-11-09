@@ -122,6 +122,57 @@ def report(rows, cohort, tools_hash=None, lean_env=None):
     return out
 
 
+def cohort_read(results, cohort, name, baseline, tools_hash=None, lean_env=None):
+    """Per lane, per reply against its RECORDED verdict (#574, Codex 20261109T164835638082Z): accepted as extracted (a
+    fresh raw accept, no repair, its own column: f2), rescued by the chain in arm off, the extra arm on adds (Lean 3
+    recovery), and distinct targets rescued, in and off the baseline. Only results of this cohort count; a reply not
+    yet replayed in both arms is pending, not a failure."""
+    off_t = baseline["tested"] - baseline["set"] - baseline.get("unknown", set())
+    rec = {r["id"]: r for r in cohort}
+    got = defaultdict(dict)
+    for r in results:
+        if r.get("cohort") == name and r.get("attempt_id") in rec \
+                and (tools_hash is None or r.get("tools_hash") == tools_hash) and (lean_env is None or r.get("lean_env") == lean_env):
+            got[r["attempt_id"]][r["arm"]] = r          # one code and Lean version only, as resume reads (Codex f1)
+    lanes = defaultdict(lambda: {"replies": 0, "pending": 0, "recorded_accept": 0, "as_extracted": 0, "chain": 0,
+                                 "recovery_extra": 0, "targets_rescued_off": set(), "targets_rescued_in": set()})
+    for i, r in rec.items():
+        l = lanes[r.get("backend") or "?"]
+        l["replies"] += 1
+        if r.get("verdict") == "accept":
+            l["recorded_accept"] += 1
+            continue
+        arms = got.get(i, {})
+        if not all(a in arms for a in ARMS):
+            l["pending"] += 1
+            continue
+        off, on = arms["off"], arms["on"]
+        key = (r["target_set"], r["target"])
+        if off["verdict"] == "accept" and off.get("stage") == "as_extracted":
+            l["as_extracted"] += 1
+        elif off["verdict"] == "accept":
+            l["chain"] += 1
+        elif on["verdict"] == "accept":
+            l["recovery_extra"] += 1
+        if off["verdict"] == "accept" and off.get("stage") != "as_extracted" or (off["verdict"] != "accept" and on["verdict"] == "accept"):
+            l["targets_rescued_off" if key in off_t else "targets_rescued_in"].add(key)
+    return {"cohort": name, "baseline": baseline["version"]["run_id"], "tools_hash": tools_hash, "lean_env": lean_env,
+            "lanes": {k: {**{f: v for f, v in d.items() if not f.startswith("targets_")},
+                          "targets_rescued_off": sorted(d["targets_rescued_off"]),
+                          "targets_rescued_in": len(d["targets_rescued_in"])} for k, d in sorted(lanes.items())}}
+
+
+def render_cohort(c):
+    lines = [f"cohort {c['cohort']} against baseline {c['baseline']}, tools {c.get('tools_hash')} lean {c.get('lean_env')} "
+             f"(per reply vs its recorded verdict)",
+             "| lane | replies | pending | recorded accepts | accepted as extracted | chain rescues | recovery extra | "
+             "targets rescued off baseline |", "|---|---:|---:|---:|---:|---:|---:|---|"]
+    for k, d in c["lanes"].items():
+        lines.append(f"| {k} | {d['replies']} | {d['pending']} | {d['recorded_accept']} | {d['as_extracted']} | {d['chain']} | "
+                     f"{d['recovery_extra']} | {len(d['targets_rescued_off'])} {', '.join(t for _, t in d['targets_rescued_off'])} |")
+    return "\n".join(lines)
+
+
 def render(r):
     def f(a, n=None, src=None):
         src = src or r
@@ -199,10 +250,17 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=0)
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--baseline", action="store_true", help="the extended no-model baseline over every target (#574)")
+    ap.add_argument("--cohort", help="another frozen cohort (.jsonl.gz in ledger/replay): its rows carry its name, and "
+                                     "tools alone is not re-run (the baseline in force covers it) (#574)")
     args = ap.parse_args()
     if args.baseline:
         return run_baseline(args)
-    cohort = load_cohort()
+    path = REPLAY / args.cohort if args.cohort else COHORT
+    name = path.name.split(".jsonl")[0]
+    if args.cohort and args.report:
+        print(render_cohort(cohort_read(load_results(), load_cohort(path), name, no_model_set(ROOT / "ledger"), *versions())))
+        return 0
+    cohort = load_cohort(path)
     keep, dropped = eligible(cohort)
     if args.report:
         print(f"cohort {len(cohort)} attempts; left out: " + ", ".join(f"{k} {len(v)}" for k, v in dropped.items()))
@@ -216,7 +274,8 @@ def main():
     run_id = os.environ.get("GITHUB_RUN_ID") or datetime.now(timezone.utc).strftime("local-%Y%m%dT%H%M%S")
     out = REPLAY / f"results-{run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}-{k}.jsonl"
     done = {(r.get("attempt_id"), r["arm"], r.get("target_set"), r.get("target")) for r in load_results()
-            if r.get("tools_hash") == tools_hash and r.get("lean_env") == lean_env}
+            if r.get("tools_hash") == tools_hash and r.get("lean_env") == lean_env
+            and r.get("cohort", COHORT.name.split(".jsonl")[0]) == name}
     deadline = time.time() + 60 * args.max_minutes if args.max_minutes else None
     accepts, written = 0, 0
 
@@ -237,7 +296,8 @@ def main():
         if deadline and time.time() > deadline:
             break
         base = {"attempt_id": r["id"], "target_set": r["target_set"], "target": r["target"], "rung": r.get("rung"),
-                "half": problem_half(r["target_set"], r["target"]), "recorded": r.get("verdict")}
+                "half": problem_half(r["target_set"], r["target"]), "recorded": r.get("verdict"),
+                **({"cohort": name, "backend": r.get("backend")} if args.cohort else {})}
         prev = None
         for arm in ARMS:
             if (r["id"], arm, r["target_set"], r["target"]) in done:
@@ -251,7 +311,7 @@ def main():
             write({**base, "arm": arm, **res})
             print(f"[replay] {r['id']} {r['target_set']}/{r['target']} {arm}: {res['verdict']} "
                   f"{','.join(res.get('transforms') or [])}", flush=True)
-    seen = set()
+    seen = set(map(lambda r: (r["target_set"], r["target"]), keep)) if args.cohort else set()
     for r in sorted(keep, key=lambda r: r["id"]):            # tools alone: once per problem, in its one owner slice
         key = (r["target_set"], r["target"])
         if key in seen or not owns_baseline(*key, k, n) or (None, "tools_alone", *key) in done \

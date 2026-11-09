@@ -283,3 +283,38 @@ class BaselineSweepTests(unittest.TestCase):
         row = replay.baseline_one(self.TARGET, run_lean, lambda t, timeout=300: {"verdict": "reject"}, ["linarith", "omega", "exact?"])
         self.assertEqual(batches, [2], "the fast pair in one batch; the slow one alone is judged, not batched")
 
+class CohortReadTests(unittest.TestCase):
+    """A second frozen cohort read per reply against its recorded verdict (#574, Codex 20261109T164835638082Z)."""
+    def test_columns_are_separate_and_pending_is_not_a_failure(self):
+        cohort = [{"id": i, "backend": "m3", "target_set": "s", "target": t, "verdict": v}
+                  for i, t, v in ((1, "hard", "accept"), (2, "raw", "reject"), (3, "hard", "reject"),
+                                  (4, "hard2", "reject"), (5, "easy", "reject"), (6, "hard", "reject"))]
+        res = lambda i, arm, v, stage=None: {"cohort": "c", "attempt_id": i, "arm": arm, "verdict": v,
+                                             **({"stage": stage} if stage else {})}
+        results = [res(2, "off", "accept", "as_extracted"), res(2, "on", "accept", "as_extracted"),
+                   res(3, "off", "accept", "chain"), res(3, "on", "accept", "chain"),
+                   res(4, "off", "reject"), res(4, "on", "accept", "chain"),
+                   res(5, "off", "accept", "chain"), res(5, "on", "accept", "chain"),
+                   res(6, "off", "reject"),                                             # on arm not yet run
+                   {**res(3, "off", "accept", "chain"), "cohort": "other"}]
+        base = {"set": {("s", "easy")}, "tested": {("s", "easy"), ("s", "hard"), ("s", "hard2"), ("s", "raw")}, "unknown": set(),
+                "version": {"run_id": "b2"}}
+        d = replay.cohort_read(results, cohort, "c", base)["lanes"]["m3"]
+        self.assertEqual((d["replies"], d["recorded_accept"], d["pending"]), (6, 1, 1))
+        self.assertEqual((d["as_extracted"], d["chain"], d["recovery_extra"]), (1, 2, 1))
+        self.assertEqual(d["targets_rescued_off"], [("s", "hard"), ("s", "hard2")], "a fresh raw accept is no rescue")
+        self.assertEqual(d["targets_rescued_in"], 1)
+
+    def test_only_one_code_and_lean_version_forms_a_pair(self):
+        """Codex 20261109T171055036714Z f1: obsolete results stay pending, and arms of two versions never pair."""
+        cohort = [{"id": 1, "backend": "m", "target_set": "s", "target": "t", "verdict": "reject"}]
+        base = {"set": set(), "tested": {("s", "t")}, "unknown": set(), "version": {"run_id": "b"}}
+        row = lambda arm, h: {"cohort": "c", "attempt_id": 1, "arm": arm, "verdict": "accept", "stage": "chain",
+                              "tools_hash": h, "lean_env": "e"}
+        old = replay.cohort_read([row("off", "old"), row("on", "old")], cohort, "c", base, "new", "e")["lanes"]["m"]
+        self.assertEqual((old["pending"], old["chain"]), (1, 0))
+        mixed = replay.cohort_read([row("off", "new"), row("on", "old")], cohort, "c", base, "new", "e")["lanes"]["m"]
+        self.assertEqual(mixed["pending"], 1)
+        same = replay.cohort_read([row("off", "new"), row("on", "new")], cohort, "c", base, "new", "e")["lanes"]["m"]
+        self.assertEqual((same["pending"], same["chain"]), (0, 1))
+
