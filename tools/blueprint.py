@@ -205,7 +205,7 @@ def main(argv=None):
     if args.prompt:
         import relay
         d = relay.fetch_dossier(tset, name)
-        misses = [(m.get("reason") or "")[:160] for m in (d.get("near_misses") or [])[:3]]
+        misses = [f"{m.get('backend')}: {m.get('failure_kind')}" for m in (d.get("near_misses") or [])[:3] if m.get("failure_kind")]
         print(guide_prompt(target_text, misses))
         return 0
     import lean_tools

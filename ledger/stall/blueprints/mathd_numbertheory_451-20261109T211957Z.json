@@ -1,0 +1,51 @@
+{
+ "ts": "20261109T211957Z",
+ "target_set": "minif2f/test",
+ "target": "mathd_numbertheory_451",
+ "guide": "codex",
+ "statements": [
+  "∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ ∑ d ∈ Nat.divisors m, d = 1 + p + p ^ 2 + p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ ∑ d ∈ Nat.divisors m, d = (p + 1) * (q + 1))",
+  "∀ p : ℕ, Nat.Prime p → ¬ (2010 ≤ 1 + p + p ^ 2 + p ^ 3 ∧ 1 + p + p ^ 2 + p ^ 3 ≤ 2019)",
+  "∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → 2010 ≤ (p + 1) * (q + 1) → (p + 1) * (q + 1) ≤ 2019 → (p + 1) * (q + 1) = 2016",
+  "(Nat.divisors 1837).card = 4 ∧ ∑ d ∈ Nat.divisors 1837, d = 2016",
+  "∀ n : ℕ, n ∈ S ↔ n = 2016",
+  "S = {2016}"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA positive integer $n$ is nice if there is a positive integer $m$ with exactly four positive divisors (including $1$ and $m$) such that the sum of the four divisors is equal to $n.$ Find the sum of all the nice numbers in the set $\\{ 2010,2011,2012,\\dots,2019 \\}.$ -/\ntheorem mathd_numbertheory_451 (S : Finset ℕ)\n    (h₀ :\n      ∀ n : ℕ,\n        n ∈ S ↔\n          2010 ≤ n ∧ n ≤ 2019 ∧ ∃ m, (Nat.divisors m).card = 4 ∧ ∑ p ∈ Nat.divisors m, p = n) :\n    ∑ k ∈ S, k = 2016 := by\n  have bp_1 : ∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ ∑ d ∈ Nat.divisors m, d = 1 + p + p ^ 2 + p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ ∑ d ∈ Nat.divisors m, d = (p + 1) * (q + 1)) := by\n    sorry\n  have bp_2 : ∀ p : ℕ, Nat.Prime p → ¬ (2010 ≤ 1 + p + p ^ 2 + p ^ 3 ∧ 1 + p + p ^ 2 + p ^ 3 ≤ 2019) := by\n    sorry\n  have bp_3 : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → 2010 ≤ (p + 1) * (q + 1) → (p + 1) * (q + 1) ≤ 2019 → (p + 1) * (q + 1) = 2016 := by\n    sorry\n  have bp_4 : (Nat.divisors 1837).card = 4 ∧ ∑ d ∈ Nat.divisors 1837, d = 2016 := by\n    sorry\n  have bp_5 : ∀ n : ℕ, n ∈ S ↔ n = 2016 := by\n    sorry\n  have bp_6 : S = {2016} := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 5,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 6,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}
