@@ -398,7 +398,11 @@ def summary(rows, arms=None, expected=None, baseline=None):
         # beside the totals, never instead (#574): the same paired read on targets the no-model baseline did not prove
         key = lambda r: (r.get("target_set"), r["target"])
         out["in_baseline"] = len({key(r) for r in rows if key(r) in baseline["set"]})
-        out["off_baseline"] = summary([r for r in rows if key(r) not in baseline["set"]], tuple(sorted(arms_ran)))
+        # off = the baseline's completed rejects; a target it never finished is neither in nor off (Codex f3)
+        unknown = baseline.get("unknown", set())
+        out["off_baseline"] = summary([r for r in rows if key(r) not in baseline["set"] and key(r) not in unknown],
+                                      tuple(sorted(arms_ran)))
+        out["baseline_unknown"] = len({key(r) for r in rows if key(r) in unknown})
         out["off_baseline_means"], out["baseline"] = replay.OFF_BASELINE_MEANS, baseline["version"]
     return out
 

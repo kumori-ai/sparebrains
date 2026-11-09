@@ -2,6 +2,7 @@
 extraction with and without Lean 3 recovery, the chain, and tools alone. No Lean here: stand-in judges."""
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -195,9 +196,90 @@ class NoModelSetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replay.no_model_set(self.ledger([]))
 
+    def test_the_pinned_run_is_the_default_and_incomplete_is_not_a_reject(self):
+        rows = [self.row("a", "accept"), self.row("b", "accept", run="2", tools="other"), self.row("c", "incomplete", run="2", tools="other")]
+        with unittest.mock.patch.object(replay, "BASELINE_RUN", "2"):
+            b = replay.no_model_set(self.ledger(rows))
+        self.assertEqual((b["set"], b["targets"], b["incomplete"]), ({("s", "b")}, 2, 1))
+
     def test_mixed_versions_are_refused_unless_one_is_named(self):
         rows = [self.row("a", "accept"), self.row("b", "accept", run="2", tools="other")]
         with self.assertRaises(ValueError):
             replay.no_model_set(self.ledger(rows))
         self.assertEqual(replay.no_model_set(self.ledger(rows), run_id="2")["set"], {("s", "b")})
+
+
+class BaselineSweepTests(unittest.TestCase):
+    """The extended no-model baseline (#574): one Lean run per target holding every recipe, passes re-judged alone,
+    a Lean timeout kept as incomplete (Codex 20261109T031816634913Z f3)."""
+    TARGET = "import Mathlib\n\ntheorem t (a : ℝ) (h : 0 < a) : 0 < a * 2 := by\n  sorry\n"
+
+    def test_the_recipes_keep_the_first_baseline_and_add_duotactics_table(self):
+        r = replay.BASELINE_RECIPES
+        self.assertEqual(len(r), len(set(r)))
+        self.assertTrue(set(subgoals.AUTO_TACTICS) <= set(r))
+        for t in ("ring", "field_simp; ring", "simp_all; linarith", "gcongr", "bound"):
+            self.assertIn(t, r)
+
+    def test_a_pass_is_judged_alone_and_a_timeout_is_incomplete(self):
+        seen = {}
+        def run_lean(text, timeout=180):
+            seen["text"] = text
+            return "", 1.0                                           # no messages: every recipe passes the filter
+        judged = []
+        def judge(text, timeout=300):
+            judged.append(text)
+            return {"verdict": "accept" if "nlinarith" in text.split(":= by")[-1] else "reject"}
+        row = replay.baseline_one(self.TARGET, run_lean, judge, ["linarith", "nlinarith"])
+        self.assertIn("theorem sb_goal_r1", seen["text"])
+        self.assertEqual((row["verdict"], row["closer"]), ("accept", "nlinarith"))
+        self.assertTrue(all(t.startswith("import Mathlib") and "theorem t " in t for t in judged), "judged as the target itself")
+        row = replay.baseline_one(self.TARGET, lambda t, timeout=180: ("timeout after 300 s", 300.0), judge, ["linarith", "omega"])
+        self.assertEqual((row["verdict"], row["closer"], row["unfinished"]), ("incomplete", None, ["linarith", "omega"]))
+        real = lambda t, timeout=300: {"verdict": "reject", "reason": "timeout after 300s"}   # check.judge's own shape
+        row = replay.baseline_one(self.TARGET, run_lean, real, ["linarith"])
+        self.assertEqual(row["verdict"], "incomplete", "check.judge's timeout reject is a timeout (Codex f1)")
+        row = replay.baseline_one(self.TARGET, run_lean, lambda t, timeout=300: {"verdict": "reject"}, ["linarith"])
+        self.assertEqual(row["verdict"], "reject")
+
+    def test_two_dispatches_make_one_version_and_retry_the_incomplete(self):
+        """Codex f2 (20261109T042529567555Z): resume skipped incomplete targets and split runs across ids."""
+        import json, tempfile, types
+        root = Path(tempfile.mkdtemp())
+        for t in ("a", "b"):
+            (root / "targets" / "primer").mkdir(parents=True, exist_ok=True)
+            (root / "targets" / "primer" / f"{t}.lean").write_text(self.TARGET.replace("theorem t ", f"theorem {t} "))
+        for d in ("minif2f/test", "mil"):
+            (root / "targets" / d).mkdir(parents=True, exist_ok=True)
+        (root / "ledger" / "replay").mkdir(parents=True)
+        verdicts = {"a": ["incomplete", "accept"], "b": ["reject"]}
+        calls = []
+        def one(text, run_lean, judge, first=None):
+            t = "a" if "theorem a " in text else "b"
+            calls.append(t)
+            v = verdicts[t].pop(0)
+            return {"verdict": v, "closer": "omega" if v == "accept" else None}
+        args = types.SimpleNamespace(slice="0/1", max_minutes=0)
+        with unittest.mock.patch.object(replay, "ROOT", root), unittest.mock.patch.object(replay, "REPLAY", root / "ledger" / "replay"), \
+             unittest.mock.patch.object(replay, "baseline_one", one), unittest.mock.patch.object(replay, "versions", lambda: ("h", "e")), \
+             unittest.mock.patch.dict("os.environ", {"GITHUB_RUN_ID": "1"}):
+            replay.run_baseline(args)
+            with unittest.mock.patch.dict("os.environ", {"GITHUB_RUN_ID": "2"}):
+                replay.run_baseline(args)
+        self.assertEqual(calls, ["a", "b", "a"], "the second dispatch asks only the incomplete target again")
+        b = replay.no_model_set(root / "ledger", run_id=replay.BASELINE_V2_ID)
+        self.assertEqual((b["set"], b["targets"], b["incomplete"]), ({("primer", "a")}, 2, 0))
+
+    def test_the_last_baselines_closer_is_judged_first_and_slow_recipes_wait(self):
+        batches = []
+        def run_lean(text, timeout=180):
+            batches.append(text.count("theorem sb_goal_r"))
+            return "", 1.0
+        judged = []
+        judge = lambda t, timeout=300: judged.append(t.split("\n")[-1].strip()) or {"verdict": "accept" if "omega" in t else "reject"}
+        row = replay.baseline_one(self.TARGET, run_lean, judge, ["linarith", "exact?", "omega"], first="omega")
+        self.assertEqual((row["closer"], batches, judged), ("omega", [], ["omega"]), "no batch when the old closer still works")
+        batches.clear(); judged.clear()
+        row = replay.baseline_one(self.TARGET, run_lean, lambda t, timeout=300: {"verdict": "reject"}, ["linarith", "omega", "exact?"])
+        self.assertEqual(batches, [2], "the fast pair in one batch; the slow one alone is judged, not batched")
 

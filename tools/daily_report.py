@@ -166,7 +166,8 @@ def speed(ledger):
     """The size series (task #191): per lane and run week, targets tried, first accepts, refusals; beside the week before."""
     try:                                                 # #574: the same read off the no-model baseline, beside it
         import replay
-        base = replay.no_model_set(ledger)["set"]
+        b = replay.no_model_set(ledger)
+        base = b["set"] | b.get("unknown", set())     # off = its completed rejects only (Codex f3)
     except ValueError:
         base = None
     by = defaultdict(lambda: {"targets": set(), "accepted": set(), "refused": 0, "size_b": None})
