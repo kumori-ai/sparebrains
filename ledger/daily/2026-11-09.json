@@ -1,0 +1,622 @@
+{
+ "brief": {
+  "fixes": [
+   "Lost before the kernel: 269 of 806 (33%), 97 router 5xx, 88 upstream timeout (504), 38 upstream timeout, 36 reasoning cut at max_tokens, 6 empty answer, 4 provider busy; at least 8 days running at 20% or more; the edge-cut rescue saved 0 of 186, because the saved results were the upstream timeouts themselves (kumori's routing).",
+   "formal-conjectures idle 7.2 days: restart it or retire it from the report.",
+   "openproblems.bio's data source is down since 2026-11-05 (AllAccessDisabled); its two scheduled workflows stay disabled (DECISIONS 2026-11-05).",
+   "openproblems.bio: 138 crashed beside 144 scored (49% of rounds)."
+  ],
+  "headline": "8 first-time solves \u00b7 accept rate 55% (week 24%) \u00b7 33% lost pre-kernel",
+  "ideas": [],
+  "losses": [],
+  "preheader": "295/537 accepted \u00b7 352 solved ever, 26 open \u00b7 most accepts openrouter-crouton 197/266",
+  "wins": [
+   "First-time solve: `minif2f/test/induction_pord1p1on2powklt5on2` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/imo_2019_p1` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/numbertheory_3pow2pownm1mod2pownp3eq2pownp2` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/imo_1969_p2` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/mathd_numbertheory_495` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/mathd_numbertheory_711` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/amc12_2001_p5` by openrouter-crouton.",
+   "First-time solve: `minif2f/test/mathd_numbertheory_552` by leanstral-decompose.",
+   "Higher accept rate 55% (295/537) against a 24% median over the last 7 reports.",
+   "Most accepts: openrouter-crouton, 197/266 (74%)."
+  ]
+ },
+ "day": "2026-11-09",
+ "first_solves": [
+  {
+   "grade": "high school",
+   "key": "minif2f/test/induction_pord1p1on2powklt5on2",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T07:26:51+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/imo_2019_p1",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T07:51:52+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/numbertheory_3pow2pownm1mod2pownp3eq2pownp2",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T08:46:58+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/imo_1969_p2",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T09:00:27+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/mathd_numbertheory_495",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T14:16:31+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/mathd_numbertheory_711",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "unknown",
+   "ts": "2026-11-08T14:17:44+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/amc12_2001_p5",
+   "lane": "openrouter-crouton",
+   "mode": "ladder-x3",
+   "tier": "frontier",
+   "ts": "2026-11-08T19:41:01+00:00"
+  },
+  {
+   "grade": "high school",
+   "key": "minif2f/test/mathd_numbertheory_552",
+   "lane": "leanstral-decompose",
+   "mode": "goal-closer",
+   "tier": "unknown",
+   "ts": "2026-11-09T02:20:02+00:00"
+  }
+ ],
+ "grades": [
+  {
+   "accepts": 50,
+   "answered": 58,
+   "first_solves": [],
+   "grade": "kindergarten",
+   "lanes": [
+    {
+     "accepts": 26,
+     "answered": 26,
+     "lane": "openrouter-crouton",
+     "tier": "frontier"
+    },
+    {
+     "accepts": 6,
+     "answered": 6,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 5,
+     "answered": 7,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 4,
+     "answered": 4,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 3,
+     "answered": 4,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 3,
+     "answered": 3,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "routeway-muse-glimmer-30b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "tiny"
+    }
+   ],
+   "open": 0,
+   "solved": 74
+  },
+  {
+   "accepts": 69,
+   "answered": 106,
+   "first_solves": [],
+   "grade": "middle school",
+   "lanes": [
+    {
+     "accepts": 34,
+     "answered": 35,
+     "lane": "openrouter-crouton",
+     "tier": "frontier"
+    },
+    {
+     "accepts": 16,
+     "answered": 26,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 14,
+     "answered": 22,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 2,
+     "answered": 12,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 2,
+     "answered": 5,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "routeway-muse-glimmer-30b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "groq-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "tiny"
+    }
+   ],
+   "open": 0,
+   "solved": 60
+  },
+  {
+   "accepts": 176,
+   "answered": 373,
+   "first_solves": [
+    {
+     "grade": "high school",
+     "key": "minif2f/test/induction_pord1p1on2powklt5on2",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T07:26:51+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/imo_2019_p1",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T07:51:52+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/numbertheory_3pow2pownm1mod2pownp3eq2pownp2",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T08:46:58+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/imo_1969_p2",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T09:00:27+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/mathd_numbertheory_495",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T14:16:31+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/mathd_numbertheory_711",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "unknown",
+     "ts": "2026-11-08T14:17:44+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/amc12_2001_p5",
+     "lane": "openrouter-crouton",
+     "mode": "ladder-x3",
+     "tier": "frontier",
+     "ts": "2026-11-08T19:41:01+00:00"
+    },
+    {
+     "grade": "high school",
+     "key": "minif2f/test/mathd_numbertheory_552",
+     "lane": "leanstral-decompose",
+     "mode": "goal-closer",
+     "tier": "unknown",
+     "ts": "2026-11-09T02:20:02+00:00"
+    }
+   ],
+   "grade": "high school",
+   "lanes": [
+    {
+     "accepts": 137,
+     "answered": 205,
+     "lane": "openrouter-crouton",
+     "tier": "frontier"
+    },
+    {
+     "accepts": 22,
+     "answered": 36,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 12,
+     "answered": 30,
+     "lane": "openrouter-flint-v1-0",
+     "tier": "high"
+    },
+    {
+     "accepts": 2,
+     "answered": 3,
+     "lane": "groq-qwen3-8-27b",
+     "tier": "medium"
+    },
+    {
+     "accepts": 1,
+     "answered": 3,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "leanstral-decompose",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "routeway-muse-glimmer-30b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 34,
+     "lane": "kaggle-goedel-prover-v2-8b",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 13,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 12,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 8,
+     "lane": "routeway-gemma-4-26b-a4b-it-chimerax",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 6,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 6,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "agnes-agnes-2-5-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "groq-gptoss",
+     "tier": "frontier"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "agnes-agnes-3-0-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-l3-3-ms-nevoria-70b",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-l3-70b-euryale-v2-1",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "mistral-ministral-3b-2512",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "openrouter-ling-3-0-flash-fin",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "vercel-ling-3-0-flash-fin-free",
+     "tier": "?"
+    }
+   ],
+   "open": 26,
+   "solved": 218
+  },
+  {
+   "accepts": 0,
+   "answered": 0,
+   "first_solves": [],
+   "grade": "college",
+   "lanes": [],
+   "open": 0,
+   "solved": 0
+  }
+ ],
+ "hours": 24,
+ "kaggle": {
+  "failed": [],
+  "finished": [
+   {
+    "answers": 34,
+    "batch": "20261108T0213",
+    "finished_at": "2026-11-08T04:47:44+00:00"
+   }
+  ]
+ },
+ "relay": {
+  "backed_off": true,
+  "last": "2026-11-08T16:45:40+00:00"
+ },
+ "rungs": [
+  {
+   "idle_days": 0.2,
+   "last": "2026-11-08T22:49:08+00:00",
+   "rung": "competition math (ladder)"
+  },
+  {
+   "idle_days": 0.4,
+   "last": "2026-11-08T17:51:42+00:00",
+   "rung": "relay"
+  },
+  {
+   "idle_days": 0.8,
+   "last": "2026-11-08T06:59:18+00:00",
+   "rung": "prover"
+  },
+  {
+   "idle_days": 0.0,
+   "last": "2026-11-09T02:20:02+00:00",
+   "rung": "decompose"
+  },
+  {
+   "idle_days": 0.0,
+   "last": "2026-11-09T02:20:02+00:00",
+   "rung": "goal batches (GPU)"
+  },
+  {
+   "accepts_ever": 0,
+   "idle_days": 7.2,
+   "last": "2026-11-01T22:10:43+00:00",
+   "rung": "formal-conjectures",
+   "tries_24h": 0
+  },
+  {
+   "crashed": 138,
+   "drift": null,
+   "idle_days": 4.4,
+   "last": "2026-11-04T17:09:23+00:00",
+   "qualify": {
+    "at": "2026-11-04T21:28:23+00:00",
+    "mean_pearson_delta": null,
+    "passed": false,
+    "sites": 1
+   },
+   "qualify_runs": 11,
+   "rounds_24h": 0,
+   "rung": "openproblems.bio",
+   "scored": 144,
+   "source": {
+    "at": "2026-11-09T02:56:09+00:00",
+    "code": "AllAccessDisabled",
+    "down_since": "2026-11-05T17:34:56+00:00",
+    "ok": false
+   }
+  }
+ ],
+ "speed": [
+  {
+   "accepted": 19,
+   "lane": "mistral-ministral-3b-2512",
+   "prev_accepted": 20,
+   "prev_targets": 45,
+   "prev_week": "2026-10-26",
+   "refused": 109,
+   "size_b": 3,
+   "targets": 45,
+   "week": "2026-11-02"
+  },
+  {
+   "accepted": 15,
+   "lane": "mistral-ministral-8b-2512",
+   "prev_accepted": 15,
+   "prev_targets": 44,
+   "prev_week": "2026-10-26",
+   "refused": 141,
+   "size_b": 8,
+   "targets": 44,
+   "week": "2026-11-02"
+  },
+  {
+   "accepted": 15,
+   "lane": "mistral-ministral-14b-2512",
+   "prev_accepted": 14,
+   "prev_targets": 45,
+   "prev_week": "2026-10-26",
+   "refused": 131,
+   "size_b": 14,
+   "targets": 43,
+   "week": "2026-11-02"
+  },
+  {
+   "accepted": 14,
+   "lane": "agnes-agnes-2-5-flash",
+   "prev_accepted": 12,
+   "prev_targets": 26,
+   "prev_week": "2026-10-26",
+   "refused": 70,
+   "size_b": null,
+   "targets": 29,
+   "week": "2026-11-02"
+  }
+ ],
+ "to": "2026-11-09T02:56:10.288837+00:00",
+ "totals": {
+  "accepted": 295,
+  "answered": 537,
+  "errors": {
+   "empty answer": 6,
+   "provider busy": 4,
+   "reasoning cut at max_tokens": 36,
+   "router 5xx": 97,
+   "upstream timeout": 38,
+   "upstream timeout (504)": 88
+  },
+  "judged": 806,
+  "lanes": 29,
+  "open": 26,
+  "problems": 317,
+  "recovered": {
+   "accepted": 0,
+   "answers": 0,
+   "attempted": 186,
+   "by_original": {
+    "524": 9,
+    "http_502_html": 91,
+    "http_504_html": 86
+   },
+   "estimated": 0,
+   "failed": 186
+  },
+  "solved_ever": 352
+ },
+ "window": {
+  "built_from": "5fdbe3dca25893599757bf75751044fe441b2090",
+  "from": "88797033bea02baba7718ca1b67896587e627d55",
+  "from_report": "2026-11-08",
+  "kind": "arrived"
+ }
+}
