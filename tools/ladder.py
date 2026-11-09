@@ -84,6 +84,15 @@ _KINDS = [
 # unrecognised is 'router': an unknown failure must never cost a target its try.
 _LANE_ERRORS = re.compile(r"HTTP 504|did not respond in time|returned no text|Read timed out|ReadTimeout", re.I)
 ALIVE_WINDOW_S = 30 * 60      # a lane error only counts if the same lane answered something this close to it
+# A reasoning cut: the lane thought until max_tokens and wrote no answer (kumori's 503 [reasoning_truncated]). After one,
+# the same cell's next try was accepted 0 of 53 times 2026-11-01..09 (43 cut again; low effort 0 of 21), so one cut
+# closes the cell (2026-11-09). Raising max_tokens was not taken: a measured sweep found the thinking grows to fill the
+# room and ends in a timeout instead (ml4devs.com, 2026-08-24: 1k, 4k, 16k all empty; 32k on a 9B timed out).
+_REASONING_CUT = re.compile(r"\[reasoning_truncated\]")
+
+
+def is_reasoning_cut(reason):
+    return bool(_REASONING_CUT.search(reason or ""))
 
 
 def error_scope(reason):
@@ -129,7 +138,7 @@ def owed_history(ledger_root=None, relay_rows=False):
     never held against the cell. The ledger itself is not rewritten; this is only how it is read.
     Stage-2 relay rows are a separate count (relay_rows=True), so a relay try never closes a ladder cell."""
     import bisect
-    hist = defaultdict(lambda: {"answered": 0, "errors": 0, "router_errors": 0})
+    hist = defaultdict(lambda: {"answered": 0, "errors": 0, "router_errors": 0, "cuts": 0, "cut_budgets": set()})
     answered_at, lane_errors = defaultdict(list), []
     for f in ledger_files.try_files(ledger_root or ROOT / "ledger"):
         for line in f.read_text().splitlines():
@@ -146,6 +155,9 @@ def owed_history(ledger_root=None, relay_rows=False):
                 if t is not None:
                     answered_at[r.get("backend")].append(t)
             elif r.get("verdict") == "error":
+                if is_reasoning_cut(r.get("reason")):
+                    hist[key]["cuts"] += 1               # the lane answered (it thought): counted whatever its clock
+                    hist[key]["cut_budgets"].add((r.get("request_config") or {}).get("max_tokens"))
                 if error_scope(r.get("reason")) == "lane":
                     lane_errors.append((key, _epoch(r.get("ts"))))
                 else:
@@ -160,7 +172,14 @@ def owed_history(ledger_root=None, relay_rows=False):
     return hist
 
 
-def build_ladder_queue(sets, lanes_strongest_first, attempts, hist):
+def cut_closed(h, budget):
+    """A reasoning cut closes the cell for the budget it was cut at (None: unknown, so any); a deliberately different
+    max_tokens reopens it as an experiment. A change of effort does not: low after a cut was 0 of 21 (Codex f2)."""
+    b = h.get("cut_budgets") or set()
+    return bool(h.get("cuts")) and (not b or None in b or budget is None or budget in b)
+
+
+def build_ladder_queue(sets, lanes_strongest_first, attempts, hist, budget_of=None):
     """Every (set, target, lane, attempt_no) still owed, ordered so the whole ladder gets its
     first try before any cell gets a second: (attempt_no, rung, target) then lanes strongest
     first, interleaved across providers. A cell is done once it has attempt_no answers, or
@@ -175,7 +194,7 @@ def build_ladder_queue(sets, lanes_strongest_first, attempts, hist):
         for rung, rank, tset, name, tdir in targets:
             for lane in lanes_rr:
                 h = hist[(tset, name, lane["backend"])]
-                if h["answered"] < a and h["errors"] < 3:
+                if h["answered"] < a and h["errors"] < 3 and not cut_closed(h, budget_of(lane) if budget_of else None):
                     work.append((tset, tdir, name, rung, rank, lane, a))
     return work
 

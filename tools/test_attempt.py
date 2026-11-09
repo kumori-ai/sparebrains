@@ -78,7 +78,7 @@ class RetryPacingTests(unittest.TestCase):
                    planned_per_target=1, previous_id=Mock(return_value=None),
                    benched=Mock(return_value=False), llm_chat=Mock(),
                    args=SimpleNamespace(max_tokens=256, call_timeout=60, max_calls=99, stop_on_accept=False),
-                   state={'calls': 0, 'errors': 0, 'accepts': 0, 'waits': 0}, exhausted={}, too_big={}, fit_cap={}, skip=Mock(),
+                   state={'calls': 0, 'errors': 0, 'accepts': 0, 'waits': 0}, exhausted={}, too_big={}, cut_cells=set(), fit_cap={}, skip=Mock(),
                    order=[{'backend': 'test-lane', 'provider': 'test'}, {'backend': 'test-sibling', 'provider': 'test'},
                           {'backend': 'other-lane', 'provider': 'other'}],
                    extract_proof=Mock(side_effect=RuntimeError('verifier boundary')))
@@ -136,6 +136,41 @@ class DeadLaneTests(RetryPacingTests):
             'kumori /api/v1/llm/chat HTTP 404 : unknown backend: test-lane', status_code=404)
         self.assertEqual(env['run_one']('demo', lane, 1), 'error_router')
         self.assertIn('test-lane', env['bench']['gone'])
+
+    def test_a_reasoning_cut_returns_error_cut(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 [reasoning_truncated] : backend test-lane returned no text', status_code=503)
+        self.assertEqual(env['run_one']('demo', lane, 1), 'error_cut')
+        calls = env['llm_chat'].call_count
+        # Codex 20261109T162517332095Z f1: the cell's later try, queued before the cut (or waiting on the provider
+        # lock), makes no call; another cell still does
+        self.assertEqual(env['run_one']('demo', lane, 2), 'error_cut')
+        self.assertEqual(env['llm_chat'].call_count, calls, "no call for a cut cell")
+        env['run_one']('other', lane, 1)
+        self.assertEqual(env['llm_chat'].call_count, calls + 1, "an unrelated cell is still asked")
+
+    def test_a_worker_waiting_on_the_provider_lock_sees_the_cut(self):
+        """Codex round 2: two workers on one cell; the first is held at record() after its cut, so the provider lock
+        is already released. The second must make no call and write no row."""
+        import threading
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 [reasoning_truncated] : backend test-lane returned no text', status_code=503)
+        held, go = threading.Event(), threading.Event()
+        def record(*a, **k):
+            if not held.is_set():
+                held.set()
+                go.wait(5)
+        env['record'].side_effect = record
+        out = {}
+        t1 = threading.Thread(target=lambda: out.__setitem__(1, env['run_one']('demo', lane, 1)))
+        t1.start()
+        held.wait(5)                                       # the first worker is past the lock, inside record()
+        out[2] = env['run_one']('demo', lane, 2)
+        go.set(); t1.join(5)
+        self.assertEqual((out[1], out[2]), ('error_cut', 'error_cut'))
+        self.assertEqual((env['llm_chat'].call_count, env['record'].call_count), (1, 1), "one call, one row")
 
     def test_failures_in_a_row_park_the_lane_with_growing_waits(self):
         env, lane = self.runner()
@@ -410,8 +445,23 @@ class OwedHistoryTests(unittest.TestCase):
     def test_router_errors_never_close_a_cell(self):
         hist = self.ledger([('t1', 'dead', 'error', r, f'2026-09-20T05:0{i}:00+00:00')
                             for i, r in enumerate([self.GONE] * 4 + [self.DOWN] * 4)])
-        self.assertEqual(hist[('demo', 't1', 'dead')], {'answered': 0, 'errors': 0, 'router_errors': 8})
+        self.assertEqual(hist[('demo', 't1', 'dead')], {'answered': 0, 'errors': 0, 'router_errors': 8, 'cuts': 0, 'cut_budgets': set()})
         self.assertEqual(self.owed(hist, 't1', 'dead'), 1)
+
+    CUT = 'KumoriAPIError: kumori /api/v1/llm/result/0abf HTTP 503 [reasoning_truncated] : backend flint returned no text'
+
+    def test_one_reasoning_cut_closes_the_cell(self):
+        """#658 follow-up (2026-11-09): after a cut, the same cell's next try was accepted 0 of 53 times since 11-01
+        (43 cut again), low effort included (0 of 21); a cut cell is not asked again the same way."""
+        hist = self.ledger([('t1', 'flint', 'error', self.CUT, '2026-11-09T05:00:00+00:00')])
+        self.assertEqual(hist[('demo', 't1', 'flint')]['cuts'], 1)
+        self.assertEqual(self.owed(hist, 't1', 'flint'), 0)
+        hist = self.ledger([('t1', 'flint', 'error', self.SLOW, '2026-11-09T05:00:00+00:00')])
+        self.assertEqual(self.owed(hist, 't1', 'flint'), 1, "a timeout is not a cut")
+        h = {'answered': 0, 'errors': 0, 'cuts': 1, 'cut_budgets': {16000}}
+        self.assertTrue(attempt.cut_closed(h, 16000))
+        self.assertFalse(attempt.cut_closed(h, 32000), "a deliberately different budget reopens it (Codex f2)")
+        self.assertTrue(attempt.cut_closed({**h, 'cut_budgets': {None}}, 32000), "unknown budget: closed for any")
 
     def test_lane_errors_from_a_dead_lane_do_not_close_a_cell(self):
         hist = self.ledger([('t1', 'dead', 'error', self.SLOW, f'2026-09-20T05:0{i}:00+00:00') for i in range(3)])

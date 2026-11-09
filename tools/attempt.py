@@ -29,8 +29,8 @@ RELAY_JOBS = ROOT / "ledger" / "relay-jobs"           # one record per relay-nex
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import ledger_files
 from check import judge                                              # the judge, unchanged
-from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, lane_is_gone, ALIVE_WINDOW_S,
-                    owed_history, build_ladder_queue, interleave_by_provider)   # the ladder's queue, read from the committed ledger
+from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, is_reasoning_cut, lane_is_gone, ALIVE_WINDOW_S,
+                    owed_history, build_ladder_queue, cut_closed, interleave_by_provider)   # the ladder's queue, read from the committed ledger
 import relay                                                         # stage 2: tries from a problem's dossier
 import lean_tools                                                     # real mathlib names for invented ones
 import subgoals                                                      # APOLLO's loop on a rejected relay try
@@ -467,6 +467,7 @@ def main():
                                                          # gone: lanes the router 404s, not asked again this job
     exhausted = {}                                       # provider → why it is parked for the rest of the run
     too_big = {}                                         # backend → shortest prompt (chars) the router said never fits
+    cut_cells = set()                                    # (set, target, backend) a reasoning cut closed this job
     fit_cap = {}                                         # backend → max_tokens it was halved to on never_fits, this job
 
     def sent_tokens(lane):
@@ -567,6 +568,9 @@ def main():
                 return "defer"
             with lock:                                   # rechecked here: a waiting worker may hold an older view
                 floor = too_big.get(lane["backend"])
+                closed = not relay_ctx and (tset, name, lane["backend"]) in cut_cells
+            if closed:                                   # a later try of a cell cut while this one waited (Codex f1)
+                return "error_cut"
             if floor is not None and len(prompt) >= floor:
                 skip(name, lane, attempt_no, f"{NEVER_FITS_WHY}: a {floor:,}-char prompt already did this job",
                      tset, tdir_)
@@ -649,6 +653,10 @@ def main():
                 # longer routes is dropped for the job. Without this, run 35481806786 asked one dead
                 # lane 1,702 times in under two hours (2026-09-20).
                 with lock:
+                    if not relay_ctx and is_reasoning_cut(err):
+                        # marked before the provider lock is released, so a worker waiting on it for this cell's
+                        # next try sees it closed (Codex 20261109T163413878925Z f1)
+                        cut_cells.add((tset, name, lane["backend"]))
                     if lane_is_gone(err):
                         if lane["backend"] not in bench["gone"]:
                             print(f"{lane['backend']}: the router does not route this lane now; dropped for this job", flush=True)
@@ -760,6 +768,8 @@ def main():
                       f"{len(solved)}/{len(names)} targets solved so far", flush=True)
         if verdict == "error" and error_scope(reason) == "router":
             return "error_router"                        # says nothing about this lane on this target
+        if verdict == "error" and is_reasoning_cut(reason) and not relay_ctx:   # the relay benches lanes its own way
+            return "error_cut"                           # cut_cells was marked inside the provider lock                           # the cell is closed: asked again the same way, 0 of 53 (2026-11-09)
         return verdict
 
     def make_ask(lane):
@@ -943,7 +953,7 @@ def main():
     remaining = 0
     if args.ladder:                                      # 24/7: owed cells across every set, in rung order
         hist = owed_history()
-        work = build_ladder_queue(sets, order, args.attempts, hist)
+        work = build_ladder_queue(sets, order, args.attempts, hist, budget_of=lambda l: lane_max_tokens(l, args.max_tokens))
         # A lane that keeps running dry on a rung is skipped there and kept everywhere else (DECISIONS.md 2026-10-08)
         now_iso = datetime.now(timezone.utc).isoformat()
         duds = {(l["backend"], r) for l in order for r in RUNGS if relay.ladder_dud(ledger_rows, l["backend"], r, now_iso)}
@@ -1056,6 +1066,8 @@ def main():
                 elif v == "error_router":
                     with lock:                           # the router's failure, not the lane's: the cell stays
                         work.append(item)                # owed and nothing is held against it
+                elif v == "error_cut":
+                    pass                                 # not queued again: one cut closes the cell (ladder.is_reasoning_cut)
                 elif v == "error":
                     key = (tset, name, lane["backend"])
                     with lock:                           # a lane error is not an answer: the cell goes to the back
@@ -1299,7 +1311,7 @@ def main():
                     if v == "exhausted":
                         skip(name, lane, attempt_no, f"provider parked for the run: {exhausted[lane['provider']]}")
                         break
-                    if v in ("accept", "too_big"):
+                    if v in ("accept", "too_big", "error_cut"):
                         break
             if state["calls"] >= args.max_calls:
                 print(f"cap reached: {args.max_calls} calls")
@@ -1311,6 +1323,7 @@ def main():
             print(f"cap: {len(work)} planned attempts trimmed to {args.max_calls}")
             work = deque(list(work)[:args.max_calls])
         deferrals = defaultdict(int)
+        cut = set()                                      # (target, lane) closed by a reasoning cut this run
 
         def worker():
             while True:
@@ -1321,6 +1334,8 @@ def main():
                     remaining = len(work)
                 name, lane, a = item
                 key = (name, lane["backend"], a)
+                if (name, lane["backend"]) in cut:
+                    continue
                 if lane["provider"] in exhausted:
                     skip(name, lane, a, f"provider parked for the run: {exhausted[lane['provider']]}")
                     continue
@@ -1333,6 +1348,10 @@ def main():
                     skip(name, lane, a, "lane benched by the router for the whole run")
                     continue
                 v = run_one(name, lane, a)
+                if v == "error_cut":
+                    with lock:
+                        cut.add((name, lane["backend"]))
+                    continue
                 if v == "too_big":                       # recorded as a skip; a later attempt is no smaller
                     continue
                 if v == "exhausted":

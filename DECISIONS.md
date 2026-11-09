@@ -3,6 +3,25 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-09
+
+- **One reasoning cut closes a ladder cell for that budget (#658 follow-up).** After a lane thought until max_tokens
+  and wrote nothing (kumori 503 [reasoning_truncated]), the same cell's next try, 2026-11-01..09 (ladder-x3): 53
+  cases, 0 accepts (43 cut again, 6 reject, 4 timeout); at low effort 0 of 21. 148 cuts in all (Flint 73, crouton 37,
+  Leanstral 1.5 18, groq Qwen3 16), mostly at 16,000 tokens. Deep-search (2026-11-09, 3 phrasings; web, github, arxiv,
+  hn, stackexchange, reddit via the custom scraper): vendors advise raising max_tokens or lowering effort (OpenAI's
+  reasoning guide; tokenmix.ai 2026; kimik3.io; OpenAI community threads 1359002, 1389166); a measured sweep found
+  raising it fails, as the thinking grows to fill the room and ends in a timeout (ml4devs.com 2026-08-24: qwen3.5:4b
+  at 1k, 4k, 16k all empty; qwen3.5:9b at 32k timed out); arXiv 2507.04023: larger thinking budgets give diminishing
+  returns. Our calls are bounded at 120/240 s, so the proposed 32k Flint trial was not taken. Built: `ladder.is_reasoning_cut`;
+  owed_history counts cuts with the budget they were cut at; `cut_closed` closes the cell for that budget (any budget
+  when unknown) and reopens it only for a deliberately different max_tokens, not an effort change (0 of 21); in a job,
+  run_one marks the cell inside the provider lock and a later try of it, queued or waiting on that lock, returns
+  error_cut with no call and no row. The relay is unchanged. Effect when shipped: 79 owed cells close (Flint 47, groq
+  Qwen3 16, Leanstral 11, iteracompute 4, crouton 1), up to ~150 calls freed. Codex DISAGREE 20261109T162517332095Z
+  (queued later tries still ran; reopening on a budget change), DISAGREE 20261109T163413878925Z (marked after the lock
+  was released: a concurrent test showed 2 calls), AGREE 20261109T164128027000Z. 738 tests OK.
+
 ## 2026-11-08
 
 - **Crouton's six, and the next small-lane tool is a fixed tactic-skeleton schedule, not lessons (pilot, no claim).**
