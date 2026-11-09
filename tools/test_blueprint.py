@@ -141,6 +141,61 @@ class Gate(unittest.TestCase):
         self.assertIn("do not imply the target", g["why"][0])
 
 
+class Fill(unittest.TestCase):
+    """The fill step: each hole as its own lemma with the earlier statements as hypotheses (the queue's extract_goal
+    clears them: on 2026-11-09 hole 5 of the first blueprint lost bp_1..bp_4, the very steps that prove it), Lean's
+    closers first, then each ask in turn; every hole is attempted, so failed and unattempted stay apart (Codex f6)."""
+    S3 = ["n ≠ 0", "0 < n → n ≠ 0", "n + 0 = n"]
+
+    def test_a_holes_lemma_carries_the_binders_and_the_earlier_statements(self):
+        self.assertEqual(blueprint.lemma_text(PREFIX, self.S3, 0), "theorem sb_goal (n : ℕ) (h : 0 < n) : n ≠ 0 := by")
+        self.assertEqual(blueprint.lemma_text(PREFIX, self.S3, 2),
+                         "theorem sb_goal (n : ℕ) (h : 0 < n) (bp_1 : n ≠ 0) (bp_2 : 0 < n → n ≠ 0) : n + 0 = n := by")
+
+    def judge(self, lean_closes=(), accept_final=True):
+        def judge_text(text):
+            if blueprint.FINAL in text and "sb_goal" in text:
+                return {"verdict": "accept" if any(f": {s} := by" in text for s in lean_closes) else "reject", "output": "err"}
+            if "sb_goal" in text:                                       # a lane's lemma proof: accepted when it says so
+                return {"verdict": "accept" if "exact good" in text else "reject", "output": "bad", "reason": "bad"}
+            return {"verdict": "accept" if accept_final else "reject", "output": ""}
+        return judge_text
+
+    def test_lean_then_the_asks_in_turn_and_the_proved_bodies_are_spliced_under_their_have(self):
+        weak = Mock(return_value="```lean\n  exact bad\n```")
+        strong = Mock(side_effect=["```lean\n  exact good\n```", "```lean\n  exact good\n```"])
+        f = blueprint.fill(PREFIX, self.S3, self.judge(lean_closes=[self.S3[0]]), asks=[weak, strong])
+        self.assertEqual(f["closed_by"], {1: "lean", 2: 1, 3: 1})
+        self.assertEqual((f["failed"], f["unattempted"]), ([], []))
+        self.assertEqual(weak.call_count, 4, "two tries a hole for holes 2 and 3")
+        self.assertEqual(f["final"], "accept")
+        body = f["accepted"][len(PREFIX):]
+        self.assertIn(f"  have bp_1 : {self.S3[0]} := by\n    {blueprint.FINAL}\n", body)
+        self.assertIn(f"  have bp_2 : {self.S3[1]} := by\n    exact good\n", body)
+        self.assertNotIn("sorry", body)
+        self.assertNotIn("exact bad", body)
+        self.assertEqual(sum(t["hole"] == 2 for t in f["tries"]), 3)
+
+    def test_a_hole_nobody_proves_is_failed_and_the_later_holes_are_still_attempted(self):
+        weak = Mock(return_value="```lean\n  exact bad\n```")
+        f = blueprint.fill(PREFIX, self.S3, self.judge(lean_closes=[self.S3[2]]), asks=[weak])
+        self.assertEqual((f["failed"], f["unattempted"], f["closed_by"]), ([1, 2], [], {3: "lean"}))
+        self.assertEqual(weak.call_count, 4)
+        self.assertNotIn("final", f)
+
+    def test_holes_the_ask_budget_never_reached_are_unattempted_not_failed(self):
+        weak = Mock(return_value="```lean\n  exact bad\n```")
+        f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[weak], max_asks=2)
+        self.assertEqual((f["failed"], f["unattempted"]), ([1], [2, 3]))
+        self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (2, 2, 0))
+
+    def test_a_lane_that_never_answers_spends_budget_and_is_counted_as_unanswered_not_as_tries(self):
+        silent = Mock(return_value=None)                   # parked, capped or erroring: make_ask returns None
+        f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[silent], max_asks=12)
+        self.assertEqual((f["failed"], f["unattempted"], f["tries"]), ([], [1, 2, 3], []))
+        self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (3, 0, 3), "Codex f3: budget spent, nothing answered")
+
+
 @unittest.skipUnless((Path(__file__).parent.parent / ".lake" / "packages" / "mathlib").is_dir(), "needs the local Mathlib build")
 class AuditInLean(unittest.TestCase):
     """The audit as Lean runs it (about 20 s): Codex's three proof-carrying propositions fail by name, ordinary

@@ -37,6 +37,7 @@ import lean_tools                                                     # real mat
 import subgoals                                                      # APOLLO's loop on a rejected relay try
 import fixer                                                         # issue #3: repairs form, no model
 import toolscore                                                      # the chain the retro and the tool scoreboard share
+import blueprint                                                      # the stall router's guided blueprints (--pilot)
 from proof_text import extract_proof, align_tactics, PROOF_SEP                 # what a reply hands to Lean
 from utilities.kumori_api_client import (KumoriAPIError, init as kumori_init, llm_backends, llm_backoff_state,
                                          llm_chat, sparebrains_attempt)
@@ -272,6 +273,9 @@ def main():
     ap.add_argument("--relay-lanes", type=int, default=5, help="relay mode: how many of the strongest live lanes")
     ap.add_argument("--relay-next", action="store_true",
                     help="relay mode: take the first open problem in the stage-2 order that still has relay tries left")
+    ap.add_argument("--pilot", default="",
+                    help="the stall router's guided pilot: a frozen manifest in ledger/stall; arms B and C of tools/blueprint.py "
+                         "on each problem's latest gated blueprint, rows to ledger/stall, nothing to the public ledger")
     ap.add_argument("--fixer", action="store_true",
                     help="issue #3: re-check --only targets' closest misses with their layout fixed; no model call")
     ap.add_argument("--redo", action="store_true",
@@ -383,6 +387,8 @@ def main():
         order, mode = [], "lemmas"
     if args.retro:
         order, mode = [], "retro"
+    if args.pilot:
+        order, mode = [], "pilot"
     if args.relay:
         if not (args.only or args.relay_next):
             sys.exit("--relay needs --only or --relay-next")
@@ -1023,6 +1029,54 @@ def main():
             state["calls"] += 1
         return c_verdict, b_verdict
 
+    def pilot_one(key, man, asks_for, out):
+        """One problem of a guided pilot (tools/blueprint.py; the manifest in ledger/stall): arm B, Lean's closers on
+        the holes of the latest gated blueprint, then arm C, the manifest's lanes on the holes left. Rows to `out`; an
+        accepted text to SB_GUIDED_OUT (the run's artifact), never verified/, ledger/ or the public ledger (the manifest's
+        credit line: a guided solve is the guide's propositions plus Lean and small lanes, not "free models plus tools").
+        {"B": final verdict, "C": final verdict} or None when the problem has no gated blueprint."""
+        tset, name = key.rsplit("/", 1)
+        gated = [p for p in sorted((ROOT / "ledger" / "stall" / "blueprints").glob(f"{name}-*.json"))
+                 if json.loads(p.read_text()).get("ok")]
+
+        def write(row):
+            with lock:
+                with out.open("a") as fh:
+                    fh.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id,
+                                         "manifest": man["id"], "target_set": tset, "target": name, **row}) + "\n")
+        if not gated:
+            write({"arm": "none", "note": "no gated blueprint"})
+            print(f"[pilot {man['id']}] {key}: no gated blueprint, skipped", flush=True)
+            return None
+        bp = gated[-1]
+        stmts = json.loads(bp.read_text())["statements"]
+        text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
+        prefix = text[:PROOF_SEP.search(text).end()]
+        live = asks_for(man["lanes"])                     # [(backend, ask)] for the lanes live today, in manifest order
+        names = [b for b, _ in live]                      # attribution by the asked list, never the manifest's (Codex
+        result = {}                                       # 20261109T213007122693Z f1: a missing lane shifted the credit)
+        for arm, asks in (("B", []), ("C", [a for _, a in live])):
+            f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"])
+            by = {str(k): ("lean" if v == "lean" else names[v]) for k, v in f["closed_by"].items()}
+            row = {"arm": arm, "blueprint": str(bp.relative_to(ROOT)), "holes": f["holes"], "closed_by": by,
+                   "failed": f["failed"], "unattempted": f["unattempted"], "asked": f["asked"], "answered": f["answered"],
+                   "unanswered": f["unanswered"], "lanes_live": names, "lanes_missing": [b for b in man["lanes"] if b not in names],
+                   "final": f.get("final"), "tries": [{**t, "by": names[t["by"]]} for t in f["tries"]]}
+            if f.get("accepted"):
+                # held back from the public repo (publish.py commits all of ledger/ and verified/, Codex
+                # 20261109T213007122693Z f2): the text goes to SB_GUIDED_OUT (in Actions, the run's recovery artifact,
+                # 30 days), the row carries its hash and where it is, until the lab decides how guided solves are shown
+                acc = Path(os.environ.get("SB_GUIDED_OUT") or ROOT / ".lake" / "guided") / f"{name}-{run_id}.lean"
+                acc.parent.mkdir(parents=True, exist_ok=True)
+                acc.write_text(f["accepted"])
+                row["accepted_sha"] = hashlib.sha256(f["accepted"].encode()).hexdigest()
+                row["accepted_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": {acc.name}"
+            write(row)
+            result[arm] = f.get("final")
+            print(f"[pilot {man['id']}] {key} arm {arm}: {f['holes']} holes, closed {by}, failed {f['failed']}, "
+                  f"unattempted {f['unattempted']}, asked {f['asked']}, final {f.get('final')}", flush=True)
+        return result
+
     remaining = 0
     if args.ladder:                                      # 24/7: owed cells across every set, in rung order
         hist = owed_history()
@@ -1200,6 +1254,15 @@ def main():
                           flush=True)
         print(f"retro{' ' + args.cohort if cohort else ''}: {n_done} stored rejects re-run; B turned {turned['b']}, "
               f"C turned {turned['c']}; open problems solved: {sorted(solved) or 'none'}", flush=True)
+    elif args.pilot:                                     # the stall router's guided pilot (tools/blueprint.py)
+        man = json.loads((ROOT / args.pilot).read_text())
+        out = ROOT / "ledger" / "stall" / f"pilot-{man['id']}-{run_id}.jsonl"
+        missing = [b for b in man["lanes"] if b not in live_lanes]
+        if missing:
+            print(f"pilot {man['id']}: lanes not live today: {missing}", flush=True)
+        asks_for = lambda names: [(b, make_ask(live_lanes[b])) for b in names if b in live_lanes]
+        results = {p: pilot_one(p, man, asks_for, out) for p in man["problems"]}
+        print(f"pilot {man['id']}: " + "; ".join(f"{p} {r}" for p, r in results.items()), flush=True)
     elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps
         open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
         # A sketch is done only when a model answered for it. Rows from before 2026-10-08 night carry no `answered`:

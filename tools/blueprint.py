@@ -174,6 +174,62 @@ def gate(prefix, stmts, run_lean, judge_text):
     return {"ok": False, "why": [why], "sketch": sk, "audit": a, "duplicates": [], "judge": v}
 
 
+MAX_ASKS_PILOT = 12
+
+
+def lemma_text(prefix, stmts, i):
+    """Hole i (0-based) as a lemma of its own: the target's binders, the earlier statements as hypotheses bp_j, named
+    sb_goal as subgoals.prove_goal expects. The queue's extract_goal clears hypotheses the goal does not mention, which
+    for a blueprint is the earlier steps themselves (hole 5 of the first blueprint lost bp_1..bp_4, 2026-11-09)."""
+    binders, _ = split_signature(prefix)
+    earlier = "".join(f" (bp_{j + 1} : {stmts[j]})" for j in range(i))
+    return f"theorem sb_goal {binders}{earlier} : {stmts[i]} := by"
+
+
+def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None):
+    """Prove the holes: Lean's closers (FINAL) on each hole's lemma first, then the asks in turn (two tries each,
+    subgoals.prove_goal). Every hole is attempted while the budget lasts, so `failed` (asked, not proved) and
+    `unattempted` (the budget ran out first) stay apart (Codex 20261109T204513251417Z f6). closed_by maps a 1-based
+    hole to "lean" or the index of the ask that proved it. When every hole closes the bodies are spliced under their
+    `have` and the whole file is judged: `final` is that verdict, `accepted` the text on accept."""
+    sk = sketch(prefix, stmts)
+    top = prefix.count("\n") + 1
+    hole_lines = subgoals.holes(sk, top)
+    budget, plan = {"asks": 0, "max": max_asks}, {}
+    log = {"holes": len(stmts), "closed_by": {}, "failed": [], "unattempted": [], "tries": [], "answered": 0}
+    for i, s in enumerate(stmts):
+        n, stmt = i + 1, lemma_text(prefix, stmts, i)
+        r = judge_text(subgoals.lemma_file(prefix, stmt, "  " + FINAL))
+        if r["verdict"] == "accept":
+            plan[i], log["closed_by"][n] = [FINAL], "lean"
+            continue
+        said, asked_here = r.get("output") or "", 0
+        for who, ask in enumerate(asks):
+            body, tries = subgoals.prove_goal(prefix, stmt, sk, said, ask, judge_text, budget)
+            asked_here += len(tries)
+            for t in tries:
+                log["tries"].append({"hole": n, "by": who, "verdict": t["verdict"], "reason": (t.get("reason") or "")[:200]})
+                if on_try:
+                    on_try(n, who, stmt, t)
+            if body:
+                plan[i], log["closed_by"][n] = body, who
+                break
+        log["answered"] += asked_here
+        if i not in plan:
+            log["failed" if asked_here or not asks else "unattempted"].append(n)
+    # asked = budget consumed (prove_goal counts an ask before the lane answers); unanswered = asks a parked or capped
+    # lane, or the call cap, swallowed with no reply (Codex 20261109T213007122693Z f3)
+    log["asked"] = budget["asks"]
+    log["unanswered"] = budget["asks"] - log["answered"]
+    if len(plan) == len(stmts):
+        final = subgoals._with_tactics(sk, {hole_lines[i]: plan[i] for i in plan})
+        j = judge_text(final)
+        log["final"] = j["verdict"]
+        if j["verdict"] == "accept":
+            log["accepted"] = final
+    return log
+
+
 def guide_prompt(target_text, misses=()):
     """The ask: propositions only. A guide's tactics are never read (statements() takes the JSON list and nothing else)."""
     near = "".join(f"- {m}\n" for m in misses)

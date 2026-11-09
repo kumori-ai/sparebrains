@@ -191,6 +191,16 @@ jobs:
             # chain and tools alone, no model asked; Lean runs here, as the sandbox user, because the replies are untrusted
             python3 tools/replay.py --slice "${SLICE:-0/1}" --max-minutes 320
             python3 tools/replay.py --report || true
+          elif [ "${FIXER_TARGET#pilot:}" != "$FIXER_TARGET" ]; then
+            # pilot:<manifest.json in ledger/stall> = the stall router's guided pilot (tools/blueprint.py, DECISIONS.md
+            # 2026-11-09): arm A, the manifest's lanes cold on its problems (normal rows), then arms B and C on each
+            # problem's gated blueprint (rows in ledger/stall, nothing public). The manifest is frozen before the run.
+            M="${FIXER_TARGET#pilot:}"
+            read -r LANES ONLY TSET ATT < <(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); ps=[p.rsplit('/',1) for p in m['problems']]
+            print(','.join(m['lanes']), ','.join(p[1] for p in ps), ps[0][0], m['arm_a_attempts_per_lane'])" "$M")
+            python3 tools/attempt.py --only "$ONLY" --targets "targets/$TSET" --lanes "$LANES" --attempts "$ATT" --max-calls 60
+            # a guided accept's text is held in this run's recovery artifact (30 days), not committed: the rows carry its hash
+            SB_GUIDED_OUT="$RUNNER_TEMP/sparebrains-recovery/guided" python3 tools/attempt.py --pilot "$M" --max-calls 60
           elif [ "${FIXER_TARGET#retro:}" != "$FIXER_TARGET" ]; then
             # retro:<cohort>.jsonl.gz = the free chain on a frozen file of stored rejects in ledger/replay (#574: the
             # repair tries the nightly cold-only queue never reaches); open-problem solves recorded, no ablation row

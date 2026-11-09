@@ -574,6 +574,71 @@ class RetroCohortTests(unittest.TestCase):
         env["toolscore"].run_chain.assert_not_called()
 
 
+class PilotTests(unittest.TestCase):
+    """`--pilot MANIFEST`: arms B and C of a guided blueprint on one problem, rows in ledger/stall, an accepted text in
+    SB_GUIDED_OUT (the run's artifact) and nowhere public (the manifest's credit line)."""
+    def runner(self, fills):
+        import ast, json, tempfile, threading
+        module = ast.parse(Path(attempt.__file__).read_text())
+        node = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef) and n.name == 'pilot_one')
+        root = Path(tempfile.mkdtemp())
+        (root / "targets" / "s").mkdir(parents=True)
+        (root / "targets" / "s" / "demo.lean").write_text("import Mathlib\ntheorem demo : True := by\n  sorry\n")
+        (root / "ledger" / "stall" / "blueprints").mkdir(parents=True)
+        (root / "ledger" / "stall" / "blueprints" / "demo-1.json").write_text(json.dumps({"ok": False, "statements": ["x"]}))
+        (root / "ledger" / "stall" / "blueprints" / "demo-2.json").write_text(json.dumps({"ok": True, "statements": ["True", "True ∧ True"]}))
+        import os
+        os.environ["SB_GUIDED_OUT"] = str(root / "held")
+        self.addCleanup(os.environ.pop, "SB_GUIDED_OUT", None)
+        env = dict(vars(attempt), ROOT=root, json=json, lock=threading.Lock(), record=Mock(), run_id="r1",
+                   blueprint=Mock(fill=Mock(side_effect=fills)), lean_tools=Mock())
+        exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
+        return env, root
+
+    def rows(self, root):
+        import json
+        return [json.loads(l) for f in (root / "ledger" / "stall").glob("pilot-*.jsonl") for l in f.read_text().splitlines()]
+
+    def test_arms_b_and_c_run_on_the_latest_gated_blueprint_and_write_their_rows(self):
+        b = {"holes": 2, "closed_by": {}, "failed": [1, 2], "unattempted": [], "asked": 0, "tries": []}
+        c = {"holes": 2, "closed_by": {1: "lean", 2: 0}, "failed": [], "unattempted": [], "asked": 3, "final": "accept",
+             "accepted": "import Mathlib\ntheorem demo : True := by\n  have bp_1 : True := by\n    trivial\n  trivial\n",
+             "tries": [{"hole": 2, "by": 0, "verdict": "accept", "reason": ""}]}
+        c.update(answered=3, unanswered=0)
+        b.update(answered=0, unanswered=0)
+        env, root = self.runner([b, c])
+        man = {"id": "m", "lanes": ["lane-off", "lane-a"], "asks_per_problem": 5}      # lane-off is not live today
+        got = env["pilot_one"]("s/demo", man, lambda names: [("lane-a", Mock())], root / "ledger" / "stall" / "pilot-m-r1.jsonl")
+        self.assertEqual(got, {"B": None, "C": "accept"})
+        rows = self.rows(root)
+        self.assertEqual([r["arm"] for r in rows], ["B", "C"])
+        self.assertEqual(rows[1]["blueprint"], "ledger/stall/blueprints/demo-2.json", "the latest gated one, not the rejected one")
+        self.assertEqual((rows[1]["closed_by"], rows[1]["asked"], rows[1]["final"]), ({"1": "lean", "2": "lane-a"}, 3, "accept"),
+                         "Codex f1: credit follows the lanes asked, not the manifest's order")
+        self.assertEqual(rows[1]["tries"][0]["by"], "lane-a")
+        self.assertEqual((rows[1]["lanes_live"], rows[1]["lanes_missing"]), (["lane-a"], ["lane-off"]))
+        self.assertEqual(rows[1]["manifest"], "m")
+        calls = env["blueprint"].fill.call_args_list
+        self.assertEqual(calls[0].kwargs["asks"], [], "arm B asks nobody")
+        self.assertEqual((len(calls[1].kwargs["asks"]), calls[1].kwargs["max_asks"]), (1, 5))
+        held = Path(env["os"].environ["SB_GUIDED_OUT"])
+        self.assertEqual((held / "demo-r1.lean").read_text(), c["accepted"])
+        self.assertEqual(rows[1]["accepted_sha"], __import__("hashlib").sha256(c["accepted"].encode()).hexdigest())
+        self.assertNotIn("accepted", rows[1], "the proof text is not in the row")
+        self.assertFalse((root / "verified").exists(), "a guided solve is not a verified/ file")
+        self.assertEqual([p.name for p in (root / "ledger").rglob("*.lean")], [],
+                         "Codex f2: publish.py commits everything under ledger/ and verified/; the text stays out of both")
+        env["record"].assert_not_called()
+
+    def test_a_problem_without_a_gated_blueprint_is_noted_and_skipped(self):
+        env, root = self.runner([])
+        (root / "ledger" / "stall" / "blueprints" / "demo-2.json").unlink()
+        got = env["pilot_one"]("s/demo", {"id": "m", "lanes": [], "asks_per_problem": 1}, lambda names: [], root / "ledger" / "stall" / "pilot-m-r1.jsonl")
+        self.assertIsNone(got)
+        self.assertEqual([r["arm"] for r in self.rows(root)], ["none"])
+        env["blueprint"].fill.assert_not_called()
+
+
 class LemmaRowTests(unittest.TestCase):
     def test_a_lemma_row_carries_the_full_statements_hash_beside_its_600_char_text(self):
         """Codex 20261109T204946451069Z f8: `lemma` keeps 600 chars, so two long statements can read as one; the hash

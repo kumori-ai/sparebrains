@@ -48,7 +48,18 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   (closed by automation, by lane, failed, unattempted, over the queue's cap) apart; a feasibility pilot, no claim.
   Rounds exhausted on f1 with Codex's own call adopted ("a restricted proposition language... an elaboration
   audit"); the residual: a statement can carry most of a proof's structure, which is the decomposition credit the
-  guided column records. Not asked of Andy: the lab's call.
+  guided column records. Not asked of Andy: the lab's call. Then built the same evening: the first gated blueprint
+  (Codex as guide, ask 20261109T211612681102Z, 6 propositions for mathd_numbertheory_451, gate PASS; arm B locally,
+  Lean's closers alone, 0 of 6 holes), `blueprint.fill` (each hole its own lemma with the earlier statements as
+  hypotheses, because the queue's extract_goal clears them; Lean first, then the lanes in turn; failed, unattempted
+  and unanswered kept apart), `attempt.py --pilot` and the workflow's `pilot:` branch, and the frozen manifest
+  `ledger/stall/pilot-guided-2026-11-09.json` (one problem, lanes ministral-3b-2512, ministral-8b-2512,
+  meganova-manta-mini-1-0, arms A cold / B blueprint+Lean / C blueprint+Lean+lanes; a feasibility pilot, no claim).
+  Code review before the run: Codex 20261109T213007122693Z DISAGREE (a missing lane shifted the credit to the wrong
+  lane; the accepted text would have been committed by publish.py's ledger sweep; silent asks counted as asks),
+  213553995086Z DISAGREE (a manifest fix I had claimed was not made), 213749180932Z AGREE. The accepted text of a
+  guided solve is held in the run's artifact (SB_GUIDED_OUT), rows carry its hash; how guided solves are shown is
+  still to decide.
 
 - **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
   chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2

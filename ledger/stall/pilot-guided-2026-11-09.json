@@ -1,0 +1,20 @@
+{
+  "id": "pilot-guided-2026-11-09",
+  "kind": "feasibility pilot (1 problem): no claim; it checks the guided path end to end on real lanes and sizes the next one",
+  "problems": ["minif2f/test/mathd_numbertheory_451"],
+  "stalled_since_days": 68,
+  "guide": "codex (work ask 20261109T211612681102Z; gated blueprint ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json)",
+  "lanes": ["mistral-ministral-3b-2512", "mistral-ministral-8b-2512", "meganova-manta-mini-1-0"],
+  "asks_per_problem": 12,
+  "arm_a_attempts_per_lane": 4,
+  "arms": {
+    "A": "control: the same lanes, cold tries on the problem, 4 attempts each (a PLANNED budget of 12 calls; the realized calls are the normal ledger rows of this run for these lanes and this target, and only those count; attempt.py --only --lanes --attempts 4); its rejects get the free chain in the next nightly retro, read back by attempt id (an asymmetry with B and C, recorded here)",
+    "B": "blueprint + Lean's closers on each hole, no model call (blueprint.fill, asks=[]); run locally 2026-11-09: 0 of 6 holes",
+    "C": "blueprint + Lean's closers + the lanes above in turn on each hole left, 12 asks in all (blueprint.fill)"
+  },
+  "endpoint": "whole-problem kernel acceptance per arm, first; then per hole: closed by Lean, by which lane, failed, unattempted (budget), kept apart",
+  "credit": "a C solve is guided: the guide chose the propositions, Lean and the small lanes proved every step; never 'free models plus tools'. The measurement rows (ledger/stall/pilot-<id>-<run>.jsonl: hole verdicts, lanes, asked/answered/unanswered, a hash of any accepted text) are committed like every ledger measurement; the accepted TEXT is held in the run's recovery artifact (SB_GUIDED_OUT, 30 days), not in verified/, not under ledger/, not on the site, until the lab decides how guided solves are shown. C's 12 asks are likewise a planned budget; realized asks are the rows' asked/answered",
+  "claim": "none",
+  "deep_search": "2026-11-09, research profile: Hilbert (ICLR 2026), Goedel-Architect (arXiv 2606.06468), cost-aware routing (2606.04883), Delta Prover (2507.15225), h1 (2610.35962)",
+  "verdicts": ["20261109T204513251417Z_codex", "20261109T204946451069Z_codex", "20261109T205417832903Z_codex"]
+}
