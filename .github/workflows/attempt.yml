@@ -196,8 +196,7 @@ jobs:
             # 2026-11-09): arm A, the manifest's lanes cold on its problems (normal rows), then arms B and C on each
             # problem's gated blueprint (rows in ledger/stall, nothing public). The manifest is frozen before the run.
             M="${FIXER_TARGET#pilot:}"
-            read -r LANES ONLY TSET ATT < <(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); ps=[p.rsplit('/',1) for p in m['problems']]
-            print(','.join(m['lanes']), ','.join(p[1] for p in ps), ps[0][0], m['arm_a_attempts_per_lane'])" "$M")
+            read -r LANES ONLY TSET ATT < <(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); ps=[p.rsplit('/',1) for p in m['problems']]; print(','.join(m['lanes']), ','.join(p[1] for p in ps), ps[0][0], m['arm_a_attempts_per_lane'])" "$M")
             python3 tools/attempt.py --only "$ONLY" --targets "targets/$TSET" --lanes "$LANES" --attempts "$ATT" --max-calls 60
             # a guided accept's text is held in this run's recovery artifact (30 days), not committed: the rows carry its hash
             SB_GUIDED_OUT="$RUNNER_TEMP/sparebrains-recovery/guided" python3 tools/attempt.py --pilot "$M" --max-calls 60
