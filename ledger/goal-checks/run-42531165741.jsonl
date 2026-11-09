@@ -1,0 +1,5 @@
+{"sha": "46091abdee01", "target_set": "minif2f/test", "target": "imo_1992_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "887c3d633afe", "target_set": "minif2f/test", "target": "imo_1992_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b097684c44de", "target_set": "minif2f/test", "target": "imo_1992_p1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "bcf0346f98d8", "target_set": "minif2f/test", "target": "imo_2001_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "cdab008378c7", "target_set": "minif2f/test", "target": "imo_2001_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
