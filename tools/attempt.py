@@ -137,6 +137,18 @@ def bench_delay(retry_after, consecutive):
 PAUSED_LANES = {}
 
 
+def set_aside_baseline(work, ledger):
+    """The ladder's queue without cells on targets the no-model baseline proves, and a line saying what was set aside."""
+    import replay
+    try:
+        b = replay.no_model_set(ledger)
+    except ValueError as e:
+        return work, f"no no-model baseline ({e}); nothing set aside"
+    kept = type(work)(item for item in work if (item[0], item[2]) not in b["set"])
+    return kept, (f"{len(work) - len(kept)} cells set aside on {len(b['set'])} targets Lean's automation proves with no "
+                  f"model (baseline {b['version']['run_id']})")
+
+
 def public_record_ok(lane):
     """DECISIONS.md 2026-09-02: two provider groups may not appear in a public, Apache-2.0 record.
     Cohere's Terms of Use bar benchmarking and distributing anything the API returns; NVIDIA's API
@@ -942,6 +954,11 @@ def main():
             before = len(work)
             work = type(work)(item for item in work if (item[5]["backend"], item[3]) not in duds)
             print(f"ladder: {before - len(work)} cells set aside on dry rungs")
+        # Targets Lean's automation proves with no model are set aside (#574, 2026-11-09): a model's accept there says
+        # nothing about the model (on baseline 2: 43% of ladder calls since 11-01, 83% of its accepts). The freed quota
+        # goes to the targets the baseline did not prove. Not tries, not owed; the speed receipt and relay are untouched.
+        work, note = set_aside_baseline(work, ROOT / "ledger")
+        print(f"ladder: {note}", flush=True)
         total_cells = sum(len(ns) for _, _, ns in sets) * len(order) * args.attempts
         by_rung = defaultdict(int)
         for item in work:

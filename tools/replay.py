@@ -278,8 +278,10 @@ OFF_BASELINE_MEANS = ("not accepted by the recorded no-model baseline (replay to
                       "cannot prove it: a timeout reads as a reject there")
 
 
-BASELINE_RUN = "40123591430"     # the baseline in force; a new one replaces it here, by a reviewed change, once complete
 BASELINE_V2_ID = "baseline-2-2026-11-09"   # every dispatch of the extended baseline writes under this one id (Codex f2)
+# The baseline in force; a new one replaces it here, by a reviewed change, once complete. 2026-11-09: baseline 2 (attempt
+# run 42564725514) promoted from run 40123591430: 214 of 378 vs 208, 0 lost, 0 incomplete (Codex 20261109T052141160058Z)
+BASELINE_RUN = BASELINE_V2_ID
 
 
 def no_model_set(ledger, run_id=None):
@@ -306,6 +308,7 @@ def no_model_set(ledger, run_id=None):
             "targets": len({(r["target_set"], r["target"]) for r in rows}),
             "incomplete": sum(r.get("verdict") == "incomplete" for r in rows),
             "unknown": {(r["target_set"], r["target"]) for r in rows if r.get("verdict") == "incomplete"},
+            "tested": {(r["target_set"], r["target"]) for r in rows},
             "version": {"run_id": run, "lean_env": env, "tools_hash": tools, "date": min(r.get("ts") or "" for r in rows)[:10],
                         "tactics": rows[0].get("tactics") or BASELINE_TACTICS.get(tools)}}
 

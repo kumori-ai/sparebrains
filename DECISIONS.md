@@ -121,6 +121,28 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   simp_all; ..., gcongr, bound) as a new version with timeouts kept apart; whether the ladder skips model calls on the
   baseline set. Codex AGREE 20261109T032109853848Z (follow-ups: the version guard and the "off" wording, both built).
   727 tests OK.
+- **Baseline 2 is the baseline in force, and the ladder sets aside the targets it proves (#574).** `replay --baseline`
+  (attempt run 42564725514, 10 slices, ~20 min, id baseline-2-2026-11-09): 30 fixed recipes, the first baseline's 10
+  plus DuoTactic's table entries it lacked and the bare skeletons; 378 targets, 214 proved, 164 rejected, 0 incomplete;
+  +6 on run 40123591430 (mil_c02_s03_ex04, _ex05, amc12b_2002_p7, mathd_algebra_114, _153, _314; by simp_all; ring,
+  gcongr, simp_all; nlinarith), none lost, none of the 26 open proved. Closers: omega 81, grind 36, linarith 32, aesop 20,
+  norm_num 12, exact? 11, decide 10. `replay.BASELINE_RUN` now names it. The ladder's spend, tries with
+  2026-11-01T00Z <= ts < 2026-11-09T00Z (ladder-x3; accept, reject or error; Codex's bounded recount): on its targets
+  3,291 calls, 1,256 accepts, 212 distinct targets accepted (214 attempted); off it 4,302 calls, 252 accepts, 115
+  distinct accepted (164 attempted). So 43% of ladder
+  calls and 83% of its accepts went where Lean's automation needs no model. `attempt.set_aside_baseline` drops those
+  cells from each ladder job, with a log line naming the baseline (not tries, not owed); the freed quota goes to the
+  rest. The relay, decompose, head-to-heads and the frozen speed cohort are untouched. **The ladder's raw accepts will
+  fall; that is expected.** The daily report's new "Beyond Lean's own automation" table is the read: per lane, calls
+  and accepts off the baseline and distinct off-baseline targets accepted, in the report's own window (arrivals since
+  the last report). For scale, Codex's recount of 11-01 to 11-08 by timestamp: crouton 663 calls / 462 accepts, off
+  341 / 162, 104 distinct; Flint 987 / 261, off 571 / 25, 15 distinct. "Off" counts only targets the baseline tested
+  and rejected: an incomplete or never-tested target is neither in nor off (a target added after the baseline gets no
+  "beyond automation" credit until the baseline is re-run). Codex: design DISAGREE 20261109T052141160058Z (no
+  ladder-specific read existed), DISAGREE 20261109T052900 round 2 (my "8-day window" was the arrival window; untested
+  targets counted as off), both fixed; round 3 DISAGREE 20261109T053236006885Z (the ladder totals above had included 361 rows
+  of 11-09 UTC under an "11-01 to 11-08" label), corrected to Codex's bounded recount, the shares unchanged (43%, 83%),
+  recorded here by the three-round rule. 735 tests OK.
 - **Decompose's Leanstral calls get a total deadline, and the run stops before its timeout kills it (#642).** Run
   42531165741 was killed at the step's 220 min with 11 of 25 goals written (one solve, mathd_numbertheory_552,
   published): 7 asks had waited ~3,600 s each for streams that ended with no finish_reason. Cause: the 1,200 s urlopen

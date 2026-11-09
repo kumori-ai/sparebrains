@@ -143,8 +143,28 @@ class DailyReport(unittest.TestCase):
             {"arm": "tools_alone", "target_set": None, "target": "t2", "verdict": "reject", "run_id": "9", "lean_env": "e",
              "tools_hash": "h", "ts": "2026-10-24T00:00:00+00:00"}])
         (s,) = daily_report.build(self.ledger, NOW)["speed"]
-        self.assertEqual((s["accepted"], s["targets"], s["accepted_off"], s["targets_off"]), (1, 3, 0, 2))
+        self.assertEqual((s["accepted"], s["targets"], s["accepted_off"], s["targets_off"]), (1, 3, 0, 1),
+                         "off = t2 only: t1 the baseline proved, t3 it never tested (Codex f4)")
         self.assertIn("off the no-model baseline", daily_report.render(daily_report.build(self.ledger, NOW)))
+
+    def test_the_window_is_read_off_the_no_model_baseline_per_lane(self):
+        """Codex 20261109T052141160058Z f1: the ladder's own read off the baseline, apart from the speed cohort."""
+        self.assertIsNone(self.report["off_baseline"])
+        write(self.ledger / "replay" / "results-9-0.jsonl", [
+            {"arm": "tools_alone", "target_set": "minif2f/test", "target": "old", "verdict": "accept", "run_id": "9",
+             "lean_env": "e", "tools_hash": "h", "ts": "2026-10-24T00:00:00+00:00"}])
+        d = daily_report.build(self.ledger, NOW)
+        ob = d["off_baseline"]
+        self.assertEqual(ob["baseline"], "9")
+        lanes = {l["lane"]: l for l in ob["lanes"]}
+        self.assertTrue(lanes, "lanes in the window")
+        for l in lanes.values():
+            self.assertLessEqual(l["accepts_off"], l["accepts"])
+            self.assertLessEqual(l["distinct_targets_accepted_off"], l["accepts_off"])
+        self.assertIn("Beyond Lean's own automation", daily_report.render(d))
+        # Codex f4: a target the baseline never tested is not off it; here only "old" was tested (and proved)
+        self.assertEqual(sum(l["accepts_off"] for l in ob["lanes"]), 0)
+        self.assertGreater(ob["untested"], 0)
 
     def test_kaggle_batches_and_failures_in_the_window(self):
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["finished"]], ["goals-1"])

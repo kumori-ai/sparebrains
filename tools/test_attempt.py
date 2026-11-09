@@ -430,6 +430,25 @@ class OwedHistoryTests(unittest.TestCase):
         rows.append(('t2', 'alive', 'reject', 'unsolved goals', '2026-09-20T09:00:00+00:00'))
         self.assertEqual(self.ledger(rows)[('demo', 't1', 'alive')]['errors'], 0)
 
+class BaselineSetAsideTests(unittest.TestCase):
+    def test_cells_on_baseline_targets_are_set_aside_and_said(self):
+        from collections import deque
+        lane = {"backend": "x"}
+        work = deque([("s", "d", "easy", "r", 0, lane, 1), ("s", "d", "hard", "r", 0, lane, 1)])
+        b = {"set": {("s", "easy")}, "version": {"run_id": "v2"}}
+        with patch("replay.no_model_set", return_value=b):
+            kept, note = attempt.set_aside_baseline(work, "ledger")
+        self.assertEqual([i[2] for i in kept], ["hard"])
+        self.assertIn("1 cells set aside on 1 targets", note)
+        self.assertIn("v2", note)
+
+    def test_no_baseline_sets_nothing_aside(self):
+        from collections import deque
+        work = deque([("s", "d", "easy", "r", 0, {"backend": "x"}, 1)])
+        with patch("replay.no_model_set", side_effect=ValueError("no tools_alone rows")):
+            kept, note = attempt.set_aside_baseline(work, "ledger")
+        self.assertEqual((len(kept), "nothing set aside" in note), (1, True))
+
 
 if __name__ == "__main__":
     unittest.main()

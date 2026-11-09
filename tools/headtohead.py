@@ -400,9 +400,11 @@ def summary(rows, arms=None, expected=None, baseline=None):
         out["in_baseline"] = len({key(r) for r in rows if key(r) in baseline["set"]})
         # off = the baseline's completed rejects; a target it never finished is neither in nor off (Codex f3)
         unknown = baseline.get("unknown", set())
-        out["off_baseline"] = summary([r for r in rows if key(r) not in baseline["set"] and key(r) not in unknown],
-                                      tuple(sorted(arms_ran)))
+        tested = baseline.get("tested")                  # None: an older caller's baseline without it (tests)
+        offk = lambda k: k not in baseline["set"] and k not in unknown and (tested is None or k in tested)
+        out["off_baseline"] = summary([r for r in rows if offk(key(r))], tuple(sorted(arms_ran)))
         out["baseline_unknown"] = len({key(r) for r in rows if key(r) in unknown})
+        out["baseline_untested"] = len({key(r) for r in rows if tested is not None and key(r) not in tested})
         out["off_baseline_means"], out["baseline"] = replay.OFF_BASELINE_MEANS, baseline["version"]
     return out
 

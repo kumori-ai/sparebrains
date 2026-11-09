@@ -129,6 +129,39 @@ def arrived(fresh):
     return since
 
 
+def off_baseline(window, ledger):
+    """The window's tries per lane, on and off the no-model baseline: calls, accepts, and distinct targets accepted off
+    it (#574, Codex 20261109T052141160058Z f1). The ladder skips the baseline's targets, so its raw accepts fall; this
+    is the read that says what the lanes do beyond Lean's own automation. None when no baseline is recorded."""
+    try:
+        import replay
+        b = replay.no_model_set(ledger)
+    except ValueError:
+        return None
+    off_set = b["tested"] - b["set"] - b.get("unknown", set())   # completed rejects; an untested target is not off (f4)
+    lanes = defaultdict(lambda: {"calls": 0, "accepts": 0, "calls_off": 0, "accepts_off": 0, "targets_off": set()})
+    untested = set()
+    for r in window:
+        if r["verdict"] not in ("accept", "reject", "error"):
+            continue
+        key = (r.get("target_set"), r["target"])
+        l, off = lanes[r.get("backend") or "?"], key in off_set
+        if key not in b["tested"]:
+            untested.add(key)
+        l["calls"] += 1
+        l["accepts"] += r["verdict"] == "accept"
+        if off:
+            l["calls_off"] += 1
+            l["accepts_off"] += r["verdict"] == "accept"
+            if r["verdict"] == "accept":
+                l["targets_off"].add((r.get("target_set"), r["target"]))
+    ranked = sorted(lanes.items(), key=lambda x: (-len(x[1]["targets_off"]), -x[1]["accepts_off"], x[0]))
+    return {"baseline": b["version"]["run_id"], "in_baseline": len(b["set"]), "unknown": len(b.get("unknown", ())),
+            "untested": len(untested),
+            "lanes": [{"lane": k, **{f: v[f] for f in ("calls", "accepts", "calls_off", "accepts_off")},
+                       "distinct_targets_accepted_off": len(v["targets_off"])} for k, v in ranked]}
+
+
 def grades(rows, since):
     """Per grade: the lanes of the window ranked by accepts then answered, first solves, solved and open counts."""
     first_ever, solved, seen = {}, defaultdict(set), defaultdict(set)
@@ -167,9 +200,9 @@ def speed(ledger):
     try:                                                 # #574: the same read off the no-model baseline, beside it
         import replay
         b = replay.no_model_set(ledger)
-        base = b["set"] | b.get("unknown", set())     # off = its completed rejects only (Codex f3)
+        offs = b["tested"] - b["set"] - b.get("unknown", set())   # off = its completed rejects only (Codex f3, f4)
     except ValueError:
-        base = None
+        offs = None
     by = defaultdict(lambda: {"targets": set(), "accepted": set(), "refused": 0, "size_b": None})
     for r in _load_jsonl(Path(ledger) / "speed"):
         if "run_week" not in r or "lane" not in r:
@@ -193,7 +226,7 @@ def speed(ledger):
         out.append({"lane": lane, "size_b": s["size_b"], "week": w, "targets": len(s["targets"]), "accepted": len(s["accepted"]),
                     "refused": s["refused"], "prev_week": prev[0] if prev else None,
                     "prev_targets": len(p["targets"]) if p else 0, "prev_accepted": len(p["accepted"]) if p else 0,
-                    **({"targets_off": len(s["targets"] - base), "accepted_off": len(s["accepted"] - base)} if base is not None else {})})
+                    **({"targets_off": len(s["targets"] & offs), "accepted_off": len(s["accepted"] & offs)} if offs is not None else {})})
     return sorted(out, key=lambda s: (s["size_b"] if s["size_b"] is not None else 1e9, s["lane"]))
 
 
@@ -294,13 +327,14 @@ def build(ledger, now, hours=24, daily=None):
     judged = [r for r in window if r["verdict"] in ("accept", "reject", "error")]
     answered = [r for r in judged if r["verdict"] != "error"]
     g, firsts = grades(rows, since)
+    offb = off_baseline(window, ledger)
     errors = Counter(lost_bucket(r.get("reason") or "") for r in judged if r["verdict"] == "error")
     return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours, "window": win,
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
                        "errors": dict(errors), "recovered": recovered(judged),
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
                        "solved_ever": sum(x["solved"] for x in g), "open": sum(x["open"] for x in g)},
-            "first_solves": sorted(firsts, key=lambda f: f["ts"]), "grades": g, "speed": speed(ledger),
+            "first_solves": sorted(firsts, key=lambda f: f["ts"]), "grades": g, "speed": speed(ledger), "off_baseline": offb,
             "kaggle": kaggle(ledger, since), "relay": relay_state(ledger), "rungs": rungs(ledger, rows, now, since)}
 
 
@@ -364,6 +398,14 @@ def render(d):
         ranked = [l for l in g["lanes"] if l["answered"] >= MIN_ANSWERED][:TOP]
         top = ", ".join(f"{l['lane']} {l['accepts']}/{l['answered']}" for l in ranked) or "nobody answered"
         out.append(f"| {g['grade']} | {g['solved']} / {g['open']} | {g['answered']} | {g['accepts']} | {top} |")
+    ob = d.get("off_baseline")
+    if ob and ob["lanes"]:
+        out += ["", f"**Beyond Lean's own automation** (tries in the window on targets the no-model baseline "
+                    f"{ob['baseline']} did not prove; {ob['in_baseline']} targets it proves are skipped by the ladder):", "",
+                "| lane | calls off / all | accepts off / all | distinct targets accepted off |", "|---|---:|---:|---:|"]
+        for l in ob["lanes"][:12]:
+            out.append(f"| {l['lane']} | {l['calls_off']}/{l['calls']} | {l['accepts_off']}/{l['accepts']} | "
+                       f"{l['distinct_targets_accepted_off']} |")
     if d["speed"]:
         out += ["", "**Tool lift, same models, this week's tools** (ledger/speed; first accepts on the frozen solved set):", "",
                 "| lane | size | this week | week before | off the no-model baseline | refused |", "|---|---:|---:|---:|---:|---:|"]

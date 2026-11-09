@@ -209,6 +209,9 @@ class OffBaselineTests(unittest.TestCase):
         unk = h.summary(rows, ("alone", "skeleton"), baseline={**base, "unknown": {("s", "hard")}})
         self.assertEqual((unk["off_baseline"]["problems_paired"], unk["baseline_unknown"]), (0, 1),
                          "a target the baseline never finished is not off it (Codex f3)")
+        unt = h.summary(rows, ("alone", "skeleton"), baseline={**base, "tested": {("s", "easy")}})
+        self.assertEqual((unt["off_baseline"]["problems_paired"], unt["baseline_untested"]), (0, 1),
+                         "a target the baseline never tested is not off it (Codex 20261109T052900 f4)")
 
 
 if __name__ == "__main__":
