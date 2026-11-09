@@ -850,6 +850,7 @@ def main():
             row = {**base_row(name, lane, attempt_no, statement_sha, tset), "verdict": verdict,
                    "reason": RUNNER_PATH.sub("", t.get("reason") or "")[:300], "try_mode": try_mode,
                    "failure_kind": failure_kind(t["verdict"], t.get("reason") or ""), "lemma": statement[:600],
+                   "lemma_sha": hashlib.sha256(statement.encode()).hexdigest(),   # 600 chars can collide (stall.py)
                    "call_seconds": 0.0, "lean_seconds": t.get("seconds", 0.0), "response_chars": len(t.get("reply") or ""),
                    "proof_sha": hashlib.sha256(t["proof"].encode()).hexdigest() if t.get("proof") else None}
             row["request_config"] = {**row.get("request_config", {}), "router_timeout_s": relay.LEMMA_CALL_S,

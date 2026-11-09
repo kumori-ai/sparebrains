@@ -5,6 +5,51 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-09
 
+- **Two open problems fell to the repair tries' first pass through the free chain (#574).** Run 42692259001, the
+  frozen 845 repair rejects on the 18 open problems, 10 slices, zero model calls: 843 re-run, B (the fixer alone) 0,
+  C (fixer, holes, Lean's automation) 2: `amc12a_2020_p4` from requesty-leanstral-1-5's repair try 95560 (4 steps
+  closed by Lean; the model's `S = filter ...` rewrite and a `decide` under maxRecDepth did the rest) and
+  `aime_1999_p11` from openrouter-crouton's try 101848 (3 steps closed; the model's telescoping-sum induction and the
+  tan injectivity argument stood). Both recorded as fixer+loop with prev_id, verified/ files committed by the run,
+  the site's open count 18 to 16. The 843 others: 0 turned. Receipt for the mantra: the tool built from step 1's
+  reading (repair tries were never chained) solved two problems 20-39 lanes had been stuck on since September.
+
+- **The stall router: when nothing kernel-verified happens on an open problem for 14 days, hand it to the next tool,
+  not more of the same tries (Andy's question, 2026-11-09; the lab's design).** Where the stall is: the 16 open
+  problems are all imo, amc12, aime, custom and math-L5; every lower rung has 0 open. What did not lift small lanes
+  on them: prompt context (lessons 6 vs 6 on 10-28; 0 of 15 vs 0 of 15 on ministral-8b 11-01, a no-claim run; the
+  skeleton schedule 0 of 19 both arms; deep-search 11-08: retrieval context 3 points at most). What did: structure
+  the model wrote plus Lean's automation after the fact (step 1 above, and the two solves). Deep-search 11-09
+  (research profile, 3 phrasings; arXiv, Reddit, HN empty on all three, canary 18 of 18 sources passing, so the
+  phrasing, not the sources): the designs that work split the work by strength. Hilbert (ICLR 2026): a general
+  reasoner sketches, a 7B prover and automation fill, PutnamBench teens to 70%. Goedel-Architect (arXiv
+  2606.06468): a blueprint of lemmas, each dispatched to a Lean prover, solved nodes kept across revisions, 88.8%.
+  Cost-aware routing (2606.04883): failed Lean attempts decide continue vs restart from a new breakdown, 28.9% less
+  compute at equal solves. Delta Prover (2507.15225): more repair rounds beat more samples. The dissent, h1 (Meta,
+  2610.35962): a frontier model with a plain Lean loop matches these workflows; for us the strong model's role is
+  deliberately restricted so small-lane lift is what gets measured. Built: `tools/stall.py` (open, and no accepted
+  solve or new distinct verified lemma for 14 days; a reject's error position is never progress: Codex showed the
+  same failing proof moves its first error 20 lines when 20 blank lines are added; lemma rows now carry `lemma_sha`
+  because `lemma` keeps 600 chars and two long statements can read as one), listed in the daily report, and
+  `tools/blueprint.py`, the guide's interface: statements only. Codex, three rounds, each a Lean-executed break of
+  the gate before it: 20261109T204513251417Z (a whole proof in the skeleton with two `True` holes passes a
+  wellformed-plus-hole-count gate), 204946451069Z (replacing each hole's statement by `True` and requiring a break is
+  passed by a `by_cases False` dead branch that references the holes), 205417832903Z (a Lean proposition's text can
+  carry a proof term: `(show P → P from id) = id`). So the guide (Codex or Claude, a local session, never a lane)
+  writes no proof text at all: it returns 2 to 6 propositions, the tool writes every proof line (`have bp_i : s :=
+  by sorry`, then Lean's own closers), and the gate runs three Lean checks: an elaboration audit (`forEachExpr'`,
+  any proof-typed subterm that is not a context hypothesis fails; probe 2026-11-09: 4 ordinary statements pass, all
+  3 of Codex's proof-term probes fail by name, a bare hypothesis passes, 16 s), a limited duplicate filter (a
+  statement automation proves equivalent to the target both ways is no decomposition; a miss drops nothing), and the
+  sketch must judge `wellformed` (accept means the statements alone closed it, nothing for a small lane). A solve
+  through a blueprint is try_mode `guided`, never "free models plus tools". Pilot contract to come, frozen before
+  any run: stalled problems, named tiny/low lanes, budgets; arms the same day (A no blueprint, B blueprint plus
+  automation, C blueprint plus automation plus small lanes); whole-problem solves first, hole diagnostics
+  (closed by automation, by lane, failed, unattempted, over the queue's cap) apart; a feasibility pilot, no claim.
+  Rounds exhausted on f1 with Codex's own call adopted ("a restricted proposition language... an elaboration
+  audit"); the residual: a statement can carry most of a proof's structure, which is the decomposition credit the
+  guided column records. Not asked of Andy: the lab's call.
+
 - **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
   chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2
   tested and did not prove (CI run 42663548076, zero model calls): 0 accepted as written, 107 accepted after

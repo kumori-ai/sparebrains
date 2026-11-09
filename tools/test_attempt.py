@@ -572,3 +572,21 @@ class RetroCohortTests(unittest.TestCase):
         env["solved"]["demo"] = {"backend": "x"}
         self.assertIsNone(env["retro_one"](self.A, {("s", "demo")}, None, None))
         env["toolscore"].run_chain.assert_not_called()
+
+
+class LemmaRowTests(unittest.TestCase):
+    def test_a_lemma_row_carries_the_full_statements_hash_beside_its_600_char_text(self):
+        """Codex 20261109T204946451069Z f8: `lemma` keeps 600 chars, so two long statements can read as one; the hash
+        of the whole statement tells them apart (tools/stall.py)."""
+        import ast, hashlib
+        module = ast.parse(Path(attempt.__file__).read_text())
+        node = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef) and n.name == 'make_on_lemma')
+        env = dict(vars(attempt), hashlib=hashlib, base_row=Mock(return_value={}), record=Mock(),
+                   relay=Mock(LEMMA_CALL_S=1), subgoals=Mock(lemma_file=Mock(return_value="")))
+        exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
+        statement = "x" * 700
+        env['make_on_lemma']("demo", [{"backend": "l"}], 1, "sha", "s", "prefix", "relay-subgoal")(
+            statement, {"verdict": "accept", "proof": "p", "prompt": "q", "reason": ""})
+        row = env['record'].call_args[0][0]
+        self.assertEqual(len(row["lemma"]), 600)
+        self.assertEqual(row["lemma_sha"], hashlib.sha256(statement.encode()).hexdigest())

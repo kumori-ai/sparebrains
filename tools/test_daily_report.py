@@ -227,6 +227,18 @@ class DailyReport(unittest.TestCase):
         self.assertIn("last qualify missed 2026-10-22", md)        # the bar, never the screen score
         self.assertNotIn("0.99", md)
 
+    def test_stalled_open_problems_are_listed_with_their_idle_days_and_paths(self):
+        write(self.ledger / "minif2f" / "test" / "2.jsonl", [
+            dict(row("2026-09-20T03:00:00+00:00", "stuck", "reject", rung="imo"), try_mode="cold"),
+            dict(row("2026-10-05T03:00:00+00:00", "stuck", "reject", backend="lane-b", rung="imo"), try_mode="repair")])
+        d = daily_report.build(self.ledger, NOW)
+        self.assertEqual([(s["target"], s["idle_days"], s["paths"]) for s in d["stalled"]],
+                         [("stuck", 38, {"cold": 1, "repair": 1})], "hard is open but 9 hours old; old and new are solved")
+        md = daily_report.render(d)
+        self.assertIn("Stalled", md)
+        self.assertIn("| `minif2f/test/stuck` | imo | 38 | 2 | 2 | cold 1, repair 1 |", md)
+        self.assertNotIn("Stalled", daily_report.render(self.report), "no section when nothing has stalled")
+
     def test_an_empty_ledger_is_an_error_not_a_quiet_day(self):
         with self.assertRaises(SystemExit):
             daily_report.build(Path(self.tmp.name) / "nowhere", NOW)

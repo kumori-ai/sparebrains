@@ -11,7 +11,7 @@ renders the JSON. Counts and receipts only, nothing a reader has to trust.
     python3 tools/daily_report.py --now 2026-10-28T12:00:00+00:00 --out /tmp/daily
 """
 import argparse, json, re, subprocess, sys
-import daily_brief, ledger_files, source_probe
+import daily_brief, ledger_files, source_probe, stall
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -329,7 +329,10 @@ def build(ledger, now, hours=24, daily=None):
     g, firsts = grades(rows, since)
     offb = off_baseline(window, ledger)
     errors = Counter(lost_bucket(r.get("reason") or "") for r in judged if r["verdict"] == "error")
+    keys = {(r.get("target_set"), r["target"]) for r in rows if r["verdict"] in stall.JUDGED}
+    open_keys = keys - {(r.get("target_set"), r["target"]) for r in rows if r["verdict"] == "accept"}
     return {"day": f"{now:%Y-%m-%d}", "to": now.isoformat(), "hours": hours, "window": win,
+            "stalled": stall.stalled(rows, open_keys, now),
             "totals": {"judged": len(judged), "answered": len(answered), "accepted": sum(r["verdict"] == "accept" for r in answered),
                        "errors": dict(errors), "recovered": recovered(judged),
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
@@ -419,6 +422,13 @@ def render(d):
     if k["finished"] or k["failed"]:
         out += ["", "**Kaggle prover batches:** " + "; ".join([f"{b['batch']} finished, {b['answers']} answers" for b in k["finished"]] +
                                                         [f"{b['batch']} FAILED" for b in k["failed"]])]
+    if d.get("stalled"):
+        out += ["", f"**Stalled** (open, nothing kernel-verified for {stall.DAYS}+ days; the stall router's queue, tools/stall.py):", "",
+                "| problem | rung | idle days | tries | lanes | paths |", "|---|---|---:|---:|---:|---|"]
+        for s in d["stalled"]:
+            paths = ", ".join(f"{k} {n}" for k, n in sorted(s["paths"].items(), key=lambda x: -x[1])) or "none"
+            out.append(f"| `{s['target_set']}/{s['target']}` | {s['rung'] or '?'} | "
+                       f"{s['idle_days'] if s['idle_days'] is not None else 'ever'} | {s['tries']} | {s['lanes']} | {paths} |")
     out += ["", "| rung | last activity | idle days |", "|---|---|---:|"]
     for r in d["rungs"]:
         extra = ""
