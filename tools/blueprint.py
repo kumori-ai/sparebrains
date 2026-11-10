@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import goal_closer
+import replay
 import subgoals
 
 MIN_STEPS, MAX_STEPS = 2, 6
@@ -189,8 +190,19 @@ def lemma_text(prefix, stmts, i):
 PASSES = (1, 2)          # breadth first: every open hole gets one try from each lane before any gets a second
 
 
-def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None, repair=None, passes=PASSES):
-    """Prove the holes: Lean's closers (FINAL) on each hole's lemma first; then the lanes, breadth first: pass 1 gives
+def lean_tier(lemma_prefix, judge_text, run_lean=None):
+    """The closer Lean alone finds for one hole, or None. With run_lean, the no-model baseline's 30 recipes one at a
+    time in halving batches (replay.baseline_one): a single `first | ... | grind | exact?` line closed 0 of the first
+    blueprint's 6 holes while the recipes run apart closed 2 by grind (2026-11-09; an earlier closer ate the judge's
+    time). Without run_lean, the FINAL line judged once (the unit tests' path)."""
+    if run_lean:
+        return replay.baseline_one(lemma_prefix + "\n  sorry", run_lean, judge_text).get("closer")
+    return FINAL if judge_text(lemma_prefix + "\n  " + FINAL)["verdict"] == "accept" else None
+
+
+def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None, repair=None, passes=PASSES,
+         run_lean=None, closer=None):
+    """Prove the holes: Lean's closers on each hole's lemma first (`closer(lemma_prefix)` or lean_tier); then the lanes, breadth first: pass 1 gives
     every open hole one try from each ask in turn, pass 2 two tries (the second carrying Lean's error), so the easy
     holes are reached before the hard ones eat the budget (run 42705124685: holes 1-3 took 12 asks, 4-6 were never
     asked). `repair` is subgoals.prove_goal's hook, the free chain on a rejected lemma proof. `failed` (asked, not
@@ -205,13 +217,14 @@ def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=Non
     said, asked_here = {}, {}
     # the hook gets the lemma file's own prefix (header + statement, ending `:= by`), what toolscore.run_chain needs
     rep = (lambda body, stmt, out: repair(body, subgoals.lemma_file(prefix, stmt, "").rstrip("\n"), out)) if repair else None
+    find = closer or (lambda lp: lean_tier(lp, judge_text, run_lean))
     for i, s in enumerate(stmts):
         n, stmt = i + 1, lemma_text(prefix, stmts, i)
-        r = judge_text(subgoals.lemma_file(prefix, stmt, "  " + FINAL))
-        if r["verdict"] == "accept":
-            plan[i], log["closed_by"][n] = [FINAL], "lean"
+        got = find(subgoals.lemma_file(prefix, stmt, "").rstrip("\n"))
+        if got:
+            plan[i], log["closed_by"][n] = [got], "lean"
         else:
-            said[i], asked_here[i] = r.get("output") or "", 0
+            said[i], asked_here[i] = "", 0            # no single failing output to show a lane: the recipes ran apart
     # breadth first with rotation (Codex 20261109T220030181138Z f1: hole by hole, lane by lane spent three asks on hole 1
     # before hole 2): round r gives each open hole one try from lane (hole + r) mod lanes, every hole before any repeat
     for tries_max in passes:

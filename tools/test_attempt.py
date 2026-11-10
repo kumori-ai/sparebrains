@@ -621,6 +621,7 @@ class PilotTests(unittest.TestCase):
         calls = env["blueprint"].fill.call_args_list
         self.assertEqual(calls[0].kwargs["asks"], [], "arm B asks nobody")
         self.assertEqual((len(calls[1].kwargs["asks"]), calls[1].kwargs["max_asks"]), (1, 5))
+        self.assertIs(calls[1].kwargs["run_lean"], env["lean_tools"].run_lean, "the Lean tier runs the recipes apart")
         held = Path(env["os"].environ["SB_GUIDED_OUT"])
         self.assertEqual((held / "demo-r1.lean").read_text(), c["accepted"])
         self.assertEqual(rows[1]["accepted_sha"], __import__("hashlib").sha256(c["accepted"].encode()).hexdigest())

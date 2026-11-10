@@ -75,6 +75,17 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   220521632877Z DISAGREE (the requirement was not yet in the manifest; a race with my edit), 220656062990Z DISAGREE
   (f4: my claim said the sentence appeared twice, it appears once, at the top level, which Codex calls sufficient; no
   operational objection). Rounds spent; the lab's call: dispatch the feasibility run, residual f4 is wording.
+  **Second run (42709087673):** arm A 1 of 12 (lanes benched again), B 0 of 6, C 12 asked, 7 answered, 5 refused by
+  rpm_spacing even with waiting; holes 1, 2, 3, 4, 6 reached, 5 unattempted, 0 closed; all 7 rejects form first
+  (unknown tactic x2, a Lean 3 arrow, invented names x2, a `#print` token, one linarith) and the chain rescued none (a
+  first-line syntax error leaves nothing to repair); manta-mini benched both runs. Two readings. (1) The pilot runs
+  beside the 24/7 ladder on the same lanes, so the router's per-lane spacing is shared: realized calls stay a third of
+  plan; a pilot needs lanes the ladder is not using at that hour, or its own window. (2) Arm B's Lean tier was a single
+  `first | ... | grind | exact?` line per hole and closed 0 of 6; the baseline's 30 recipes run one at a time
+  (replay.baseline_one, batches halved on timeout) close holes 5 and 6 by `grind` (local, 2026-11-09 23:00Z): an
+  earlier closer in the `first` line ate the judge's time. So two of Codex's six steps follow from the other four by
+  automation alone, and the remaining four (the four-divisor classification, the p^3 and pq bounds, the 1837
+  computation) are the real work. Fix: fill's Lean tier uses baseline_one per hole. Still a feasibility read, no claim.
 
 - **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
   chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2

@@ -152,6 +152,18 @@ class Fill(unittest.TestCase):
         self.assertEqual(blueprint.lemma_text(PREFIX, self.S3, 2),
                          "theorem sb_goal (n : ℕ) (h : 0 < n) (bp_1 : n ≠ 0) (bp_2 : 0 < n → n ≠ 0) : n + 0 = n := by")
 
+    def test_the_lean_tier_runs_the_baselines_recipes_apart_and_the_found_closer_is_spliced(self):
+        calls = []
+
+        def run_lean(text, timeout=180):
+            calls.append(text)
+            return "", 1.0                                    # every recipe passes the batch: judged one by one below
+        judge = lambda text: {"verdict": "accept" if text.rstrip().endswith("\n  grind") else "reject", "reason": "", "output": ""}
+        self.assertEqual(blueprint.lean_tier("theorem sb_goal : True := by", judge, run_lean), "grind")
+        self.assertTrue(calls and "sb_goal_r0" in calls[0], "replay.baseline_one's batch, one theorem per recipe")
+        f = blueprint.fill(PREFIX, self.S3, judge, asks=[], closer=lambda lp: "grind" if lp.endswith(": 0 < n → n ≠ 0 := by") else None)
+        self.assertEqual((f["closed_by"], f["failed"]), ({2: "lean"}, [1, 3]))
+
     def judge(self, lean_closes=(), accept_final=True):
         def judge_text(text):
             if blueprint.FINAL in text and "sb_goal" in text:

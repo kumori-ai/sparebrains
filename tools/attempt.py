@@ -1076,7 +1076,8 @@ def main():
         names = [b for b, _ in live]                      # attribution by the asked list, never the manifest's (Codex
         result = {}                                       # 20261109T213007122693Z f1: a missing lane shifted the credit)
         for arm, asks in (("B", []), ("C", [a for _, a in live])):
-            f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"], repair=repair)
+            f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"], repair=repair,
+                               run_lean=lean_tools.run_lean)
             by = {str(k): ("lean" if v == "lean" else names[v]) for k, v in f["closed_by"].items()}
             row = {"arm": arm, "blueprint": str(bp.relative_to(ROOT)), "holes": f["holes"], "closed_by": by,
                    "failed": f["failed"], "unattempted": f["unattempted"], "asked": f["asked"], "answered": f["answered"],
