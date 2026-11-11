@@ -1,0 +1,1 @@
+{"run_id": "43002881964", "run_attempt": "1", "ts": "2026-11-11T10:23:42+00:00", "problem": "minif2f/test/amc12a_2021_p12", "calls": 39, "accepts": 0, "relay_rows": 23, "woken_by": {"kind": "model", "model": "meganova-ai/manta-mini-1.0"}, "backed_off": true}
