@@ -165,6 +165,15 @@ class DailyReport(unittest.TestCase):
         # Codex f4: a target the baseline never tested is not off it; here only "old" was tested (and proved)
         self.assertEqual(sum(l["accepts_off"] for l in ob["lanes"]), 0)
         self.assertGreater(ob["untested"], 0)
+        self.assertEqual((ob["answered_off"], ob["accepted_off"]), (0, 0))
+        # the brief's footing: answered tries (never an error) on targets the baseline tested and rejected
+        t = d["totals"]
+        write(self.ledger / "replay" / "results-9-0.jsonl", [
+            {"arm": "tools_alone", "target_set": r.get("target_set"), "target": r["target"], "verdict": "reject", "run_id": "9",
+             "lean_env": "e", "tools_hash": "h", "ts": "2026-10-24T00:00:00+00:00"} for r in daily_report.tries(self.ledger)])
+        ob = daily_report.build(self.ledger, NOW)["off_baseline"]
+        self.assertEqual((ob["answered_off"], ob["accepted_off"]), (t["answered"], t["accepted"]))
+        self.assertLess(t["answered"], t["judged"], "the fixture has an error row, or this proves nothing")
 
     def test_kaggle_batches_and_failures_in_the_window(self):
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["finished"]], ["goals-1"])

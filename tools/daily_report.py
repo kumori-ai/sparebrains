@@ -140,7 +140,7 @@ def off_baseline(window, ledger):
         return None
     off_set = b["tested"] - b["set"] - b.get("unknown", set())   # completed rejects; an untested target is not off (f4)
     lanes = defaultdict(lambda: {"calls": 0, "accepts": 0, "calls_off": 0, "accepts_off": 0, "targets_off": set()})
-    untested = set()
+    untested, answered_off, accepted_off = set(), 0, 0
     for r in window:
         if r["verdict"] not in ("accept", "reject", "error"):
             continue
@@ -151,13 +151,15 @@ def off_baseline(window, ledger):
         l["calls"] += 1
         l["accepts"] += r["verdict"] == "accept"
         if off:
+            answered_off += r["verdict"] != "error"          # the brief's accept rate off the baseline (daily_brief._footing)
+            accepted_off += r["verdict"] == "accept"
             l["calls_off"] += 1
             l["accepts_off"] += r["verdict"] == "accept"
             if r["verdict"] == "accept":
                 l["targets_off"].add((r.get("target_set"), r["target"]))
     ranked = sorted(lanes.items(), key=lambda x: (-len(x[1]["targets_off"]), -x[1]["accepts_off"], x[0]))
     return {"baseline": b["version"]["run_id"], "in_baseline": len(b["set"]), "unknown": len(b.get("unknown", ())),
-            "untested": len(untested),
+            "untested": len(untested), "answered_off": answered_off, "accepted_off": accepted_off,
             "lanes": [{"lane": k, **{f: v[f] for f in ("calls", "accepts", "calls_off", "accepts_off")},
                        "distinct_targets_accepted_off": len(v["targets_off"])} for k, v in ranked]}
 

@@ -92,6 +92,34 @@ class PublishTests(unittest.TestCase):
             publish(self.job, 'bounded test', attempts=2, before_push=race)
         self.assertEqual((self.job / 'ledger/primer/job.jsonl').read_bytes(), b'{"id":2}\n')
 
+    def test_six_shards_landing_together_still_publish(self):
+        """Run 43278501580: five sibling shards each landed first and three no-wait retries lost every race."""
+        publish_module.RACE_BACKOFF_S = 0
+        self.write(self.job, 'ledger/primer/job.jsonl', b'{"id":2}\n')
+        def race(attempt):
+            if attempt <= 5:
+                self.write(self.writer, f'ledger/primer/shard{attempt}.jsonl', b'{"id":3}\n')
+                self.commit(self.writer, f'sibling shard {attempt}')
+        publish(self.job, 'six shard test', before_push=race)
+        git(self.writer, 'pull', '--ff-only', 'origin', 'main')
+        self.assertTrue((self.writer / 'ledger/primer/job.jsonl').exists())
+
+    def test_a_lost_race_waits_a_jittered_time_before_the_next_try(self):
+        publish_module.RACE_BACKOFF_S = 4
+        waits = []
+        real_sleep = publish_module.time.sleep
+        publish_module.time.sleep = waits.append
+        self.addCleanup(setattr, publish_module.time, 'sleep', real_sleep)
+        self.write(self.job, 'ledger/primer/job.jsonl', b'{"id":2}\n')
+        def race(attempt):
+            if attempt <= 2:
+                self.write(self.writer, f'ledger/primer/shard{attempt}.jsonl', b'{"id":3}\n')
+                self.commit(self.writer, f'sibling shard {attempt}')
+        publish(self.job, 'jitter test', before_push=race)
+        self.assertEqual(len(waits), 2)
+        self.assertTrue(0 <= waits[0] <= 4 and 0 <= waits[1] <= 8, waits)
+        self.assertNotEqual(waits[0], waits[1])
+
     def reject_pushes(self, times):
         """A pre-receive hook that refuses the next `times` pushes, as GitHub's 500s did (run 41777596480)."""
         count = self.root / 'rejections'

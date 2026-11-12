@@ -51,6 +51,19 @@ def _lift(s):
     return _pct(s["accepted"], s["targets"]), _pct(s["prev_accepted"], s["prev_targets"])
 
 
+def _footing(r):
+    """(accepted, answered, footing) for a report's accept rate. Off the no-model baseline when the report carries that
+    read, and then the footing is that baseline's run id; else None, the totals. Since 2026-11-09 the ladder sets aside
+    the targets Lean's automation proves (83% of the accepts until then): the 11-11 and 11-12 reports read 5% (12/240)
+    and 4% (27/660) as losses against a 28% median of days that still tried them, while the rate off them, by UTC day,
+    had been 1.9-8.6% from 10-29 to 11-06. A report is only compared with reports on its own footing, and a new
+    baseline is a new footing (Codex 20261112T192728170594Z f2)."""
+    ob = r.get("off_baseline") or {}
+    if "answered_off" in ob:
+        return ob["accepted_off"], ob["answered_off"], ob.get("baseline") or "?"
+    return r["totals"]["accepted"], r["totals"].get("answered", 0), None
+
+
 def brief(d, history):
     """d is today's report JSON; history the earlier reports' JSON, any order. Returns the brief dict."""
     t = d["totals"]
@@ -62,12 +75,14 @@ def brief(d, history):
     for f in firsts:
         wins.append(f"First-time solve: `{f['key']}` by {f['lane']}.")
 
-    rate = _pct(t["accepted"], t["answered"])
-    rates = [_pct(h["totals"]["accepted"], h["totals"]["answered"]) for h in prior if h["totals"].get("answered", 0) >= MIN_ANSWERED]
-    rate_head = f"accept rate {rate}%"
-    if rates and t["answered"] >= MIN_ANSWERED:
+    accepted, answered, off = _footing(d)
+    rate = _pct(accepted, answered)
+    rates = [_pct(a, n) for a, n, o in map(_footing, prior) if o == off and n >= MIN_ANSWERED]
+    rate_head = f"accept rate {rate}%" + (" off baseline" if off else "")
+    if rates and answered >= MIN_ANSWERED:
         med = round(median(rates))
-        line = f"accept rate {rate}% ({t['accepted']}/{t['answered']}) against a {med}% median over the last {len(rates)} reports."
+        line = (f"accept rate {'off the no-model baseline ' if off else ''}{rate}% ({accepted}/{answered}) against a "
+                f"{med}% median over the last {len(rates)} reports.")
         if rate - med >= RATE_BAND:
             wins.append("Higher " + line)
             rate_head += f" (week {med}%)"
@@ -173,10 +188,13 @@ def brief(d, history):
         head[1] = rate_head.split(" (")[0]
     if len(" · ".join(head)) > HEADLINE_MAX:
         del head[1]
-    pre = f"{t['accepted']}/{t['answered']} accepted · {t['solved_ever']} solved ever, {t['open']} open"
+    # with the headline's rate read off the baseline, these totals say they are every target's (Codex f3)
+    pre = f"{t['accepted']}/{t['answered']} accepted{' on all targets' if off else ''} · {t['solved_ever']} solved ever, {t['open']} open"
     pre += f" · most accepts {ranked[0][3]} {ranked[0][0]}/{ranked[0][2]}" if ranked else ""
     if not prior:
         pre += " · no earlier reports to compare against"
+    elif off and not rates:
+        pre += " · no earlier report read off the no-model baseline yet"
     return {"headline": " · ".join(head), "preheader": pre, "wins": wins, "losses": losses, "fixes": fixes, "ideas": ideas}
 
 

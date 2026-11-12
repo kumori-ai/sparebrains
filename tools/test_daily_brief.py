@@ -55,6 +55,41 @@ class Brief(unittest.TestCase):
         b = brief(t)
         self.assertFalse(any("accept rate" in x for x in b["wins"] + b["losses"]))
 
+    def off(self, accepted, answered, day="2026-11-05", baseline="9"):
+        """A report whose window is read off the no-model baseline (the ladder sets its targets aside since 11-09)."""
+        t = copy.deepcopy(TODAY)
+        t["day"] = day
+        t["off_baseline"] = {"baseline": baseline, "accepted_off": accepted, "answered_off": answered}
+        return t
+
+    def test_a_day_off_the_baseline_is_not_read_against_a_week_that_was_on_it(self):
+        """The 2026-11-12 report: 'accept rate 4% (week 28%)', after 5% the day before. The ladder had stopped trying
+        the 214 targets Lean's automation proves (83% of the accepts); off them the rate was 1.9-8.6% 10-29..11-06."""
+        t = self.off(27, 660)
+        t["totals"].update(accepted=27, answered=660)
+        b = brief(t)
+        self.assertFalse(any("accept rate" in x for x in b["wins"] + b["losses"]), b["losses"])
+        self.assertNotIn("week", b["headline"])
+        self.assertIn("4% off baseline", b["headline"])
+        self.assertIn("no earlier report read off the no-model baseline", b["preheader"])
+
+    def test_a_new_baseline_is_a_new_footing(self):                                  # Codex 20261112T192728170594Z f2
+        week = [self.off(a, 500, f"2026-11-0{d}", baseline="8") for d, a in ((2, 100), (3, 110), (4, 90))]
+        b = brief(self.off(27, 660), HISTORY[:4] + week)
+        self.assertFalse(any("accept rate" in x for x in b["wins"] + b["losses"]), b["losses"])
+
+    def test_the_preheader_says_its_totals_are_every_targets(self):                  # Codex f3: 4% beside 213/774
+        self.assertIn("213/774 accepted on all targets", brief(self.off(27, 660))["preheader"])
+        self.assertIn("213/774 accepted ·", brief()["preheader"])
+
+    def test_days_off_the_baseline_are_read_against_each_other(self):
+        week = [self.off(a, 500, f"2026-11-0{d}") for d, a in ((2, 100), (3, 110), (4, 90))]     # 20 22 18: median 20%
+        low = brief(self.off(27, 660), HISTORY[:4] + week)
+        self.assertTrue(any("off the no-model baseline" in l and "4%" in l and "20%" in l and "last 3 reports" in l
+                            for l in low["losses"]), low["losses"])
+        same = brief(self.off(120, 660), HISTORY[:4] + week)                                          # 18%
+        self.assertFalse(any("accept rate" in x for x in same["wins"] + same["losses"]))
+
     def test_chronic_loss_before_the_kernel_is_a_fix_with_its_streak(self):
         b = brief()
         fix = [f for f in b["fixes"] if "before the kernel" in f]

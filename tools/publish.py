@@ -8,11 +8,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import random
 import subprocess
 import tempfile
 import time
 
 BACKOFF_S = 20   # between pushes refused by the server with no competing commit (a GitHub 500, run 41777596480)
+RACE_BACKOFF_S = 4   # a lost race waits a random 0..4s x attempt, so matrix shards finishing together spread out
+ATTEMPTS = 8         # six shards can each land first once; three no-wait tries lost every race (run 43278501580)
 
 
 def git(repo, *args, check=True):
@@ -85,7 +88,7 @@ def preserve_outputs(worktree, files):
         path.write_bytes(content)
 
 
-def publish(repo, message, attempts=3, before_push=None):
+def publish(repo, message, attempts=ATTEMPTS, before_push=None):
     repo = Path(repo).resolve()
     files = changed_outputs(repo)
     if not files:
@@ -122,7 +125,10 @@ def publish(repo, message, attempts=3, before_push=None):
             print(f'push refused with no competing commit; retrying in {BACKOFF_S * attempt}s: {result.stderr[-300:]}', flush=True)
             time.sleep(BACKOFF_S * attempt)
             continue
-        print('main advanced during publish; retrying on the new head', flush=True)
+        if attempt < attempts:
+            wait = random.uniform(0, RACE_BACKOFF_S * attempt)
+            print(f'main advanced during publish; retrying on the new head in {wait:.1f}s', flush=True)
+            time.sleep(wait)
     raise RuntimeError(f'Publication still competing after {attempts} attempts; outputs retained at {staging} and in the workflow artifact')
 
 
