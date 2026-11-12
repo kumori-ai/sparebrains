@@ -47,7 +47,7 @@ def lean_cmd(file, unit=None):
 def as_judge(cmd, env, user, unit=None):
     """`cmd` as the judge user with only `env`; in the scope `unit` of JUDGE_SLICE when one is named."""
     how = ["-u", user] if not unit else ["systemd-run", "--scope", "--quiet", f"--unit={unit}", f"--slice={JUDGE_SLICE}",
-                                         f"--uid={user}", "-p", "MemoryOOMGroup=yes"]
+                                         f"--uid={user}", "-p", "OOMPolicy=kill"]
     return ["sudo", "-n", *how, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd]
 
 

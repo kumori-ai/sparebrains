@@ -168,7 +168,7 @@ class MemoryLimit(unittest.TestCase):
         self.assertEqual(plain[:4], ["sudo", "-n", "-u", "sbjudge"], "the judge itself is unchanged")
         head = cmd[:cmd.index("env")]
         self.assertEqual(head[:4], ["sudo", "-n", "systemd-run", "--scope"])
-        for want in ("--unit=sbjudge-7-1", "--slice=sbjudge.slice", "--uid=sbjudge", "MemoryOOMGroup=yes"):
+        for want in ("--unit=sbjudge-7-1", "--slice=sbjudge.slice", "--uid=sbjudge", "OOMPolicy=kill"):
             self.assertIn(want, head)
         self.assertEqual(cmd[cmd.index("env"):][:2], ["env", "-i"], "the scope still starts from an empty environment")
         self.assertNotIn("sbcanary", " ".join(cmd))
