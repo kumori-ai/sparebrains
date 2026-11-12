@@ -10,7 +10,7 @@ survives, and every theorem in it depends on nothing outside the axiom allowlist
 file (needs the lake workspace built and the mathlib cache present). The judge sets
 `autoImplicit=false` itself, so an attempt cannot turn a typo into a free variable.
 """
-import argparse, json, os, re, resource, subprocess, sys, tempfile, time
+import argparse, json, os, re, resource, signal, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -36,6 +36,76 @@ def lean_cmd(file):
     return ["sudo", "-n", "-u", user, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd], env
 
 
+def kill_tree(pid, user=None):
+    """Stop `pid` and everything under it. `lake env lean` is Lean's parent, and in Actions sudo's too, so killing
+    only the process we started leaves Lean running: run 43142012823 (2026-11-12) had five timed-out checks behind it
+    when its runner was shut down, and locally an orphaned Lean held 2.96 GB 6 s after its timeout, 3.27 GB 20 s on.
+    The tree is read before anything dies, while the parent links still hold. Lean runs as the judge user in
+    Actions, whose processes this job's user can only signal through sudo. Known limits, as of 2026-11-12 (Codex
+    20261112T201242695422Z f5, f6): a pid reused between the table read and the kill would be signaled, and a
+    descendant that re-parented itself before the read is not in the tree (it was not stopped before either)."""
+    try:                                                  # no table: the process we started still dies below
+        table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=HELPER_S).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        table = ""
+    kids = {}
+    for child, parent in (l.split() for l in table.splitlines()):
+        kids.setdefault(int(parent), []).append(int(child))
+    tree, todo = [], [pid]
+    while todo:
+        tree.append(todo.pop())
+        todo += kids.get(tree[-1], [])
+    if user:
+        try:
+            subprocess.run(["sudo", "-n", "kill", "-KILL", *map(str, tree)], capture_output=True, timeout=HELPER_S)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    for p in tree:                                        # ours, and all of them when there is no judge user
+        try:
+            os.kill(p, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    return tree
+
+
+HELPER_S = 30                # ps, sudo kill and the wait for a killed tree each get this long, never forever (Codex f3)
+_last = threading.local()
+
+
+def last_peak_mb():
+    """Peak resident memory, in MB, of the last Lean run this thread finished; None when it was killed at its timeout
+    (a killed tree was never waited for, so the kernel has no figure for it)."""
+    return getattr(_last, "peak_mb", None)
+
+
+def run_lean(cmd, env, timeout, cwd=None):
+    """(returncode, stdout, stderr, peak MB) of one Lean run; returncode None when it hit `timeout`, and then its
+    whole tree is stopped (kill_tree) and stdout/stderr are what it had written. The peak is the kernel's own figure
+    for the process and the children it waited for (wait4), in a log line so a run that dies still shows it."""
+    with tempfile.TemporaryFile() as fo, tempfile.TemporaryFile() as fe:
+        p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=fo, stderr=fe, stdin=subprocess.DEVNULL)
+        end, rc, peak = time.monotonic() + timeout, None, None
+        while True:
+            pid, status, usage = os.wait4(p.pid, os.WNOHANG)
+            if pid:
+                rc = os.waitstatus_to_exitcode(status)
+                peak = round(usage.ru_maxrss / (1048576 if sys.platform == "darwin" else 1024))   # bytes on macOS, KB on Linux
+                break
+            if time.monotonic() >= end:
+                kill_tree(p.pid, os.environ.get("SB_JUDGE_USER"))
+                gone = time.monotonic() + HELPER_S
+                while not os.wait4(p.pid, os.WNOHANG)[0] and time.monotonic() < gone:
+                    time.sleep(0.05)
+                break
+            time.sleep(0.05)
+        p.returncode = -9 if rc is None else rc          # reaped here: Popen must not wait for it again
+        _last.peak_mb = peak
+        fo.seek(0), fe.seek(0)
+        # as subprocess's text mode read it: \r\n and \r are \n; a byte that is not UTF-8 no longer raises
+        text = lambda b: b.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        return rc, text(fo.read()), text(fe.read()), peak
+
+
 def judge(path, timeout):
     src = Path(path).read_text()
     names = DECL_RE.findall(src)
@@ -48,16 +118,16 @@ def judge(path, timeout):
     cmd, env = lean_cmd(tmp.name)
     t0 = time.monotonic()
     try:
-        run = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+        rc, stdout, stderr, _ = run_lean(cmd, env, timeout)
+    finally:
         os.unlink(tmp.name)
-        return "reject", f"timeout after {timeout}s", time.monotonic() - t0, ""
-    os.unlink(tmp.name)
     secs = time.monotonic() - t0
-    out = (run.stdout + run.stderr).replace(tmp.name, path)
-    if run.returncode != 0:
+    if rc is None:
+        return "reject", f"timeout after {timeout}s", secs, ""
+    out = (stdout + stderr).replace(tmp.name, path)
+    if rc != 0:
         first_error = next((l for l in out.splitlines() if "error" in l), out[:200])
-        return "reject", f"lean exit {run.returncode}: {first_error.strip()}", secs, out
+        return "reject", f"lean exit {rc}: {first_error.strip()}", secs, out
     audited = {n for n, _ in AXIOMS_RE.findall(out)} | set(NO_AXIOMS_RE.findall(out))
     missing = set(names) - audited
     if missing:

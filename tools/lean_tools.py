@@ -49,7 +49,6 @@ def names(guess, k=6):
 
 def run_lean(text, timeout=180):
     """(output, seconds) of Lean on `text`, sandboxed exactly as the judge runs it."""
-    import subprocess
     with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=ROOT, delete=False) as f:
         f.write(text)
     # NamedTemporaryFile is 0600; in Actions Lean runs as the sandbox user, who then cannot read it, and
@@ -58,11 +57,9 @@ def run_lean(text, timeout=180):
     cmd, env = check.lean_cmd(f.name)
     t0 = time.monotonic()
     try:
-        run = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, cwd=ROOT)
-        out = "\n".join(l for l in (run.stdout + run.stderr).splitlines()
-                         if not l.startswith(("info: downloading", "info: installing")))
-    except subprocess.TimeoutExpired:
-        out = f"timeout after {timeout}s"
+        rc, stdout, stderr, _ = check.run_lean(cmd, env, timeout, cwd=ROOT)   # a timeout stops Lean too, not only lake
+        out = f"timeout after {timeout}s" if rc is None else "\n".join(
+            l for l in (stdout + stderr).splitlines() if not l.startswith(("info: downloading", "info: installing")))
     finally:
         Path(f.name).unlink(missing_ok=True)
     return out.replace(f.name, "proof.lean"), time.monotonic() - t0

@@ -6,13 +6,14 @@ model, $0. Nothing is sent to their repository: a pass is a candidate for a PR t
 
     python3 tools/fc_sweep.py --fc path/to/formal-conjectures --out ledger/fc/sweep-RUN.jsonl
 """
-import argparse, hashlib, json, os, re, subprocess, sys, time
+import argparse, hashlib, json, os, re, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import check                                             # run_lean: a timeout stops the whole tree
 from subgoals import AUTO_TACTICS
 from proof_text import extract_proof
 
@@ -123,13 +124,9 @@ def run_lean(fc, text, tag):
     f.write_text(text)
     f.chmod(0o644)
     t = time.time()
-    try:
-        r = subprocess.run(lean_cmd(f, os.environ.get("SB_JUDGE_USER"), os.environ.get("PATH", "")), cwd=fc,
-                           capture_output=True, text=True, timeout=TIMEOUT_S)
-        out = r.stdout + r.stderr
-    except subprocess.TimeoutExpired:
-        out = "timeout"
-    return out, round(time.time() - t, 1)
+    rc, stdout, stderr, _ = check.run_lean(lean_cmd(f, os.environ.get("SB_JUDGE_USER"), os.environ.get("PATH", "")),
+                                           None, TIMEOUT_S, cwd=fc)   # a timeout stops Lean too, not only lake
+    return ("timeout" if rc is None else stdout + stderr), round(time.time() - t, 1)
 
 
 def sweep_one(fc, rel, text, d):

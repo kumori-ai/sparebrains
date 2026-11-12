@@ -29,6 +29,7 @@ REPLAY_DIR = ROOT / "ledger" / "replay"                              # frozen co
 RELAY_JOBS = ROOT / "ledger" / "relay-jobs"           # one record per relay-next job: the backoff's state (relay.py)
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import ledger_files
+import check                                                         # last_peak_mb: what the last Lean check held
 from check import judge                                              # the judge, unchanged
 from ladder import (rung_of, failure_kind, sort_key, RUNGS, error_scope, is_reasoning_cut, lane_is_gone, ALIVE_WINDOW_S,
                     owed_history, build_ladder_queue, cut_closed, interleave_by_provider)   # the ladder's queue, read from the committed ledger
@@ -123,6 +124,16 @@ RUNNING_SLOW = set()                # lanes whose recent cold tries mostly timed
 
 def ladder_call_s(lane):
     return relay.LONG_CALL_S if lane.get("backend") in RUNNING_SLOW else LADDER_CALL_S
+
+
+def runner_memory(meminfo="/proc/meminfo"):
+    """' · memory 9.1 of 15.6 GB free' for the tally line, from the kernel's MemAvailable (Linux; '' elsewhere). In the
+    log, not the ledger: run 43142012823 was shut down with its rows unpublished and nothing said how full it was."""
+    try:
+        kb = {l.split(":")[0]: int(l.split()[1]) for l in Path(meminfo).read_text().splitlines() if ":" in l}
+        return f" · memory {kb['MemAvailable'] / 1048576:.1f} of {kb['MemTotal'] / 1048576:.1f} GB free"
+    except (OSError, KeyError, ValueError, IndexError):
+        return ""
 
 
 def bench_delay(retry_after, consecutive):
@@ -725,7 +736,7 @@ def main():
         proof = extract_proof(reply or "", name) if reply else None
         candidate = lean_out = None
         tools_used = {}
-        lean_s = 0.0
+        lean_s, lean_peak = 0.0, None
         if err:
             verdict, reason = "error", err
         elif not proof:
@@ -735,6 +746,7 @@ def main():
             cpath = tmpdir / f"{name}.{lane['backend']}.{attempt_no}.lean"
             cpath.write_text(candidate)
             verdict, reason, lean_s, lean_out = judge(str(cpath), args.lean_timeout)
+            lean_peak = check.last_peak_mb()            # this thread's check; None when it was killed at the timeout
             reason = RUNNER_PATH.sub("", reason)
             if verdict == "wellformed":
                 verdict, reason = "reject", "proof still contains sorry"
@@ -797,7 +809,7 @@ def main():
                                                          "response_head": (reply or "")[:800],
                                                          "telemetry_future": telemetry_future}
         print(f"[{n}/{args.max_calls}] {name} ← {lane['backend']} ({lane['tier']}) → {verdict}"
-              f"{' (repair)' if repair else ''}{' (' + meta['try_mode'] + ')' if meta else ''}  call {call_s:.0f}s lean {lean_s:.1f}s  {reason[:110]}", flush=True)
+              f"{' (repair)' if repair else ''}{' (' + meta['try_mode'] + ')' if meta else ''}  call {call_s:.0f}s lean {lean_s:.1f}s{f' {lean_peak / 1024:.1f}GB' if lean_peak else ''}  {reason[:110]}", flush=True)
         if verdict == "accept":
             vpath = ROOT / "verified" / tset / name / f"{lane['backend']}.lean"
             vpath.parent.mkdir(parents=True, exist_ok=True)
@@ -815,7 +827,7 @@ def main():
             with lock:
                 print(f"[tally] {n} calls · {state['accepts']} verified · {state['errors']} lane errors · "
                       f"{state['skipped']} skipped (benched) · {state['waits']} rate-limit waits · "
-                      f"{len(solved)}/{len(names)} targets solved so far", flush=True)
+                      f"{len(solved)}/{len(names)} targets solved so far{runner_memory()}", flush=True)
         if verdict == "error" and error_scope(reason) == "router":
             return "error_router"                        # says nothing about this lane on this target
         if verdict == "error" and is_reasoning_cut(reason) and not relay_ctx:   # the relay benches lanes its own way

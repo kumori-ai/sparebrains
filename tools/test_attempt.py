@@ -500,10 +500,6 @@ class BaselineSetAsideTests(unittest.TestCase):
         self.assertEqual((len(kept), "nothing set aside" in note), (1, True))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RetroCohortTests(unittest.TestCase):
     """`--retro --cohort FILE` (#574): the free chain on a frozen file of stored rejects (the repair tries the nightly
     retro's cold-only queue never reaches), solves of open problems recorded as retro records them, no ablation row."""
@@ -681,3 +677,21 @@ class LemmaRowTests(unittest.TestCase):
         row = env['record'].call_args[0][0]
         self.assertEqual(len(row["lemma"]), 600)
         self.assertEqual(row["lemma_sha"], hashlib.sha256(statement.encode()).hexdigest())
+
+
+class RunnerMemory(unittest.TestCase):
+    """Run 43142012823 was shut down with nothing in its log saying how full the runner was."""
+
+    def test_the_tally_line_says_how_much_memory_the_runner_has_left(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".meminfo") as f:
+            f.write("MemTotal:       16373692 kB\nMemFree:          812000 kB\nMemAvailable:    9541234 kB\n")
+            f.flush()
+            self.assertEqual(attempt.runner_memory(f.name), " · memory 9.1 of 15.6 GB free")
+
+    def test_no_meminfo_adds_nothing(self):
+        self.assertEqual(attempt.runner_memory("/nonexistent/meminfo"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

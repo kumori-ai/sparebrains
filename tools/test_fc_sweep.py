@@ -63,8 +63,8 @@ class RunLean(unittest.TestCase):
         import tempfile
         from unittest import mock
         import os
-        with tempfile.TemporaryDirectory(dir=".") as d, mock.patch.object(fc.subprocess, "run") as run:
-            run.return_value = mock.Mock(stdout="", stderr="")
+        with tempfile.TemporaryDirectory(dir=".") as d, mock.patch.object(fc.check, "run_lean") as run:
+            run.return_value = (0, "", "", 1)
             fc.run_lean(os.path.relpath(d), "x", "t")          # relative, as the workflow passes `fc`
             cmd, kw = run.call_args.args[0], run.call_args.kwargs
             self.assertTrue(Path(cmd[-1]).is_absolute(), cmd)

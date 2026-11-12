@@ -69,6 +69,9 @@ jobs:
           SB_CANARY: sbcanary-${{ github.run_id }}-planted
         run: python3 tools/judge_isolation_canary.py
 
+      - name: judge timeout canary (what a timed-out check leaves running, old way and new)
+        run: python3 tools/judge_timeout_canary.py
+
       - name: runner after
         run: |
           df -h / | tail -1
