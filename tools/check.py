@@ -26,9 +26,11 @@ NO_AXIOMS_RE = re.compile(r"'([^']+)' does not depend on any axioms")
 ENV_KEEP = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "ELAN_HOME", "ELAN_TOOLCHAIN"}
 
 
-def lean_cmd(file):
+def lean_cmd(file, mem_mb=None):
+    """`mem_mb` is Lean's own -M: past it Lean aborts with 'excessive memory consumption' (capped()). It counts the
+    Mathlib import too (a plain accept needs 3,000-3,400 as of 2026-11-12), so it is not the check's resident memory."""
     env = {k: v for k, v in os.environ.items() if k in ENV_KEEP or k.startswith(("LAKE", "LEAN"))}
-    cmd = ["lake", "env", "lean", *LEAN_FLAGS, file]
+    cmd = ["lake", "env", "lean", *LEAN_FLAGS, *(["-M", str(mem_mb)] if mem_mb else []), file]
     user = os.environ.get("SB_JUDGE_USER")
     if not user:
         return cmd, env
@@ -104,6 +106,11 @@ def run_lean(cmd, env, timeout, cwd=None):
         # as subprocess's text mode read it: \r\n and \r are \n; a byte that is not UTF-8 no longer raises
         text = lambda b: b.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         return rc, text(fo.read()), text(fe.read()), peak
+
+
+def capped(out):
+    """Lean stopped at its -M cap: the check says nothing about the proof."""
+    return "excessive memory consumption" in out
 
 
 def judge(path, timeout):

@@ -156,5 +156,38 @@ class TimeoutCanary(unittest.TestCase):
         self.assertIn("ps failed", str(e.exception))
 
 
+class MemoryCap(unittest.TestCase):
+    """kumori #683: the cap is measured before it is set (tools/judge_memory_canary.py)."""
+
+    def test_the_lean_command_carries_a_cap_only_when_asked(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SB_JUDGE_USER", None)
+            self.assertNotIn("-M", check.lean_cmd("x.lean")[0])
+            cmd = check.lean_cmd("x.lean", 4500)[0]
+        self.assertEqual(cmd[cmd.index("-M") + 1], "4500")
+        self.assertEqual(cmd[-1], "x.lean")
+
+    def test_a_cap_abort_is_told_from_an_ordinary_error(self):
+        self.assertTrue(check.capped("libc++abi: terminating due to uncaught exception of type lean::memory_exception: "
+                                     "excessive memory consumption detected at 'interpreter'"))
+        self.assertFalse(check.capped("x.lean:3:2: error: unsolved goals"))
+
+    def test_the_sample_is_one_proof_per_problem_spread_evenly_and_the_same_every_run(self):
+        import judge_memory_canary as canary
+        files = [f"verified/s/p{i:03}/{lane}.lean" for i in range(100) for lane in ("b", "a")]
+        got = canary.spread(files, 10)
+        self.assertEqual(got, [f"verified/s/p{i:03}/a.lean" for i in range(0, 100, 10)])
+        self.assertEqual(canary.spread(list(reversed(files)), 10), got)
+        self.assertEqual(len(canary.spread(files[:6], 10)), 3)
+
+    def test_free_memory_is_read_from_the_kernel_or_is_none(self):
+        import judge_memory_canary as canary
+        with tempfile.NamedTemporaryFile("w") as f:
+            f.write("MemTotal:       16373692 kB\nMemAvailable:    9541234 kB\n")
+            f.flush()
+            self.assertEqual(canary.free_mb(f.name), 9317)
+        self.assertIsNone(canary.free_mb("/nonexistent/meminfo"))
+
+
 if __name__ == "__main__":
     unittest.main()

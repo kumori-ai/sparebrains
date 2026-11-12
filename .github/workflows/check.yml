@@ -72,6 +72,9 @@ jobs:
       - name: judge timeout canary (what a timed-out check leaves running, old way and new)
         run: python3 tools/judge_timeout_canary.py
 
+      - name: judge memory canary (runaways and verified proofs under each candidate -M cap)
+        run: python3 tools/judge_memory_canary.py
+
       - name: runner after
         run: |
           df -h / | tail -1
