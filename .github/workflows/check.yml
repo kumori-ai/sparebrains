@@ -76,7 +76,7 @@ jobs:
         run: python3 tools/judge_timeout_canary.py
 
       # By hand only: its first reading took 49 min in every push before it was cancelled (run 43301409108).
-      - name: judge memory canary (one cgroup limit over every Lean run: runaways, proofs beside them, proofs alone)
+      - name: judge memory canary (one cgroup limit over every Lean run, with runaways, proofs beside them and proofs alone)
         if: inputs.memory_canary == 'true'
         timeout-minutes: 50
         run: python3 tools/judge_memory_canary.py
