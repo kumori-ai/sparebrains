@@ -18,6 +18,9 @@ on:
       canary_fail_first:
         description: "canary: fail lean-build's first try so its retry runs"
         default: "false"
+      memory_canary:
+        description: "measure the judge's Lean memory cap (#683): about 15 min more, by hand only"
+        default: "false"
 
 permissions:
   contents: read
@@ -71,6 +74,12 @@ jobs:
 
       - name: judge timeout canary (what a timed-out check leaves running, old way and new)
         run: python3 tools/judge_timeout_canary.py
+
+      # By hand only: its first reading took 49 min in every push before it was cancelled (run 43301409108).
+      - name: judge memory canary (the floor a plain accept needs, then runaways and verified proofs above it)
+        if: inputs.memory_canary == 'true'
+        timeout-minutes: 50
+        run: python3 tools/judge_memory_canary.py
 
       - name: runner after
         run: |

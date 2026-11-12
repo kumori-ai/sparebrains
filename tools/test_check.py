@@ -188,6 +188,73 @@ class MemoryCap(unittest.TestCase):
             self.assertEqual(canary.free_mb(f.name), 9317)
         self.assertIsNone(canary.free_mb("/nonexistent/meminfo"))
 
+    def test_the_floor_is_the_lowest_cap_a_plain_accept_passes_and_none_when_no_cap_does(self):
+        import judge_memory_canary as canary
+        tried = []
+        def plain(cap):
+            tried.append(cap)
+            return (0, "", 6100) if cap >= 6500 else (134, "excessive memory consumption", 6072)
+        self.assertEqual(canary.floor((5000, 6000, 6500, 7000), plain), (6500, 6100))
+        self.assertEqual(tried, [5000, 6000, 6500], "it stops at the first cap that passes")
+        self.assertEqual(canary.floor((5000, 6000), plain), (None, None))
+
+    def test_a_plain_accept_that_fails_for_another_reason_is_not_a_floor_reading(self):
+        import judge_memory_canary as canary
+        with self.assertRaises(SystemExit):
+            canary.floor((5000, 6000), lambda cap: (1, "x.lean:3:2: error: unsolved goals", 6000))
+
+    def test_a_runaway_whose_peak_is_no_higher_than_a_plain_accept_was_not_seen_taking_memory(self):
+        import judge_memory_canary as canary
+        self.assertFalse(canary.blind([7010, 7004, 7100], 6600))
+        self.assertTrue(canary.blind([7010, 6650, 7100], 6600), "one runaway stopped before it took anything")
+        self.assertTrue(canary.blind([7010, None, 7100], 6600), "a peak that was not read proves nothing")
+        self.assertTrue(canary.blind([7010], None))
+
+    def run_canary(self, proof):
+        """The canary's whole run on fake Lean: floor 6500, runaways stopped at their cap and seen, proofs as proof(cap, n)."""
+        import contextlib, io
+        import judge_memory_canary as canary
+        n = [0]
+        def lean(path, cap, timeout):
+            if path == canary.PLAIN:
+                return (0, "", 6100) if cap >= 6500 else (134, "excessive memory consumption", 6072)
+            if path == canary.PROBE:
+                return 134, "excessive memory consumption", cap + 20
+            n[0] += 1
+            return proof(cap, n[0])
+        out, code = io.StringIO(), 0
+        with patch.object(canary, "lean", lean), patch.object(canary, "JOBS", 1), contextlib.redirect_stdout(out):
+            try:
+                canary.main([f"verified/s/p{i:02}/a.lean" for i in range(12)])
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue()
+
+    def test_proofs_that_time_out_are_not_proofs_the_cap_kept(self):
+        code, out = self.run_canary(lambda cap, n: (None, "", 6200))       # Codex 20261112T230227845584Z f1
+        self.assertTrue(code, "it must not exit clean")
+        self.assertNotIn("lowest cap that keeps", out)
+
+    def test_a_timeout_is_a_failed_reading_even_when_it_printed_the_cap_message(self):
+        import judge_memory_canary as canary                               # Codex 20261112T230620127550Z f1
+        late = lambda cap, n: (None, "excessive memory consumption", None) if cap == 7000 else (0, "", 6200)
+        code, out = self.run_canary(late)
+        self.assertTrue(code)
+        self.assertNotIn("lowest cap that keeps", out)
+        with self.assertRaises(SystemExit):
+            canary.floor((5000, 6000), lambda cap: (None, "excessive memory consumption", None))
+
+    def test_a_cap_is_named_only_after_the_whole_sample_passes_under_it(self):
+        code, out = self.run_canary(lambda cap, n: (0, "", 6200))
+        self.assertFalse(code)
+        self.assertIn("lowest cap that keeps every sampled proof: 7000 (floor 6500 + 500)", out)
+        cut_once = lambda cap, n: (134, "excessive memory consumption", 7000) if cap == 7000 and n == 3 else (0, "", 6200)
+        code, out = self.run_canary(cut_once)
+        self.assertFalse(code)
+        self.assertIn("cap 7500: 1 verified proofs, 1 pass", out)
+        self.assertIn("cap 7500: 12 verified proofs, 12 pass", out, "the cap is rechecked on the whole sample")
+        self.assertIn("lowest cap that keeps every sampled proof: 7500", out)
+
 
 if __name__ == "__main__":
     unittest.main()
