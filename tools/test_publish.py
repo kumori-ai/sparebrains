@@ -107,9 +107,10 @@ class PublishTests(unittest.TestCase):
     def test_a_lost_race_waits_a_jittered_time_before_the_next_try(self):
         publish_module.RACE_BACKOFF_S = 4
         waits = []
-        real_sleep = publish_module.time.sleep
-        publish_module.time.sleep = waits.append
-        self.addCleanup(setattr, publish_module.time, 'sleep', real_sleep)
+        # publish's own name for the clock, never time.sleep itself: every thread in the process shares that one, and
+        # check run 43310886467 counted 45 sleeps here from other tests' threads
+        self.addCleanup(setattr, publish_module, 'time', publish_module.time)
+        publish_module.time = type('Clock', (), {'sleep': staticmethod(waits.append)})
         self.write(self.job, 'ledger/primer/job.jsonl', b'{"id":2}\n')
         def race(attempt):
             if attempt <= 2:
