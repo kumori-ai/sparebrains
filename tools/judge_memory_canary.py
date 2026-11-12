@@ -1,22 +1,27 @@
-"""Measures in Actions what a Lean memory cap (-M) does, to pick one (kumori #683). Needs tools/judge_sandbox.sh first.
+"""Measures in Actions whether one kernel memory limit over every judge Lean run holds (kumori #683). Needs
+tools/judge_sandbox.sh first. Measure only: the judge sets no limit.
 
-Run 43142012823 (2026-11-12) was shut down by its runner with 177 calls unpublished; whether a check ran away with the
-memory is not known. The cap counts the Mathlib import, and how much that is differs by machine: the first runner
-reading (run 43301409108, 2026-11-12) had -M 4000 and 4500 stop all 45 sampled proofs and every capped run exit 134
-at a 6,072 MB peak after about 70 s, where an uncapped accept there takes 4.5 s and peaks 6,630 MB, and macOS passes
-at 3,400. So the caps are not fixed numbers: this first finds the floor, the lowest cap a plain accept passes here,
-then tries the floor plus each HEADROOM. As the judge user and JOBS at once like the ladder, per cap:
-  runaway: JOBS copies of a probe that allocates without end. Each must stop at the cap; the runner's lowest free
-           memory while they ran is the number that says whether JOBS runaways at once fit.
-  verified: a spread of proofs the kernel already accepted. Each must still accept; one stopped by the cap means the
-            cap would turn real proofs into rejects.
-The probe must be seen taking memory (else a calm reading means nothing): its peak must be MIN_TAKEN_MB over the
-plain accept's. Free memory cannot say so, the import alone moved it 1.6 GB in that run. Prints one line per arm
-with its seconds; exits 1 when no cap is a floor, a runaway is not stopped or not seen, or no cap keeps every proof.
-A cap is named only when the whole sample passed under it JOBS at once; a timeout or any other failure names none
-(Codex 20261112T230227845584Z f1). Not bounded, as of 2026-11-12 (same verdict, f2): nothing limits what JOBS
-runaways take together, so an arm that exhausts the runner ends the run with the lines printed so far."""
-import os, shutil, subprocess, sys, tempfile, threading, time
+Run 43142012823 (2026-11-12) was shut down by its runner with 177 calls unpublished. Lean's own -M is not the answer,
+as of 2026-11-12 (check run 43326406123, Lean v4.33.1 src/runtime/memory.cpp check_memory): it compares resident
+memory, mapped Mathlib files included, on a counter and throws. A plain accept needs -M 7000 on the runner (peak
+6,621 MB; macOS 3,400); three runaways under -M 7500 and 8000 printed the message and were still running at the
+180 s timeout; under 9000 the step got SIGTERM in 32 s and the job ended.
+
+So this measures the kernel's limit instead (cgroup v2 memory.max): every Lean run in its own scope of one slice
+(check.lean_cmd unit=), the limit on the slice, swap 0. One limit over all and not one per check, because the checks
+share the Mathlib mapping and the kernel charges a shared area to one cgroup, which one is not determined. For each
+of LIMITS, as the judge user:
+  guard:    a scope really is in the slice, as the judge user, with its oom group set, and a plain accept passes.
+  runaway:  JOBS copies of a probe that allocates without end. Each must be killed, and the kernel log must name
+            its scope as killed by the cgroup's limit; a kill the host's own out-of-memory made counts against.
+  mixed:    runaways one after another beside verified proofs running back to back. Every proof must pass, and at
+            least MIN_MET of them must have been running at the moment of a kill, else this says nothing about
+            what a kill does to the checks beside it.
+  verified: the sample of verified proofs, JOBS at once. Every one must pass.
+A limit is listed only when every arm held under it; a timeout or any failure lists none, and the run exits 1 with
+the reasons. Between arms it waits for the slice to be empty (cgroup.events populated, which counts the scopes
+under it). Codex 20261112T233227563378Z f1-f3 (the emptiness, attribution and overlap rules)."""
+import itertools, os, shutil, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -26,8 +31,27 @@ import check
 ROOT = Path(__file__).parent.parent
 PROBE = ROOT / "checks/canary/memory_probe.lean"
 PLAIN = ROOT / "checks/accept/two_plus_two.lean"
-FLOOR_CAPS, HEADROOM, JOBS, SAMPLE = range(5000, 9001, 500), (500, 1000, 2000), 3, 45
-RUNAWAY_S, PROOF_S, MIN_TAKEN_MB = 180, 600, 300
+CG = Path("/sys/fs/cgroup") / check.JUDGE_SLICE
+LIMITS, JOBS, SAMPLE = (8000, 9000, 10000), 3, 45
+RUNAWAY_S, PROOF_S, SETTLE_S = 180, 600, 60
+MIXED_RUNAWAYS, MIN_MET = 5, 5
+KILLED = (-9, 137)                                       # SIGKILL, as the signal or as lake's exit status
+_units = itertools.count(1)
+
+
+def unit():
+    return f"sbjudge-{os.getpid()}-{next(_units)}"
+
+
+def sudo(*cmd):
+    return subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True, timeout=check.HELPER_S)
+
+
+def read(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return None
 
 
 def free_mb(meminfo="/proc/meminfo"):
@@ -50,17 +74,94 @@ def spread(files, n):
     return [one[i * len(one) // n] for i in range(n)]
 
 
-def lean(path, cap, timeout):
-    """(returncode or None, output, peak MB) of Lean on a copy of `path` under `cap`, as the judge runs it."""
+def limit_killed(log, unit):
+    """The kernel log says the cgroup's limit killed this check's scope (mm/oom_kill.c, memory.oom.group)."""
+    return any(f"/{unit}.scope " in l and "memory.oom.group" in l for l in log.splitlines())
+
+
+def host_kills(log):
+    """Out-of-memory kills in the kernel log that no cgroup's limit made: the whole machine ran out."""
+    return sum("Killed process" in l and "Memory cgroup out of memory" not in l for l in log.splitlines())
+
+
+def overlapping(runs, kills):
+    """The (file, exit, start, end) runs that were going at the moment of some kill."""
+    return [r for r in runs if any(r[2] < k < r[3] for k in kills)]
+
+
+def lean(path, unit, timeout):
+    """(returncode or None, output, peak MB, start, end) of Lean on a copy of `path` in the scope `unit`."""
     with tempfile.NamedTemporaryFile("w", suffix=".lean", delete=False) as tmp:
         shutil.copyfileobj(open(path), tmp)
     os.chmod(tmp.name, 0o644)
     try:
-        cmd, env = check.lean_cmd(tmp.name, cap)
+        cmd, env = check.lean_cmd(tmp.name, unit)
+        t0 = time.monotonic()
         rc, out, err, peak = check.run_lean(cmd, env, timeout, cwd=ROOT)
-        return rc, out + err, peak
+        return rc, out + err, peak, t0, time.monotonic()
     finally:
         os.unlink(tmp.name)
+
+
+def set_limit(mb):
+    sudo("systemctl", "start", check.JUDGE_SLICE)
+    r = sudo("systemctl", "set-property", "--runtime", check.JUDGE_SLICE, f"MemoryMax={mb}M", "MemorySwapMax=0")
+    if r.returncode != 0:                                # what the kernel then holds is read back in guard()
+        sys.exit(f"limit {mb}: systemd did not take the limit: blind. {r.stderr.strip()[-300:]}")
+
+
+def guard(mb):
+    """The plain accept's peak MB, after showing a scope is where and what the limit needs it to be."""
+    user, u = os.environ.get("SB_JUDGE_USER"), unit()
+    if not user:
+        sys.exit("no judge user: nothing here runs in the slice, verdict meaningless")
+    where = ('p=$(cut -d: -f3 /proc/self/cgroup); echo "$p"; cat "/sys/fs/cgroup$p/memory.oom.group"; id -un; '
+             f'cat {CG}/memory.max {CG}/memory.swap.max')   # read from inside, while the slice surely exists
+    r = subprocess.run(check.as_judge(["sh", "-c", where], {"PATH": os.environ["PATH"]}, user, u),
+                       capture_output=True, text=True, timeout=check.HELPER_S)
+    if r.stdout.split() != [f"/{check.JUDGE_SLICE}/{u}.scope", "1", user, str(mb * 1048576), "0"]:
+        sys.exit(f"limit {mb}: a scope reports {r.stdout.split()} (its cgroup, oom group, user, the slice's limit and "
+                 f"swap): blind. {r.stderr.strip()[-300:]}")
+    rc, out, peak, t0, t1 = lean(PLAIN, unit(), PROOF_S)
+    if rc != 0:
+        sys.exit(f"limit {mb}: a plain accept in the slice exits {rc}: blind. {out[-300:]}")
+    print(f"limit {mb}: guard, a scope is in the slice as {user} with its oom group set, limit and no swap read back; plain accept peak {peak} MB, "
+          f"{t1 - t0:.0f} s; slice {charged()}", flush=True)
+    return peak
+
+
+def settle():
+    """Returns once nothing is left in the slice or the scopes under it; stops the run when that cannot be had."""
+    for kill in (False, True):
+        if kill:
+            sudo("systemctl", "kill", "--signal=KILL", check.JUDGE_SLICE)
+        end = time.monotonic() + SETTLE_S
+        while time.monotonic() < end:
+            events = read(CG / "cgroup.events")
+            if events is None and not CG.exists():       # systemd removed the empty slice's cgroup: nothing is in it
+                return
+            if events is None:
+                sys.exit("the slice's cgroup.events cannot be read: blind")
+            if "populated 0" in events:
+                return
+            time.sleep(0.2)
+    sys.exit(f"the slice still holds processes {SETTLE_S} s after a kill: the next arm would not start clean")
+
+
+def kernel_log():
+    r = sudo("dmesg")
+    if r.returncode != 0:
+        sys.exit(f"the kernel log cannot be read, so no kill can be told from another: blind. {r.stderr.strip()[-200:]}")
+    return r.stdout
+
+
+def charged():
+    """What the slice is charged with now, and its limit and kill counts."""
+    stat = dict(l.split() for l in (read(CG / "memory.stat") or "").splitlines() if len(l.split()) == 2)
+    mb = lambda v: int(v) // 1048576 if v and v.isdigit() else None
+    events = " ".join((read(CG / "memory.events") or "").split())
+    return (f"current {mb(read(CG / 'memory.current'))} MB (anon {mb(stat.get('anon'))}, file {mb(stat.get('file'))}, "
+            f"mapped {mb(stat.get('file_mapped'))}); events: {events}")
 
 
 def watched(work):
@@ -78,90 +179,106 @@ def watched(work):
         t.join()
 
 
-def floor(caps, plain):
-    """(the lowest of `caps` under which plain(cap) passes, its peak MB), or (None, None). plain(cap) is lean()'s result."""
-    for cap in caps:
-        t0 = time.monotonic()
-        rc, out, peak = plain(cap)
-        print(f"floor, cap {cap}: plain accept exit {rc}, peak {peak} MB, {time.monotonic() - t0:.0f} s", flush=True)
-        if rc == 0:
-            return cap, peak
-        if rc is None or not check.capped(out):          # a timeout reads nothing, whatever it printed
-            sys.exit(f"floor, cap {cap}: the plain accept failed and not at the cap, so this reads nothing: {out[-300:]}")
-    return None, None
-
-
-def blind(peaks, plain_peak):
-    """A runaway was not seen taking memory: some peak is not MIN_TAKEN_MB over a plain accept's, or was not read."""
-    return plain_peak is None or any(p is None or p - plain_peak < MIN_TAKEN_MB for p in peaks)
-
-
-def runaway(cap, plain_peak):
-    """The reasons this cap's reading fails, empty when every runaway was stopped by the cap and seen taking memory."""
-    t0 = time.monotonic()
+def runaways(mb):
+    """The reasons this limit did not contain JOBS runaways at once; empty when the limit killed each one."""
+    units, host = [unit() for _ in range(JOBS)], host_kills(kernel_log())
     with ThreadPoolExecutor(JOBS) as pool:
-        res, low, before = watched(lambda: list(pool.map(lambda _: lean(PROBE, cap, RUNAWAY_S), range(JOBS))))
-    stopped, peaks = [check.capped(out) for rc, out, peak in res], [peak for _, _, peak in res]
-    print(f"cap {cap}: {JOBS} runaways at once, {sum(stopped)} stopped by the cap, exits {[rc for rc, _, _ in res]}, "
-          f"peaks {peaks} MB (plain accept {plain_peak}); free memory {before} -> lowest {low} MB; "
-          f"{time.monotonic() - t0:.0f} s", flush=True)
-    bad = []
-    if not all(stopped):
-        bad.append(f"cap {cap}: a runaway was not stopped by its cap: {[out[-200:] for _, out, _ in res]}")
-    if blind(peaks, plain_peak):
-        bad.append(f"cap {cap}: peaks {peaks} MB against a plain accept's {plain_peak}: the probe was not seen taking memory")
+        res, low, before = watched(lambda: list(pool.map(lambda u: lean(PROBE, u, RUNAWAY_S), units)))
+    settle()
+    log = kernel_log()
+    by_limit = [limit_killed(log, u) for u in units]
+    print(f"limit {mb}: {JOBS} runaways at once, exits {[r[0] for r in res]}, {sum(by_limit)} named by the kernel as "
+          f"killed by the limit, after {[round(r[4] - r[3]) for r in res]} s, peaks {[r[2] for r in res]} MB; "
+          f"free memory {before} -> lowest {low} MB; slice {charged()}", flush=True)
+    bad = [f"limit {mb}: runaway {u} exit {r[0]}, named by the kernel: {named}. Not shown killed by the limit"
+           for u, r, named in zip(units, res, by_limit) if r[0] not in KILLED or not named]
+    if host_kills(log) > host:
+        bad.append(f"limit {mb}: the machine itself ran out of memory while the runaways ran (kernel log)")
     return bad
 
 
-def verified(cap, files):
-    """(the files the cap stopped, [(file, exit)] that failed some other way: a timeout's exit is None)."""
-    t0 = time.monotonic()
-    def one(f):
-        rc, out, peak = lean(f, cap, PROOF_S)
-        return f, rc, rc is not None and check.capped(out), peak   # a timeout is never "stopped by the cap"
+def mixed(mb, files):
+    """The reasons this limit's kills are not shown to leave the checks beside them alone."""
+    runs, probes, stop, lock, queue = [], [], threading.Event(), threading.Lock(), itertools.cycle(files)
+    host = host_kills(kernel_log())
+    def proofs():
+        while True:                                      # each worker finishes the proof it is on, and at least one
+            with lock:
+                f = next(queue)
+            t0 = time.monotonic()
+            try:
+                rc, _, _, t0, t1 = lean(f, unit(), PROOF_S)
+            except Exception as e:                       # a run with no reading is a failed run, never a missing one
+                rc, t1 = f"{type(e).__name__}: {e}", time.monotonic()
+            runs.append((f, rc, t0, t1))
+            if stop.is_set():
+                return
+    workers = [threading.Thread(target=proofs) for _ in range(max(1, JOBS - 1))]
+    def work():
+        for w in workers:
+            w.start()
+        for _ in range(MIXED_RUNAWAYS):
+            u = unit()
+            rc, _, _, _, t1 = lean(PROBE, u, RUNAWAY_S)
+            probes.append((u, rc, t1))
+        stop.set()
+        for w in workers:
+            w.join()
+    _, low, before = watched(work)
+    settle()
+    log = kernel_log()
+    kills = [t1 for u, rc, t1 in probes if rc in KILLED and limit_killed(log, u)]
+    met, failed = overlapping(runs, kills), [(Path(f).parent.name, rc) for f, rc, _, _ in runs if rc != 0]
+    secs = lambda rs: round(sorted(r[3] - r[2] for r in rs)[len(rs) // 2]) if rs else None
+    print(f"limit {mb}: mixed, {len(kills)} of {MIXED_RUNAWAYS} runaways killed by the limit beside {len(runs)} proof "
+          f"runs, {len(runs) - len(failed)} pass, {len(failed)} failed {failed[:3]}; {len(met)} met the limit (running "
+          f"at a kill), median {secs(met)} s against {secs([r for r in runs if r not in met])} s for the rest; "
+          f"free memory {before} -> lowest {low} MB", flush=True)
+    bad = []
+    if len(kills) < MIXED_RUNAWAYS:
+        bad.append(f"limit {mb}: mixed, {MIXED_RUNAWAYS - len(kills)} runaways not shown killed by the limit: {probes}")
+    if failed:
+        bad.append(f"limit {mb}: mixed, {len(failed)} proofs failed beside a runaway: {failed[:5]}")
+    if len(met) < MIN_MET:
+        bad.append(f"limit {mb}: mixed, {len(met)} proofs met the limit and {MIN_MET} are needed: no reading of what a kill does")
+    if host_kills(log) > host:
+        bad.append(f"limit {mb}: mixed, the machine itself ran out of memory (kernel log)")
+    return bad
+
+
+def verified(mb, files):
+    """The reasons this limit does not keep the sample: any proof that did not pass, a timeout included."""
     with ThreadPoolExecutor(JOBS) as pool:
-        res, low, before = watched(lambda: list(pool.map(one, files)))
-    cut = [f for f, rc, capped, _ in res if capped]
-    other = [(f, rc) for f, rc, capped, _ in res if rc != 0 and not capped]
-    peaks = sorted(p for _, _, _, p in res if p)
-    print(f"cap {cap}: {len(files)} verified proofs, {sum(rc == 0 for _, rc, _, _ in res)} pass, {len(cut)} stopped by "
-          f"the cap, {len(other)} failed otherwise {other[:3]}; peak median {peaks[len(peaks) // 2] if peaks else None} "
-          f"max {peaks[-1] if peaks else None} MB; free memory {before} -> lowest {low} MB; "
-          f"{time.monotonic() - t0:.0f} s", flush=True)
-    return cut, other
+        res, low, before = watched(lambda: list(pool.map(lambda f: (f, *lean(f, unit(), PROOF_S)), files)))
+    failed = [(Path(f).parent.name, rc) for f, rc, *_ in res if rc != 0]
+    peaks, secs = sorted(r[3] for r in res if r[3]), sorted(r[5] - r[4] for r in res)
+    print(f"limit {mb}: {len(files)} verified proofs {JOBS} at once, {len(files) - len(failed)} pass, {len(failed)} "
+          f"failed {failed[:3]}; peak median {peaks[len(peaks) // 2] if peaks else None} max "
+          f"{peaks[-1] if peaks else None} MB; median {secs[len(secs) // 2]:.0f} s, longest {secs[-1]:.0f} s; "
+          f"free memory {before} -> lowest {low} MB; slice {charged()}", flush=True)
+    return [f"limit {mb}: {len(failed)} sampled proofs did not pass: {failed[:5]}"] if failed else []
 
 
 def main(files):
-    try:
-        cores = Path("/proc/sys/kernel/core_pattern").read_text().strip()   # where a capped run's abort goes
-    except OSError:
-        cores = None
     print(f"judge user: {os.environ.get('SB_JUDGE_USER') or 'none'}; {free_mb()} MB free; {len(files)} proofs sampled; "
-          f"core_pattern {cores!r}", flush=True)
-    low, plain_peak = floor(FLOOR_CAPS, lambda cap: lean(PLAIN, cap, PROOF_S))
-    if low is None:
-        sys.exit(f"no cap up to {FLOOR_CAPS[-1]} passes a plain accept: no floor, nothing else read")
-    caps = [low + h for h in HEADROOM]
-    print(f"floor {low} MB; caps tried: {caps}", flush=True)
-    bad = [b for cap in caps for b in runaway(cap, plain_peak)]   # every cap's reading, whichever cap the proofs need
-    left, keeps = files, None
-    for cap in caps:
-        cut, other = verified(cap, left)                 # a proof cut at this cap is tried again at the next
-        if not cut and not other and left is not files:  # the retries ran few at a time: the whole sample, JOBS at once
-            cut, other = verified(cap, files)
-            left = files
-        if other:                                        # a timeout or an error is not a proof the cap kept
-            bad.append(f"cap {cap}: {len(other)} sampled proofs failed and not at the cap, so no cap is named: {other[:5]}")
+          f"limits tried: {list(LIMITS)}", flush=True)
+    held, bad = [], []
+    for mb in LIMITS:
+        set_limit(mb)
+        settle()
+        guard(mb)
+        loose = runaways(mb)
+        if loose:                                        # a higher limit is not tried on runaways this one lost
+            bad += loose
             break
-        if not cut:
-            keeps = cap
-            break
-        left = cut
-    else:
-        bad.append(f"no cap up to {caps[-1]} keeps every sampled proof: {left}")
+        here = mixed(mb, files) + verified(mb, files)
+        bad += here
+        if not here:
+            held.append(mb)
+    if held:
+        print(f"limits that held every arm: {held}", flush=True)
     if bad:
         sys.exit("\n".join(bad))
-    print(f"lowest cap that keeps every sampled proof: {keeps} (floor {low} + {keeps - low})")
 
 
 if __name__ == "__main__":

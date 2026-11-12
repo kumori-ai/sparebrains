@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -156,21 +157,25 @@ class TimeoutCanary(unittest.TestCase):
         self.assertIn("ps failed", str(e.exception))
 
 
-class MemoryCap(unittest.TestCase):
-    """kumori #683: the cap is measured before it is set (tools/judge_memory_canary.py)."""
+class MemoryLimit(unittest.TestCase):
+    """kumori #683: the limit is measured before it is set (tools/judge_memory_canary.py). Lean's own -M is not it:
+    on the runner it printed its message and the runaway ran on (check run 43326406123)."""
 
-    def test_the_lean_command_carries_a_cap_only_when_asked(self):
+    def test_a_named_unit_runs_lean_in_its_own_scope_of_the_judge_slice_as_the_judge_user(self):
+        with patch.dict(os.environ, {"SB_JUDGE_USER": "sbjudge", "KUMORI_API_KEY": "sbcanary-key-1234"}):
+            plain = check.lean_cmd("x.lean")[0]
+            cmd = check.lean_cmd("x.lean", unit="sbjudge-7-1")[0]
+        self.assertEqual(plain[:4], ["sudo", "-n", "-u", "sbjudge"], "the judge itself is unchanged")
+        head = cmd[:cmd.index("env")]
+        self.assertEqual(head[:4], ["sudo", "-n", "systemd-run", "--scope"])
+        for want in ("--unit=sbjudge-7-1", "--slice=sbjudge.slice", "--uid=sbjudge", "MemoryOOMGroup=yes"):
+            self.assertIn(want, head)
+        self.assertEqual(cmd[cmd.index("env"):][:2], ["env", "-i"], "the scope still starts from an empty environment")
+        self.assertNotIn("sbcanary", " ".join(cmd))
+        self.assertEqual(cmd[-1], "x.lean")
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SB_JUDGE_USER", None)
-            self.assertNotIn("-M", check.lean_cmd("x.lean")[0])
-            cmd = check.lean_cmd("x.lean", 4500)[0]
-        self.assertEqual(cmd[cmd.index("-M") + 1], "4500")
-        self.assertEqual(cmd[-1], "x.lean")
-
-    def test_a_cap_abort_is_told_from_an_ordinary_error(self):
-        self.assertTrue(check.capped("libc++abi: terminating due to uncaught exception of type lean::memory_exception: "
-                                     "excessive memory consumption detected at 'interpreter'"))
-        self.assertFalse(check.capped("x.lean:3:2: error: unsolved goals"))
+            self.assertEqual(check.lean_cmd("x.lean", unit="u")[0][0], "lake", "no judge user, no scope")
 
     def test_the_sample_is_one_proof_per_problem_spread_evenly_and_the_same_every_run(self):
         import judge_memory_canary as canary
@@ -188,72 +193,84 @@ class MemoryCap(unittest.TestCase):
             self.assertEqual(canary.free_mb(f.name), 9317)
         self.assertIsNone(canary.free_mb("/nonexistent/meminfo"))
 
-    def test_the_floor_is_the_lowest_cap_a_plain_accept_passes_and_none_when_no_cap_does(self):
-        import judge_memory_canary as canary
-        tried = []
-        def plain(cap):
-            tried.append(cap)
-            return (0, "", 6100) if cap >= 6500 else (134, "excessive memory consumption", 6072)
-        self.assertEqual(canary.floor((5000, 6000, 6500, 7000), plain), (6500, 6100))
-        self.assertEqual(tried, [5000, 6000, 6500], "it stops at the first cap that passes")
-        self.assertEqual(canary.floor((5000, 6000), plain), (None, None))
+    LOG = ("[ 10.1] Memory cgroup out of memory: Killed process 4242 (lean) total-vm:9000kB\n"
+           "[ 10.1] Tasks in /sbjudge.slice/sbjudge-7-1.scope are going to be killed due to memory.oom.group set\n")
 
-    def test_a_plain_accept_that_fails_for_another_reason_is_not_a_floor_reading(self):
+    def test_a_kill_is_the_limits_only_when_the_kernel_log_names_that_checks_scope(self):
         import judge_memory_canary as canary
-        with self.assertRaises(SystemExit):
-            canary.floor((5000, 6000), lambda cap: (1, "x.lean:3:2: error: unsolved goals", 6000))
+        self.assertTrue(canary.limit_killed(self.LOG, "sbjudge-7-1"))
+        self.assertFalse(canary.limit_killed(self.LOG, "sbjudge-7-2"))
+        self.assertFalse(canary.limit_killed(self.LOG, "sbjudge-7-11"), "a longer unit name is another check")
+        self.assertEqual(canary.host_kills(self.LOG), 0)
+        self.assertEqual(canary.host_kills(self.LOG + "[ 11.0] Out of memory: Killed process 77 (python3)\n"), 1)
 
-    def test_a_runaway_whose_peak_is_no_higher_than_a_plain_accept_was_not_seen_taking_memory(self):
+    def test_a_proof_met_the_limit_only_if_it_was_running_when_a_runaway_was_killed(self):
         import judge_memory_canary as canary
-        self.assertFalse(canary.blind([7010, 7004, 7100], 6600))
-        self.assertTrue(canary.blind([7010, 6650, 7100], 6600), "one runaway stopped before it took anything")
-        self.assertTrue(canary.blind([7010, None, 7100], 6600), "a peak that was not read proves nothing")
-        self.assertTrue(canary.blind([7010], None))
+        runs = [("a", 0, 0.0, 5.0), ("b", 0, 6.0, 9.0), ("c", None, 3.0, 20.0)]
+        self.assertEqual([r[0] for r in canary.overlapping(runs, [4.0, 10.0])], ["a", "c"])
+        self.assertEqual(canary.overlapping(runs, []), [])
 
-    def run_canary(self, proof):
-        """The canary's whole run on fake Lean: floor 6500, runaways stopped at their cap and seen, proofs as proof(cap, n)."""
+    def run_canary(self, proof=lambda n: (0, "", 6200, 0.0, 1e12), probe_rc=-9, log=True, limits=(8000,)):
+        """The canary's whole run on fakes: the slice sets, every runaway ends as probe_rc, proofs as proof(n)."""
         import contextlib, io
         import judge_memory_canary as canary
-        n = [0]
-        def lean(path, cap, timeout):
-            if path == canary.PLAIN:
-                return (0, "", 6100) if cap >= 6500 else (134, "excessive memory consumption", 6072)
+        n, dmesg = [0], []
+        def lean(path, unit, timeout):
             if path == canary.PROBE:
-                return 134, "excessive memory consumption", cap + 20
+                if log:
+                    dmesg.append(f"Tasks in /sbjudge.slice/{unit}.scope are going to be killed due to memory.oom.group set")
+                return probe_rc, "", 9000, 1.0, 2.0
             n[0] += 1
-            return proof(cap, n[0])
+            return proof(n[0])
         out, code = io.StringIO(), 0
-        with patch.object(canary, "lean", lean), patch.object(canary, "JOBS", 1), contextlib.redirect_stdout(out):
+        with patch.multiple(canary, lean=lean, JOBS=1, LIMITS=limits, MIXED_RUNAWAYS=2, MIN_MET=1, set_limit=lambda mb: None,
+                            guard=lambda mb: 6600, settle=lambda: None, kernel_log=lambda: "\n".join(dmesg),
+                            charged=lambda: "current 0 MB"), contextlib.redirect_stdout(out):
             try:
                 canary.main([f"verified/s/p{i:02}/a.lean" for i in range(12)])
             except SystemExit as e:
                 code = e.code
         return code, out.getvalue()
 
-    def test_proofs_that_time_out_are_not_proofs_the_cap_kept(self):
-        code, out = self.run_canary(lambda cap, n: (None, "", 6200))       # Codex 20261112T230227845584Z f1
-        self.assertTrue(code, "it must not exit clean")
-        self.assertNotIn("lowest cap that keeps", out)
+    def test_a_limit_is_named_when_runaways_die_by_it_and_every_proof_passes_beside_them(self):
+        code, out = self.run_canary()
+        self.assertFalse(code, out)
+        self.assertIn("limits that held every arm: [8000]", out)
 
-    def test_a_timeout_is_a_failed_reading_even_when_it_printed_the_cap_message(self):
-        import judge_memory_canary as canary                               # Codex 20261112T230620127550Z f1
-        late = lambda cap, n: (None, "excessive memory consumption", None) if cap == 7000 else (0, "", 6200)
-        code, out = self.run_canary(late)
+    def test_proofs_that_time_out_name_no_limit(self):                      # Codex 20261112T230227845584Z f1
+        code, out = self.run_canary(lambda n: (None, "", 6200, 0.0, 1e12))
         self.assertTrue(code)
-        self.assertNotIn("lowest cap that keeps", out)
-        with self.assertRaises(SystemExit):
-            canary.floor((5000, 6000), lambda cap: (None, "excessive memory consumption", None))
+        self.assertNotIn("limits that held", out)
 
-    def test_a_cap_is_named_only_after_the_whole_sample_passes_under_it(self):
-        code, out = self.run_canary(lambda cap, n: (0, "", 6200))
-        self.assertFalse(code)
-        self.assertIn("lowest cap that keeps every sampled proof: 7000 (floor 6500 + 500)", out)
-        cut_once = lambda cap, n: (134, "excessive memory consumption", 7000) if cap == 7000 and n == 3 else (0, "", 6200)
-        code, out = self.run_canary(cut_once)
-        self.assertFalse(code)
-        self.assertIn("cap 7500: 1 verified proofs, 1 pass", out)
-        self.assertIn("cap 7500: 12 verified proofs, 12 pass", out, "the cap is rechecked on the whole sample")
-        self.assertIn("lowest cap that keeps every sampled proof: 7500", out)
+    def test_a_runaway_that_ended_without_the_kernel_log_naming_its_scope_names_no_limit(self):
+        code, out = self.run_canary(log=False)                              # Codex 20261112T233227563378Z f2
+        self.assertTrue(code)
+        self.assertNotIn("limits that held", out)
+        code, out = self.run_canary(probe_rc=None)
+        self.assertTrue(code, "a runaway still alive at the timeout was not contained")
+        self.assertNotIn("limits that held", out)
+
+    def test_proofs_that_never_ran_beside_a_kill_name_no_limit(self):       # Codex 20261112T233227563378Z f3
+        code, out = self.run_canary(lambda n: (0, "", 6200, 5.0, 6.0))
+        self.assertTrue(code)
+        self.assertIn("met the limit", out)
+        self.assertNotIn("limits that held", out)
+
+    def test_a_proof_run_that_raised_beside_a_runaway_names_no_limit(self):   # Codex 20261112T233926341418Z f4
+        def proof(n):
+            if n > 5 and "proofs" in threading.current_thread().name:     # the mixed arm's workers only
+                raise OSError("no reading")
+            return 0, "", 6200, 0.0, 1e12
+        with patch("threading.excepthook", lambda a: None):
+            code, out = self.run_canary(proof)
+        self.assertTrue(code)
+        self.assertIn("OSError", str(code))
+        self.assertNotIn("limits that held", out)
+
+    def test_every_limit_is_tried_and_each_that_held_is_listed(self):
+        code, out = self.run_canary(limits=(8000, 9000))
+        self.assertFalse(code, out)
+        self.assertIn("limits that held every arm: [8000, 9000]", out)
 
 
 if __name__ == "__main__":

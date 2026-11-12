@@ -26,16 +26,29 @@ NO_AXIOMS_RE = re.compile(r"'([^']+)' does not depend on any axioms")
 ENV_KEEP = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "ELAN_HOME", "ELAN_TOOLCHAIN"}
 
 
-def lean_cmd(file, mem_mb=None):
-    """`mem_mb` is Lean's own -M: past it Lean aborts with 'excessive memory consumption' (capped()). It counts the
-    Mathlib import too (a plain accept needs 3,000-3,400 as of 2026-11-12), so it is not the check's resident memory."""
+JUDGE_SLICE = "sbjudge.slice"   # the cgroup every scoped Lean run sits in: one memory limit over all of them (#683)
+
+
+def lean_cmd(file, unit=None):
+    """`unit` (Linux, with a judge user) runs Lean in its own systemd scope of that name inside JUDGE_SLICE, so a
+    kernel memory limit on the slice bounds every check together and a check the limit kills dies whole (lake and
+    Lean) and alone. Measured only as of 2026-11-12 (tools/judge_memory_canary.py): the judge passes no unit yet.
+    Lean's own -M is not a limit: it compares resident memory, the mapped Mathlib files included (about 6.6 GB on
+    the runner), on a counter and throws; a runaway in #eval printed the message and ran on (run 43326406123)."""
     env = {k: v for k, v in os.environ.items() if k in ENV_KEEP or k.startswith(("LAKE", "LEAN"))}
-    cmd = ["lake", "env", "lean", *LEAN_FLAGS, *(["-M", str(mem_mb)] if mem_mb else []), file]
+    cmd = ["lake", "env", "lean", *LEAN_FLAGS, file]
     user = os.environ.get("SB_JUDGE_USER")
     if not user:
         return cmd, env
     env["HOME"] = f"/tmp/{user}"
-    return ["sudo", "-n", "-u", user, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd], env
+    return as_judge(cmd, env, user, unit), env
+
+
+def as_judge(cmd, env, user, unit=None):
+    """`cmd` as the judge user with only `env`; in the scope `unit` of JUDGE_SLICE when one is named."""
+    how = ["-u", user] if not unit else ["systemd-run", "--scope", "--quiet", f"--unit={unit}", f"--slice={JUDGE_SLICE}",
+                                         f"--uid={user}", "-p", "MemoryOOMGroup=yes"]
+    return ["sudo", "-n", *how, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd]
 
 
 def kill_tree(pid, user=None):
@@ -106,11 +119,6 @@ def run_lean(cmd, env, timeout, cwd=None):
         # as subprocess's text mode read it: \r\n and \r are \n; a byte that is not UTF-8 no longer raises
         text = lambda b: b.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         return rc, text(fo.read()), text(fe.read()), peak
-
-
-def capped(out):
-    """Lean stopped at its -M cap: the check says nothing about the proof."""
-    return "excessive memory consumption" in out
 
 
 def judge(path, timeout):
