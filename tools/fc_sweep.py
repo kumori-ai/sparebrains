@@ -109,13 +109,18 @@ def proved(output, name, span):
 def lean_cmd(file, user, path):
     """Lean on one file; as the sandbox user with an emptied environment when there is one (tools/judge_sandbox.sh),
     because a prover's proof is untrusted code (#eval runs IO while Lean elaborates)."""
-    cmd = ["lake", "env", "lean", "-M", str(LEAN_MEM_MB), str(file)]   # a runaway proof fails alone
-    return ["sudo", "-n", "-u", user, "env", "-i", f"PATH={path}", f"HOME=/tmp/{user}", *cmd] if user else cmd
+    cmd = ["lake", "env", "lean", "-M", str(LEAN_MEM_MB), str(file)]
+    if not user:
+        return cmd
+    # -M is Lean's own check and a runaway can run past it (check run 43326406123, kumori #683); where the judge's
+    # kernel limit is set (tools/judge_sandbox.sh) the run is in a scope held to it, as check.lean_cmd's are.
+    mem = check.mem_limit()
+    return check.as_judge(cmd, {"PATH": path, "HOME": f"/tmp/{user}"}, user, check.new_unit() if mem else None, mem)
 
 
 def resource_limited(out):
-    """Lean stopped at its memory cap or our timeout: the check says nothing about the proof."""
-    return out == "timeout" or "excessive memory consumption" in out
+    """Lean stopped at its memory cap, the kernel's memory limit or our timeout: the check says nothing about the proof."""
+    return out == "timeout" or "excessive memory consumption" in out or check.unfinished(out)
 
 
 def run_lean(fc, text, tag):
@@ -126,7 +131,7 @@ def run_lean(fc, text, tag):
     t = time.time()
     rc, stdout, stderr, _ = check.run_lean(lean_cmd(f, os.environ.get("SB_JUDGE_USER"), os.environ.get("PATH", "")),
                                            None, TIMEOUT_S, cwd=fc)   # a timeout stops Lean too, not only lake
-    return ("timeout" if rc is None else stdout + stderr), round(time.time() - t, 1)
+    return ("timeout" if rc is None else check.killed(rc) or stdout + stderr), round(time.time() - t, 1)
 
 
 def sweep_one(fc, rel, text, d):
@@ -136,7 +141,7 @@ def sweep_one(fc, rel, text, d):
     row = {"file": rel, "name": d["name"], "category": d["category"], "seconds": secs,
            "statement_sha": hashlib.sha256("\n".join(text.split("\n")[d["start"]:d["end"]]).encode()).hexdigest()}
     if not proved(out, d["name"], region(cand, d["name"])):
-        return {**row, "verdict": "open", "timeout": out == "timeout"}
+        return {**row, "verdict": "open", "timeout": resource_limited(out)}
     for t in AUTO_TACTICS:                                        # which one closed it, alone
         alone = candidate(text, d, [t])
         o, _ = run_lean(fc, alone, tag)
@@ -218,7 +223,7 @@ def judge(fc, answers, texts, out):
         if proved(o, d["name"], region(cand, d["name"])):
             return {**row, "verdict": "proved", "seconds": secs, "proof": extract_proof(a["text"], d["name"])}
         if resource_limited(o):                       # inconclusive, so owed() asks it again
-            return {**row, "verdict": "resource", "seconds": secs, "reason": "timeout" if o == "timeout" else "lean memory cap"}
+            return {**row, "verdict": "resource", "seconds": secs, "reason": "timeout" if o == "timeout" else o if "MB memory limit" in o else "lean memory cap"}
         err = re.search(r"error: (.*)", o)
         return {**row, "verdict": "reject", "seconds": secs, "reason": (err.group(1) if err else o[-200:])[:300]}
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")

@@ -1,7 +1,10 @@
 """tools/fc_sweep.py: which formal-conjectures declarations are swept, how one `sorry` becomes a candidate, and when
 Lean's output counts as a proof. No Lean here: the file shapes are copied from their repo."""
+import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -92,6 +95,20 @@ class Prover(unittest.TestCase):
         self.assertIn("PATH=/h/.elan/bin:/usr/bin", cmd)
         self.assertEqual(cmd[-6:], ["lake", "env", "lean", "-M", str(fc.LEAN_MEM_MB), "/w/fc/.sweep/x.lean"])
         self.assertEqual(fc.lean_cmd("/f.lean", user=None, path="p"), ["lake", "env", "lean", "-M", str(fc.LEAN_MEM_MB), "/f.lean"])
+
+    def test_with_the_judges_memory_limit_set_lean_runs_in_a_scope_held_to_it_and_a_kill_decides_nothing(self):
+        on = {"SB_JUDGE_USER": "sbjudge", "SB_JUDGE_MEM_MB": "4000"}                     # kumori #683
+        with mock.patch.dict(os.environ, on):
+            cmd = fc.lean_cmd("/w/fc/.sweep/x.lean", user="sbjudge", path="/usr/bin")
+            self.assertEqual(cmd[:4], ["sudo", "-n", "systemd-run", "--scope"])
+            for want in ("--slice=sbjudge.slice", "--uid=sbjudge", "OOMPolicy=kill", "MemoryMax=4000M", "PATH=/usr/bin"):
+                self.assertIn(want, cmd)
+            with mock.patch.object(fc.check, "run_lean", return_value=(-9, "", "", 800)), tempfile.TemporaryDirectory() as d:
+                out, _ = fc.run_lean(d, "theorem t : True := trivial", "tag")
+        self.assertIn("4000 MB memory limit", out, "a killed run must not read as a silent one")
+        self.assertTrue(fc.resource_limited(out))
+        self.assertTrue(fc.resource_limited("timeout"))
+        self.assertFalse(fc.resource_limited("x.lean:1:1: error: unsolved goals"))
 
     def test_the_judges_lean_processes_fit_the_runner_together(self):
         # fc_prove 39695793555 (2026-10-22): the runner died 3 min into judging 4 at once, so nothing after it ran
