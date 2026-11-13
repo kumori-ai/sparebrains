@@ -121,6 +121,8 @@ class Gate(unittest.TestCase):
     def test_a_timeout_in_the_duplicate_run_drops_nothing_and_is_said(self):
         run_lean, _ = self.lean(dup_out="timeout after 180s")
         self.assertEqual(blueprint.duplicates(PREFIX, STMTS, run_lean), set())
+        run_lean, _ = self.lean(dup_out="killed (exit -9) under the 4000 MB memory limit")                       # kumori #683: a killed run is not a silent one
+        self.assertEqual(blueprint.duplicates(PREFIX, STMTS, run_lean), set())
 
     def test_a_silent_duplicate_run_means_every_example_passed_and_every_statement_is_a_duplicate(self):
         run_lean, _ = self.lean(dup_out="")

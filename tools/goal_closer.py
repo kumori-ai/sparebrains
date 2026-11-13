@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import ledger_files
 import subgoals
+from check import unfinished
 from proof_text import PROOF_SEP, extract_proof
 
 NUM_ASCRIPTION = re.compile(r"\(\s*([^():]+?)\s*:\s*[ℝℕℤℚℂ]\s*\)")    # `(3 : ℝ)`, as extract_goal prints numbers
@@ -174,9 +175,9 @@ TYPED_SINCE = "2026-10-09"   # rows from then on print goals with numeric types 
                              # come back as untyped duplicates of goals the 10-19 retype already typed
 
 
-def definitive(check):
-    """A stored Lean check worth reusing: readable, or rejected for a reason that is not a timeout."""
-    return check["verdict"] == "wellformed" or not str(check.get("reason", "")).startswith("timeout")
+def definitive(stored):
+    """A stored Lean check worth reusing: readable, or rejected by a run that finished (no timeout, no memory kill)."""
+    return stored["verdict"] == "wellformed" or not unfinished(str(stored.get("reason", "")))
 
 
 def refresh(goals_now, queue, open_keys, read_target, judge_text, checked=None):
@@ -323,7 +324,7 @@ def recipes_passing(output, starts, n_lines):
         for i in range(len(starts)):
             if bounds[i] <= at < bounds[i + 1]:
                 bad.add(i)
-    if "timeout after" in output:                    # no messages to place: nothing passes
+    if unfinished(output):                           # no messages to place: nothing passes
         return []
     return [i for i in range(len(starts)) if i not in bad]
 
@@ -381,7 +382,7 @@ def diagnose(goals, read_target, run_lean, jobs=4):
         tries = subgoals.TRY_THIS.findall(out)
         return {"sha": g["sha"], "target": g["target"], "kind": kind(g["goal"]), "restates": g.get("restates"),
                 "apply_hits": len(tries), "first": tries[0][:160] if tries else None,
-                "closes": any(t.startswith("exact") for t in tries), "timeout": "timeout after" in out,
+                "closes": any(t.startswith("exact") for t in tries), "timeout": unfinished(out),
                 "lean_s": round(secs, 1)}
 
     with ThreadPoolExecutor(jobs) as pool:

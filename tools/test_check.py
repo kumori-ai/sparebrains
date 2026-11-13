@@ -45,6 +45,41 @@ class JudgeEnvTests(unittest.TestCase):
         self.assertIn("ARGV -n -u sbjudge env -i", out)
         self.assertNotIn("sbcanary", out)
 
+    def test_with_a_memory_limit_set_every_check_runs_in_a_scope_of_its_own_held_to_it(self):   # kumori #683
+        on = {"SB_JUDGE_USER": "sbjudge", "SB_JUDGE_MEM_MB": "4000"}
+        out = self.run_judge(on)
+        self.assertIn("ARGV -n systemd-run --scope", out)
+        for want in ("--slice=sbjudge.slice", "--uid=sbjudge", "OOMPolicy=kill", "MemoryMax=4000M", "MemorySwapMax=0"):
+            self.assertIn(want, out)
+        self.assertNotIn("sbcanary", out)
+        with patch.dict(os.environ, on):
+            units = {next(a for a in check.lean_cmd("x.lean")[0] if a.startswith("--unit=")) for _ in range(50)}
+        self.assertEqual(len(units), 50, "a unit name used twice would be refused by systemd and read as a reject")
+        self.assertNotIn("systemd-run", self.run_judge({"SB_JUDGE_MEM_MB": "4000"}), "no judge user, no scope")
+
+    def test_a_check_the_limit_killed_says_so_and_is_not_an_ordinary_lean_error(self):
+        for rc in (-9, -15, 137, 143):
+            with patch.object(check, "run_lean", return_value=(rc, "", "", 812)), \
+                    patch.dict(os.environ, {**self.env, "SB_JUDGE_USER": "sbjudge", "SB_JUDGE_MEM_MB": "4000"}, clear=True):
+                verdict, reason, _, _ = check.judge(str(self.lean), 30)
+            self.assertEqual(verdict, "reject")
+            self.assertIn("4000 MB memory limit", reason)
+        with patch.object(check, "run_lean", return_value=(-9, "", "", 812)), patch.dict(os.environ, self.env, clear=True):
+            self.assertEqual(check.judge(str(self.lean), 30)[1][:12], "lean exit -9", "no limit set, no such claim")
+        with patch.object(check, "run_lean", return_value=(1, "x.lean:1:1: error: unsolved goals", "", 812)), \
+                patch.dict(os.environ, {**self.env, "SB_JUDGE_USER": "sbjudge", "SB_JUDGE_MEM_MB": "4000"}, clear=True):
+            self.assertIn("unsolved goals", check.judge(str(self.lean), 30)[1])
+
+    def test_a_run_that_did_not_finish_is_told_from_one_that_did_whoever_reads_it(self):
+        self.assertTrue(check.unfinished("timeout after 300s"))
+        self.assertTrue(check.unfinished("killed (exit -9) under the 4000 MB memory limit"))
+        self.assertFalse(check.unfinished("lean exit 1: x.lean:3:2: error: unsolved goals"))
+        self.assertFalse(check.unfinished(""))
+        import lean_tools                                # the lanes' Lean runs: a killed one must not read as silent
+        on = {**self.env, "SB_JUDGE_USER": "sbjudge", "SB_JUDGE_MEM_MB": "4000"}
+        with patch.object(check, "run_lean", return_value=(-9, "", "", 812)), patch.dict(os.environ, on, clear=True):
+            self.assertTrue(check.unfinished(lean_tools.run_lean("theorem t : True := trivial")[0]))
+
     def test_candidate_is_readable_by_the_judge_user(self):
         seen = {}
         real = check.run_lean
@@ -163,6 +198,7 @@ class MemoryLimit(unittest.TestCase):
 
     def test_a_named_unit_runs_lean_in_its_own_scope_of_the_judge_slice_as_the_judge_user(self):
         with patch.dict(os.environ, {"SB_JUDGE_USER": "sbjudge", "KUMORI_API_KEY": "sbcanary-key-1234"}):
+            os.environ.pop("SB_JUDGE_MEM_MB", None)       # Actions sets it (judge_sandbox.sh): Codex 20261113T015106887824Z f1
             plain = check.lean_cmd("x.lean")[0]
             cmd = check.lean_cmd("x.lean", unit="sbjudge-7-1", mem_mb=3000)[0]
         self.assertEqual(plain[:4], ["sudo", "-n", "-u", "sbjudge"], "the judge itself is unchanged")

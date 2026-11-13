@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import check
 import goal_closer
 import replay
 import subgoals
@@ -104,7 +105,7 @@ def audit(prefix, stmts, run_lean):
         for i in range(len(stmts)):
             if bounds[i] <= at < bounds[i + 1]:
                 why.setdefault(i, m.group(4).replace("AUDIT_FAIL ", ""))
-    if "timeout after" in out:
+    if check.unfinished(out):
         return [{"i": i + 1, "ok": False, "why": out.strip()} for i in range(len(stmts))]
     clean = [i for i in range(len(stmts)) if i not in why]
     if out.count("AUDIT_OK") < len(clean):

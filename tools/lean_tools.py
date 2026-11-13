@@ -58,7 +58,7 @@ def run_lean(text, timeout=180):
     t0 = time.monotonic()
     try:
         rc, stdout, stderr, _ = check.run_lean(cmd, env, timeout, cwd=ROOT)   # a timeout stops Lean too, not only lake
-        out = f"timeout after {timeout}s" if rc is None else "\n".join(
+        out = f"timeout after {timeout}s" if rc is None else check.killed(rc) or "\n".join(
             l for l in (stdout + stderr).splitlines() if not l.startswith(("info: downloading", "info: installing")))
     finally:
         Path(f.name).unlink(missing_ok=True)

@@ -17,6 +17,7 @@ from .client import (
     llm_usage,
     llm_registry,
     llm_backoff_state,
+    llm_lane_outcomes,
     llm_backoff_until,
     llm_is_backed_off,
     embed_text,

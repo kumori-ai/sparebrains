@@ -10,7 +10,7 @@ survives, and every theorem in it depends on nothing outside the axiom allowlist
 file (needs the lake workspace built and the mathlib cache present). The judge sets
 `autoImplicit=false` itself, so an attempt cannot turn a typo into a free variable.
 """
-import argparse, json, os, re, resource, signal, subprocess, sys, tempfile, threading, time
+import argparse, itertools, json, os, re, resource, secrets, signal, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -29,21 +29,50 @@ ENV_KEEP = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "ELAN_HOME", "ELAN_TOOLC
 JUDGE_SLICE = "sbjudge.slice"   # the cgroup every scoped Lean run sits in: one memory limit over all of them (#683)
 
 
+# How a run the kernel's memory limit killed ends: its SIGKILL, or the SIGTERM systemd stops the scope with when it
+# sees the kill first (2 of 11 kills the kernel log named, check run 43333405589), as the signal or as lake's exit.
+KILLED = (-9, 137, -15, 143)
+_units = itertools.count(1)
+
+
+def new_unit():
+    """A scope name no other check has: systemd refuses a name in use, and a killed scope keeps its name."""
+    return f"sbjudge-{os.getpid()}-{next(_units)}-{secrets.token_hex(4)}"
+
+
+def mem_limit():
+    """The memory limit in MB on each Lean run, set by tools/judge_sandbox.sh with the slice's; None when there is none."""
+    return int(os.environ.get("SB_JUDGE_MEM_MB") or 0) or None if os.environ.get("SB_JUDGE_USER") else None
+
+
+def killed(rc):
+    """What a run the memory limit killed is reported as, in place of its output; None for any other end."""
+    return f"killed (exit {rc}) under the {mem_limit()} MB memory limit" if rc in KILLED and mem_limit() else None
+
+
+def unfinished(text):
+    """Lean did not finish, at our timeout or the kernel's memory limit: the text says nothing about the proof.
+    Every reader of a judge reason or of lean_tools.run_lean's output asks this, never the words themselves."""
+    return "timeout after" in text or "MB memory limit" in text
+
+
 def lean_cmd(file, unit=None, mem_mb=None):
-    """`unit` (Linux, with a judge user) runs Lean in its own systemd scope of that name inside JUDGE_SLICE, so a
-    kernel memory limit on the slice bounds every check together and a check the limit kills dies whole (lake and
-    Lean). `mem_mb` is a limit on that scope too, so a runaway meets its own before the slice's: with the slice's
-    alone, one of 5 kills took a proof running beside the runaway (run 43333405589). Measured only as of 2026-11-12
-    (tools/judge_memory_canary.py): the judge passes no unit yet.
-    Lean's own -M is not a limit: it compares resident memory, the mapped Mathlib files included (about 6.6 GB on
-    the runner), on a counter and throws; a runaway in #eval printed the message and ran on (run 43326406123)."""
+    """Lean on one file, as the judge user when there is one. With a memory limit (mem_limit(), or `mem_mb` from the
+    canary) it runs in a systemd scope of its own inside JUDGE_SLICE, held to that limit with no swap, its oom group
+    set so a check the kernel kills dies whole (lake and Lean), under the slice's limit over all checks together.
+    Measured on the runner 2026-11-12 (tools/judge_memory_canary.py, check runs 43336349606 and 43338876083): at
+    4000 MB a scope and 8000 MB the slice, runaways died in 5-12 s with 6.9 GB still free, no proof beside them was
+    lost in 42 runs, warm cache and cold; with the slice's limit alone one of 12 was (43333405589). Lean's own -M is
+    not a limit: it compares resident memory, the mapped Mathlib files included (about 6.6 GB there), on a counter
+    and throws; a runaway in #eval printed the message and ran on (43326406123)."""
     env = {k: v for k, v in os.environ.items() if k in ENV_KEEP or k.startswith(("LAKE", "LEAN"))}
     cmd = ["lake", "env", "lean", *LEAN_FLAGS, file]
     user = os.environ.get("SB_JUDGE_USER")
     if not user:
         return cmd, env
     env["HOME"] = f"/tmp/{user}"
-    return as_judge(cmd, env, user, unit, mem_mb), env
+    mem_mb = mem_mb or mem_limit()
+    return as_judge(cmd, env, user, unit or (new_unit() if mem_mb else None), mem_mb), env
 
 
 def as_judge(cmd, env, user, unit=None, mem_mb=None):
@@ -143,6 +172,8 @@ def judge(path, timeout):
     secs = time.monotonic() - t0
     if rc is None:
         return "reject", f"timeout after {timeout}s", secs, ""
+    if killed(rc):                                       # like a timeout: it says nothing about the proof itself
+        return "reject", killed(rc), secs, ""
     out = (stdout + stderr).replace(tmp.name, path)
     if rc != 0:
         first_error = next((l for l in out.splitlines() if "error" in l), out[:200])

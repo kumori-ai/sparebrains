@@ -105,6 +105,10 @@ class RefreshChecks(unittest.TestCase):
         self.assertEqual((len(calls), out[0]["file_ok"]), (1, True))
         self.assertEqual(checks[0]["verdict"], "wellformed")
 
+    def test_a_check_the_memory_limit_killed_is_judged_again(self):   # kumori #683, Codex 20261113T015106887824Z f2
+        out, checks, calls = self.go({"n1": {"verdict": "reject", "reason": "killed (exit -9) under the 4000 MB memory limit"}})
+        self.assertEqual((len(calls), out[0]["file_ok"]), (1, True))
+
 
 TYPED = "theorem sb_goal (x y : ℤ) (h₀ : y ^ (2 : ℕ) + (3 : ℤ) * x = (7 : ℤ)) : y ^ (2 : ℕ) ≤ (7 : ℤ) + (3 : ℤ) * x := by"
 
@@ -185,6 +189,7 @@ class Close(unittest.TestCase):
         sorry = f"proof.lean:{starts[0][1]}:8: warning: declaration uses 'sorry'"
         self.assertEqual(gc.recipes_passing(sorry, starts, len(lines)), [1])
         self.assertEqual(gc.recipes_passing("timeout after 180s", starts, len(lines)), [])
+        self.assertEqual(gc.recipes_passing("killed (exit -9) under the 4000 MB memory limit", starts, len(lines)), [], "a killed run passes nothing")
 
     def test_the_sweep_judges_only_filter_passes_and_keeps_no_proof_text_in_rows(self):
         judged = []

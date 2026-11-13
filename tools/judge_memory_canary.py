@@ -42,14 +42,7 @@ LIMITS, JOBS, SAMPLE = ((3000, 8000), (4000, 8000)), 3, 45   # MB: (each scope, 
 RUNAWAY_S, PROOF_S, SETTLE_S = 180, 600, 60
 COLD_SAMPLE, COLD_S, COLD_LEFT_MB = 9, 300, 3000         # 300 s is the ladder's own check timeout
 MIXED_RUNAWAYS, MIN_MET = 5, 5
-# How a limit-killed run ends: the kernel's SIGKILL, or the SIGTERM systemd stops the scope with when it sees the
-# kill first (2 of 11 named kills in run 43333405589). The kernel log is what says a kill was the limit's.
-KILLED = (-9, 137, -15, 143)
-_units = itertools.count(1)
-
-
-def unit():
-    return f"sbjudge-{os.getpid()}-{next(_units)}"
+KILLED, unit = check.KILLED, check.new_unit             # the judge's own exits and scope names
 
 
 def sudo(*cmd):

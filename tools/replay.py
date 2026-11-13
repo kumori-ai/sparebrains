@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import check
 from proof_text import PROOF_SEP, extract_proof, recover_lean3
 from toolscore import file_hash, problem_hash, problem_half, statement_sha, wilson95
 
@@ -404,7 +405,7 @@ def baseline_one(target_text, run_lean, judge_text, recipes=None, first=None):
             starts.append((f"sb_goal_r{i}", text.count("\n") + 1))
             text += named(f"sb_goal_r{i}") + "\n  " + recipes[i] + "\n\n"
         out, _ = run_lean(text, timeout=BATCH_TIMEOUT_S)
-        if "timeout after" in out:
+        if check.unfinished(out):
             if len(ix) == 1:
                 return [], list(ix)
             h = len(ix) // 2
@@ -423,8 +424,8 @@ def baseline_one(target_text, run_lean, judge_text, recipes=None, first=None):
             r = judge_text(pre + "\n  " + recipes[i])
             if r["verdict"] == "accept":
                 return {"verdict": "accept", "closer": recipes[i]}
-            if r["verdict"] == "timeout" or str(r.get("reason", "")).startswith("timeout after"):
-                timed_out.append(i)           # check.judge reports a timeout as reject + "timeout after Ns" (Codex f1)
+            if r["verdict"] == "timeout" or check.unfinished(str(r.get("reason", ""))):
+                timed_out.append(i)           # check.judge reports a timeout or a memory kill as reject + its reason (Codex f1)
     return {"verdict": "incomplete" if timed_out else "reject", "closer": None,
             **({"unfinished": [recipes[i] for i in sorted(timed_out)]} if timed_out else {})}
 

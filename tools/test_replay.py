@@ -239,6 +239,11 @@ class BaselineSweepTests(unittest.TestCase):
         real = lambda t, timeout=300: {"verdict": "reject", "reason": "timeout after 300s"}   # check.judge's own shape
         row = replay.baseline_one(self.TARGET, run_lean, real, ["linarith"])
         self.assertEqual(row["verdict"], "incomplete", "check.judge's timeout reject is a timeout (Codex f1)")
+        kill = "killed (exit -9) under the 4000 MB memory limit"                                   # kumori #683, Codex 20261113T015106887824Z f2
+        row = replay.baseline_one(self.TARGET, lambda t, timeout=180: (kill, 5.0), judge, ["linarith", "omega"])
+        self.assertEqual((row["verdict"], row["unfinished"]), ("incomplete", ["linarith", "omega"]))
+        row = replay.baseline_one(self.TARGET, run_lean, lambda t, timeout=300: {"verdict": "reject", "reason": kill}, ["linarith"])
+        self.assertEqual(row["verdict"], "incomplete", "a check the memory limit killed is not a finished reject")
         row = replay.baseline_one(self.TARGET, run_lean, lambda t, timeout=300: {"verdict": "reject"}, ["linarith"])
         self.assertEqual(row["verdict"], "reject")
 

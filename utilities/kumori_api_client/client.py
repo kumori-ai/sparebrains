@@ -610,6 +610,18 @@ def llm_backoff_state():
     return data.get('backoff_state', {})
 
 
+def llm_lane_outcomes(app_name=None):
+    """{lane: {calls, answered, answer_rate, no_answer: {code: n}, median_answer_s, no_answer_s, last5_no_answer,
+    fit}} for this app's own chat calls of the last 24 h. `fit` is False when 4 of its last 5 calls on the lane
+    got no answer, None with fewer than 5. A lane can answer other apps and still fail for yours (long prompts
+    time out where short ones do not): check it before pinning. app_name is the one you send on chat calls."""
+    path = '/api/v1/llm/lane-outcomes'
+    if app_name:
+        from urllib.parse import quote
+        path += '?app_name=' + quote(app_name, safe='')
+    return _request('GET', path).get('lanes', {})
+
+
 def llm_is_backed_off(backend_name):
     """Convenience: True if backend is currently in backoff."""
     state = llm_backoff_state()
