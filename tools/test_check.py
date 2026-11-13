@@ -215,7 +215,7 @@ class MemoryLimit(unittest.TestCase):
         """The canary's whole run on fakes: the slice sets, every runaway ends as probe_rc, proofs as proof(n)."""
         import contextlib, io
         import judge_memory_canary as canary
-        n, dmesg = [0], []
+        n, dmesg, self.cold = [0], [], []
         def lean(path, unit, timeout, scope_mb):
             if path == canary.PROBE:
                 if log:
@@ -225,7 +225,7 @@ class MemoryLimit(unittest.TestCase):
             return proof(n[0])
         out, code = io.StringIO(), 0
         with patch.multiple(canary, lean=lean, JOBS=1, LIMITS=limits, MIXED_RUNAWAYS=2, MIN_MET=1, set_limit=lambda mb: None,
-                            guard=lambda limit: 6600, settle=lambda: None, kernel_log=lambda: "\n".join(dmesg),
+                            guard=lambda limit: 6600, drop_cache=lambda: self.cold.append(1), settle=lambda: None, kernel_log=lambda: "\n".join(dmesg),
                             charged=lambda: "current 0 MB"), contextlib.redirect_stdout(out):
             try:
                 canary.main([f"verified/s/p{i:02}/a.lean" for i in range(12)])
@@ -273,6 +273,14 @@ class MemoryLimit(unittest.TestCase):
             code, out = self.run_canary(proof)
         self.assertTrue(code)
         self.assertIn("OSError", str(code))
+        self.assertNotIn("limits that held", out)
+
+    def test_a_limit_that_loses_a_proof_once_the_page_cache_is_dropped_is_not_listed(self):
+        code, out = self.run_canary()                                       # Codex 20261113T001830728450Z f5
+        self.assertEqual(len(self.cold), 1, "the cache is dropped once for the one limit that held warm")
+        self.assertIn("cold cache", out)
+        code, out = self.run_canary(lambda n: (0, "", 6200, 0.0, 1e12) if not self.cold else (None, "", 6200, 0.0, 1e12))
+        self.assertTrue(code)
         self.assertNotIn("limits that held", out)
 
     def test_every_limit_is_tried_and_each_that_held_is_listed(self):

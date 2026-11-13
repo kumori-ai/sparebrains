@@ -21,6 +21,9 @@ first. For each (scope, slice) pair of LIMITS, as the judge user:
             least MIN_MET of them must have been running at the moment of a kill, else this says nothing about
             what a kill does to the checks beside it.
   verified: the sample of verified proofs, JOBS at once. Every one must pass.
+  cold:     for a pair that held all of that, the page cache is dropped (the Mathlib files are then read again and
+            charged to whichever scopes read them, against their limits), then COLD_SAMPLE proofs and the mixed arm
+            again. Run 43336349606 (2026-11-12) held both pairs warm, with the mapping charged outside the slice.
 A limit is listed only when every arm held under it; a timeout or any failure lists none, and the run exits 1 with
 the reasons. Between arms it waits for the slice to be empty (cgroup.events populated, which counts the scopes
 under it). Codex 20261112T233227563378Z f1-f3 (the emptiness, attribution and overlap rules)."""
@@ -37,6 +40,7 @@ PLAIN = ROOT / "checks/accept/two_plus_two.lean"
 CG = Path("/sys/fs/cgroup") / check.JUDGE_SLICE
 LIMITS, JOBS, SAMPLE = ((3000, 8000), (4000, 8000)), 3, 45   # MB: (each scope, the slice)
 RUNAWAY_S, PROOF_S, SETTLE_S = 180, 600, 60
+COLD_SAMPLE, COLD_S, COLD_LEFT_MB = 9, 300, 3000         # 300 s is the ladder's own check timeout
 MIXED_RUNAWAYS, MIN_MET = 5, 5
 # How a limit-killed run ends: the kernel's SIGKILL, or the SIGTERM systemd stops the scope with when it sees the
 # kill first (2 of 11 named kills in run 43333405589). The kernel log is what says a kill was the limit's.
@@ -155,6 +159,20 @@ def settle():
     sys.exit(f"the slice still holds processes {SETTLE_S} s after a kill: the next arm would not start clean")
 
 
+def cached_mb(meminfo="/proc/meminfo"):
+    return next((int(l.split()[1]) // 1024 for l in (read(meminfo) or "").splitlines() if l.startswith("Cached:")), None)
+
+
+def drop_cache():
+    """Empties the page cache, the Mathlib files with it, and stops the run when it did not empty."""
+    before = cached_mb()
+    r = sudo("sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches")
+    after = cached_mb()
+    print(f"page cache dropped: {before} -> {after} MB cached", flush=True)
+    if r.returncode != 0 or after is None or after > COLD_LEFT_MB:
+        sys.exit(f"the page cache did not empty ({before} -> {after} MB): the cold arm would read nothing. {r.stderr.strip()[-200:]}")
+
+
 def kernel_log():
     r = sudo("dmesg")
     if r.returncode != 0:
@@ -167,8 +185,9 @@ def charged():
     stat = dict(l.split() for l in (read(CG / "memory.stat") or "").splitlines() if len(l.split()) == 2)
     mb = lambda v: int(v) // 1048576 if v and v.isdigit() else None
     events = " ".join((read(CG / "memory.events") or "").split())
+    own = " ".join((read(CG / "memory.events.local") or "").split())    # the slice's own limit, not its scopes'
     return (f"current {mb(read(CG / 'memory.current'))} MB (anon {mb(stat.get('anon'))}, file {mb(stat.get('file'))}, "
-            f"mapped {mb(stat.get('file_mapped'))}); events: {events}")
+            f"mapped {mb(stat.get('file_mapped'))}); events: {events}; the slice's own: {own}")
 
 
 def watched(work):
@@ -205,9 +224,9 @@ def runaways(limit):
     return bad
 
 
-def mixed(limit, files):
+def mixed(limit, files, cold=""):
     """The reasons these limits' kills are not shown to leave the checks beside them alone."""
-    scope_mb, mb = limit[0], f"{limit[0]}/{limit[1]}"
+    scope_mb, mb = limit[0], f"{limit[0]}/{limit[1]}{cold}"
     runs, probes, stop, lock, queue = [], [], threading.Event(), threading.Lock(), itertools.cycle(files)
     host = host_kills(kernel_log())
     def proofs():
@@ -255,11 +274,11 @@ def mixed(limit, files):
     return bad
 
 
-def verified(limit, files):
+def verified(limit, files, timeout=PROOF_S, cold=""):
     """The reasons these limits do not keep the sample: any proof that did not pass, a timeout included."""
-    scope_mb, mb = limit[0], f"{limit[0]}/{limit[1]}"
+    scope_mb, mb = limit[0], f"{limit[0]}/{limit[1]}{cold}"
     with ThreadPoolExecutor(JOBS) as pool:
-        res, low, before = watched(lambda: list(pool.map(lambda f: (f, *lean(f, unit(), PROOF_S, scope_mb)), files)))
+        res, low, before = watched(lambda: list(pool.map(lambda f: (f, *lean(f, unit(), timeout, scope_mb)), files)))
     failed = [(Path(f).parent.name, rc) for f, rc, *_ in res if rc != 0]
     peaks, secs = sorted(r[3] for r in res if r[3]), sorted(r[5] - r[4] for r in res)
     print(f"limit {mb}: {len(files)} verified proofs {JOBS} at once, {len(files) - len(failed)} pass, {len(failed)} "
@@ -285,6 +304,14 @@ def main(files):
         bad += here
         if not here:
             held.append(limit)
+    for limit in list(held):                             # after every warm arm: from here the cache is the slice's
+        set_limit(limit[1])
+        settle()
+        drop_cache()
+        here = verified(limit, files[:COLD_SAMPLE], COLD_S, ", cold cache") + mixed(limit, files, ", cache read in the slice")
+        bad += here
+        if here:
+            held.remove(limit)
     if held:
         print(f"limits that held every arm: {held}", flush=True)
     if bad:
