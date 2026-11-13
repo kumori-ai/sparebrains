@@ -39,6 +39,7 @@ PROBE = ROOT / "checks/canary/memory_probe.lean"
 PLAIN = ROOT / "checks/accept/two_plus_two.lean"
 CG = Path("/sys/fs/cgroup") / check.JUDGE_SLICE
 LIMITS, JOBS, SAMPLE = ((3000, 8000), (4000, 8000)), 3, 45   # MB: (each scope, the slice)
+JUDGE_LIMITS = (4000, 8000)                              # what tools/judge_sandbox.sh sets, since 2026-11-13
 RUNAWAY_S, PROOF_S, SETTLE_S = 180, 600, 60
 COLD_SAMPLE, COLD_S, COLD_LEFT_MB = 9, 300, 3000         # 300 s is the ladder's own check timeout
 MIXED_RUNAWAYS, MIN_MET = 5, 5
@@ -74,6 +75,12 @@ def spread(files, n):
     if len(one) <= n:
         return one
     return [one[i * len(one) // n] for i in range(n)]
+
+
+def plan(argv):
+    """(sample size, limit pairs). --every-problem: one verified proof of every problem, under the judge's own pair
+    only; the default sample is 45 of them, and the heaviest honest proof is what a limit most needs to be shown."""
+    return (10 ** 6, (JUDGE_LIMITS,)) if "--every-problem" in argv else (SAMPLE, LIMITS)
 
 
 def limit_killed(log, unit):
@@ -281,11 +288,12 @@ def verified(limit, files, timeout=PROOF_S, cold=""):
     return [f"limit {mb}: {len(failed)} sampled proofs did not pass: {failed[:5]}"] if failed else []
 
 
-def main(files):
+def main(files, limits=None):
+    limits = limits or LIMITS
     print(f"judge user: {os.environ.get('SB_JUDGE_USER') or 'none'}; {free_mb()} MB free; {len(files)} proofs sampled; "
-          f"limits tried, MB (each scope, the slice): {list(LIMITS)}", flush=True)
+          f"limits tried, MB (each scope, the slice): {list(limits)}", flush=True)
     held, bad = [], []
-    for limit in LIMITS:
+    for limit in limits:
         set_limit(limit[1])
         settle()
         guard(limit)
@@ -312,9 +320,10 @@ def main(files):
 
 
 if __name__ == "__main__":
+    sample, limits = plan(sys.argv[1:])
     files = spread(subprocess.run(["git", "ls-files", "verified"], capture_output=True, text=True, cwd=ROOT,
-                                  check=True).stdout.split(), SAMPLE)
+                                  check=True).stdout.split(), sample)
     files = [str(ROOT / f) for f in files if f.endswith(".lean")]
     if len(files) < 10:
         sys.exit(f"only {len(files)} verified proofs to sample: verdict meaningless")
-    main(files)
+    main(files, limits)

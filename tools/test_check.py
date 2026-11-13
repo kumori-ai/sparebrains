@@ -222,6 +222,17 @@ class MemoryLimit(unittest.TestCase):
         self.assertEqual(canary.spread(list(reversed(files)), 10), got)
         self.assertEqual(len(canary.spread(files[:6], 10)), 3)
 
+    def test_every_problem_mode_runs_one_proof_of_each_problem_under_the_judges_own_limits(self):
+        import judge_memory_canary as canary
+        self.assertEqual(canary.plan([]), (canary.SAMPLE, canary.LIMITS))
+        sample, limits = canary.plan(["--every-problem"])
+        self.assertEqual(limits, (canary.JUDGE_LIMITS,), "only the pair the judge runs under")
+        files = [f"verified/s/p{i:03}/{lane}.lean" for i in range(400) for lane in ("b", "a")]
+        self.assertEqual(len(canary.spread(files, sample)), 400)
+        sh = (Path(__file__).parent / "judge_sandbox.sh").read_text()
+        self.assertIn(f"slice_mb={canary.JUDGE_LIMITS[1]} scope_mb={canary.JUDGE_LIMITS[0]}", sh,
+                      "the pair measured is the pair judge_sandbox.sh sets")
+
     def test_free_memory_is_read_from_the_kernel_or_is_none(self):
         import judge_memory_canary as canary
         with tempfile.NamedTemporaryFile("w") as f:
