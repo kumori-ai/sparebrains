@@ -164,11 +164,12 @@ class MemoryLimit(unittest.TestCase):
     def test_a_named_unit_runs_lean_in_its_own_scope_of_the_judge_slice_as_the_judge_user(self):
         with patch.dict(os.environ, {"SB_JUDGE_USER": "sbjudge", "KUMORI_API_KEY": "sbcanary-key-1234"}):
             plain = check.lean_cmd("x.lean")[0]
-            cmd = check.lean_cmd("x.lean", unit="sbjudge-7-1")[0]
+            cmd = check.lean_cmd("x.lean", unit="sbjudge-7-1", mem_mb=3000)[0]
         self.assertEqual(plain[:4], ["sudo", "-n", "-u", "sbjudge"], "the judge itself is unchanged")
         head = cmd[:cmd.index("env")]
         self.assertEqual(head[:4], ["sudo", "-n", "systemd-run", "--scope"])
-        for want in ("--unit=sbjudge-7-1", "--slice=sbjudge.slice", "--uid=sbjudge", "OOMPolicy=kill"):
+        for want in ("--unit=sbjudge-7-1", "--slice=sbjudge.slice", "--uid=sbjudge", "OOMPolicy=kill", "MemoryMax=3000M",
+                     "MemorySwapMax=0"):
             self.assertIn(want, head)
         self.assertEqual(cmd[cmd.index("env"):][:2], ["env", "-i"], "the scope still starts from an empty environment")
         self.assertNotIn("sbcanary", " ".join(cmd))
@@ -210,12 +211,12 @@ class MemoryLimit(unittest.TestCase):
         self.assertEqual([r[0] for r in canary.overlapping(runs, [4.0, 10.0])], ["a", "c"])
         self.assertEqual(canary.overlapping(runs, []), [])
 
-    def run_canary(self, proof=lambda n: (0, "", 6200, 0.0, 1e12), probe_rc=-9, log=True, limits=(8000,)):
+    def run_canary(self, proof=lambda n: (0, "", 6200, 0.0, 1e12), probe_rc=-9, log=True, limits=((3000, 8000),)):
         """The canary's whole run on fakes: the slice sets, every runaway ends as probe_rc, proofs as proof(n)."""
         import contextlib, io
         import judge_memory_canary as canary
         n, dmesg = [0], []
-        def lean(path, unit, timeout):
+        def lean(path, unit, timeout, scope_mb):
             if path == canary.PROBE:
                 if log:
                     dmesg.append(f"Tasks in /sbjudge.slice/{unit}.scope are going to be killed due to memory.oom.group set")
@@ -224,7 +225,7 @@ class MemoryLimit(unittest.TestCase):
             return proof(n[0])
         out, code = io.StringIO(), 0
         with patch.multiple(canary, lean=lean, JOBS=1, LIMITS=limits, MIXED_RUNAWAYS=2, MIN_MET=1, set_limit=lambda mb: None,
-                            guard=lambda mb: 6600, settle=lambda: None, kernel_log=lambda: "\n".join(dmesg),
+                            guard=lambda limit: 6600, settle=lambda: None, kernel_log=lambda: "\n".join(dmesg),
                             charged=lambda: "current 0 MB"), contextlib.redirect_stdout(out):
             try:
                 canary.main([f"verified/s/p{i:02}/a.lean" for i in range(12)])
@@ -235,7 +236,14 @@ class MemoryLimit(unittest.TestCase):
     def test_a_limit_is_named_when_runaways_die_by_it_and_every_proof_passes_beside_them(self):
         code, out = self.run_canary()
         self.assertFalse(code, out)
-        self.assertIn("limits that held every arm: [8000]", out)
+        self.assertIn("limits that held every arm: [(3000, 8000)]", out)
+
+    def test_a_limit_kill_may_end_as_sigterm_when_the_kernel_log_names_the_scope(self):
+        code, out = self.run_canary(probe_rc=-15)     # run 43333405589: 2 of 11 named kills exited -15, systemd's stop
+        self.assertFalse(code, out)
+        self.assertIn("limits that held every arm", out)
+        code, out = self.run_canary(probe_rc=1)
+        self.assertTrue(code, "an ordinary exit is not a kill")
 
     def test_proofs_that_time_out_name_no_limit(self):                      # Codex 20261112T230227845584Z f1
         code, out = self.run_canary(lambda n: (None, "", 6200, 0.0, 1e12))
@@ -268,9 +276,9 @@ class MemoryLimit(unittest.TestCase):
         self.assertNotIn("limits that held", out)
 
     def test_every_limit_is_tried_and_each_that_held_is_listed(self):
-        code, out = self.run_canary(limits=(8000, 9000))
+        code, out = self.run_canary(limits=((3000, 8000), (4000, 8000)))
         self.assertFalse(code, out)
-        self.assertIn("limits that held every arm: [8000, 9000]", out)
+        self.assertIn("limits that held every arm: [(3000, 8000), (4000, 8000)]", out)
 
 
 if __name__ == "__main__":

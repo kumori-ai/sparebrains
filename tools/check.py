@@ -29,10 +29,12 @@ ENV_KEEP = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "ELAN_HOME", "ELAN_TOOLC
 JUDGE_SLICE = "sbjudge.slice"   # the cgroup every scoped Lean run sits in: one memory limit over all of them (#683)
 
 
-def lean_cmd(file, unit=None):
+def lean_cmd(file, unit=None, mem_mb=None):
     """`unit` (Linux, with a judge user) runs Lean in its own systemd scope of that name inside JUDGE_SLICE, so a
     kernel memory limit on the slice bounds every check together and a check the limit kills dies whole (lake and
-    Lean) and alone. Measured only as of 2026-11-12 (tools/judge_memory_canary.py): the judge passes no unit yet.
+    Lean). `mem_mb` is a limit on that scope too, so a runaway meets its own before the slice's: with the slice's
+    alone, one of 5 kills took a proof running beside the runaway (run 43333405589). Measured only as of 2026-11-12
+    (tools/judge_memory_canary.py): the judge passes no unit yet.
     Lean's own -M is not a limit: it compares resident memory, the mapped Mathlib files included (about 6.6 GB on
     the runner), on a counter and throws; a runaway in #eval printed the message and ran on (run 43326406123)."""
     env = {k: v for k, v in os.environ.items() if k in ENV_KEEP or k.startswith(("LAKE", "LEAN"))}
@@ -41,13 +43,15 @@ def lean_cmd(file, unit=None):
     if not user:
         return cmd, env
     env["HOME"] = f"/tmp/{user}"
-    return as_judge(cmd, env, user, unit), env
+    return as_judge(cmd, env, user, unit, mem_mb), env
 
 
-def as_judge(cmd, env, user, unit=None):
-    """`cmd` as the judge user with only `env`; in the scope `unit` of JUDGE_SLICE when one is named."""
+def as_judge(cmd, env, user, unit=None, mem_mb=None):
+    """`cmd` as the judge user with only `env`; in the scope `unit` of JUDGE_SLICE when one is named, held to
+    `mem_mb` of its own memory and no swap when that is given."""
     how = ["-u", user] if not unit else ["systemd-run", "--scope", "--quiet", f"--unit={unit}", f"--slice={JUDGE_SLICE}",
-                                         f"--uid={user}", "-p", "OOMPolicy=kill"]
+                                         f"--uid={user}", "-p", "OOMPolicy=kill",
+                                         *(["-p", f"MemoryMax={mem_mb}M", "-p", "MemorySwapMax=0"] if mem_mb else [])]
     return ["sudo", "-n", *how, "env", "-i", *(f"{k}={v}" for k, v in env.items()), *cmd]
 
 
