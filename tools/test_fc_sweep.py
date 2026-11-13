@@ -90,6 +90,11 @@ class Prover(unittest.TestCase):
         self.assertNotIn("theorem hard", p, "nothing after the target")
 
     def test_untrusted_lean_runs_as_the_sandbox_user_with_an_empty_environment(self):
+        with mock.patch.dict(os.environ):                # Actions sets the limit (judge_sandbox.sh): this is the form without
+            os.environ.pop("SB_JUDGE_MEM_MB", None)      # it; check runs 43359602805 and 43360004760 failed here
+            self.unscoped()
+
+    def unscoped(self):
         cmd = fc.lean_cmd("/w/fc/.sweep/x.lean", user="sbjudge", path="/h/.elan/bin:/usr/bin")
         self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "sbjudge", "env", "-i"])
         self.assertIn("PATH=/h/.elan/bin:/usr/bin", cmd)
