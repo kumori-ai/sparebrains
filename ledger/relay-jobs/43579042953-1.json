@@ -1,0 +1,1 @@
+{"run_id": "43579042953", "run_attempt": "1", "ts": "2026-11-14T09:09:47+00:00", "problem": "minif2f/test/numbertheory_exk2powkeqapb2mulbpa2_aeq1", "calls": 44, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "model", "model": "baidu/ernie-5.5-flash-preview:free"}, "backed_off": true}
