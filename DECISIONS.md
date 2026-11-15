@@ -3,6 +3,32 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-15
+
+- **No ladder cutoff for thinking cuts; the next run is a Lean-trained filler on the blueprint's holes (Andy's
+  question: how do we get more, faster, better; the lab's call).** The day's report window (ledger/minif2f rows
+  between 4efb7bed and cb03a1a0): 413 rows, 681 call-minutes, 245 of 442 lost before the kernel, five lanes holding
+  about 185 of them (openrouter-ernie-5-5-flash 67 cuts at 16,000 tokens, median 56 s; sealion-qwen-sea-lion-v4-5-27b-it
+  39 timeouts, median 245 s; groq-qwen3-8-27b 20 cuts at 4,000; requesty-ling-3-1-flash 27; requesty-gemma-4-31b-it 22
+  of 22). I proposed a per-run cutoff (3 cuts or timeouts by a lane on a rung stop it there and above). Dropped, on
+  Codex 20261115T234113711421Z, both findings re-run by me: the cuts were not re-asks (64 ernie ladder cuts on 64
+  distinct cells; `ladder.cut_closed` already closes a cut cell at its budget, and my premise was the stale
+  2026-10-07 entry), and replaying the cutoff over the same rows suppresses 30 asks, 29 errors and one accept
+  (`algebra_amgm_sumasqdivbgeqsuma`, run 43554432934); ernie's 6 accepts include amc12 and custom, so a cut on a rung
+  says nothing about its next problem. Timeouts already park a lane after 3 failures in a row (`ERROR_STREAK_TO_PARK`).
+  Read, not built: OpenRouter's catalog on 2026-11-15 lists ernie-5.5-flash-preview with reasoning mandatory and only
+  `high` supported, so the `low` we send is not applied; a larger budget for it is its own experiment. Deep-search the
+  same day (dev and research profiles; Reddit, HN, StackExchange and Bluesky returned nothing on point for my
+  phrasings): OpenRouter's docs and four write-ups give the same fix for an all-thinking reply (raise the budget or cap
+  the thinking, never a blind retry); Goedel-Architect (arXiv 2606.06468), Goedel's Poetry (2512.14252), MechMath
+  (2603.24465) and Delta Prover (2507.15225) all fill decomposed holes with a Lean-specialized prover or a large
+  reasoner, none with 3B-8B chat models, which is what both guided pilots used. So: manifest
+  `ledger/stall/pilot-guided-2026-11-15.json`, the same problem and gated blueprint, hole lane requesty-leanstral-1-5
+  alone, endpoints narrowed to what the rows record. Codex 234449896697Z DISAGREE (arm A is not patient; no durations
+  or refusal causes are recorded; both read in the code and taken out of the manifest), 234650357794Z AGREE. Residual:
+  no lane isolation from the ladder, overlap is listed beside the result; a feasibility read, no claim. The Kaggle
+  Goedel-Prover adapter is the step after, whatever this run shows.
+
 ## 2026-11-09
 
 - **Two open problems fell to the repair tries' first pass through the free chain (#574).** Run 42692259001, the

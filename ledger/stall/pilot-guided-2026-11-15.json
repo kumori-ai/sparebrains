@@ -1,0 +1,31 @@
+{
+  "id": "pilot-guided-2026-11-15",
+  "kind": "feasibility pilot (1 problem), third run: a Lean-trained filler on the holes; no claim",
+  "supersedes": "pilot-guided-2026-11-09b (run 42709087673): arm A 1 of 12 planned calls, arm B 0 of 6 holes, arm C 12 asked, 7 answered, 5 unanswered, 0 holes closed; all 7 answers rejected on Lean form first (unknown tactic x2, a Lean 3 arrow, invented names x2, a #print token, one linarith). Hole lanes were ministral-3b, ministral-8b and manta-mini",
+  "question": "does a Lean-trained lane answer this blueprint's holes in valid Lean form, and close any? Nothing else is read from this run",
+  "changes": [
+    "arm C's hole lane is requesty-leanstral-1-5 alone, a live router lane, so the existing callback path is used unchanged (Codex 20261115T234113711421Z f3: a manifest cannot reach the Kaggle prover; 234449896697Z: one lane is enough for this question)",
+    "the Lean tier is the baseline's 30 recipes one hole at a time (replay.baseline_one), landed 2026-11-09 after the second run; locally it closed holes 5 and 6, which this run shows or does not"
+  ],
+  "why": "deep-search 2026-11-15: Goedel-Architect (arXiv 2606.06468), Goedel's Poetry (2512.14252), MechMath (2603.24465) and Delta Prover (2507.15225) all fill decomposed holes with a Lean-specialized prover or a large reasoner, none with 3B-8B general chat models",
+  "problems": ["minif2f/test/mathd_numbertheory_451"],
+  "stalled_since_days": 73,
+  "guide": "codex (work ask 20261109T211612681102Z; gated blueprint ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json, unchanged, the only blueprint for this problem)",
+  "lanes": ["requesty-leanstral-1-5"],
+  "asks_per_problem": 12,
+  "arm_a_attempts_per_lane": 4,
+  "arms": {
+    "A": "the ordinary sweep, this lane cold on the problem up to attempt 4. The lane already has 3 answered cold tries on it (3 rejects, ledger/minif2f), so at most 1 new call is planned. The sweep defers a benched lane 3 times and then skips it; it does NOT wait as arm C does. A is context only",
+    "B": "blueprint + Lean's closers on each hole (replay.baseline_one), no model call",
+    "C": "blueprint + Lean's closers + the lane above on what Lean leaves open, breadth first, waiting out benches (attempt.patient), the free chain on each rejected hole proof; 12 asks planned"
+  },
+  "endpoint": "per arm B and C, from the row attempt.py writes: holes closed by Lean, closed by the lane, closed by the lane after the free chain (repaired, shown as assisted), failed, unattempted; asked, answered, unanswered. Whole proof: accept, reject, or NOT CHECKED when final is null (the assembled proof is judged only when every hole closed); a null is never reported as a kernel reject. Arm A: its normal ledger rows, realized calls of planned",
+  "not_recorded": "elapsed time per arm (the rows carry no durations), and why an ask went unanswered (the call cap, a bench and an error all count as unanswered)",
+  "inconclusive_if": "arm C's answered is under half of asked. An operational threshold, written before the dispatch; coverage above it does not by itself establish feasibility",
+  "isolation": "none. The pilot does not reserve its lane: the ladder's two-hour schedule and its self-chain can run beside it on the same per-lane spacing (Codex 20261115T234449896697Z f6, accepted). Every attempt run overlapping this run's start-to-end window is listed beside the result",
+  "a_failed_run_does_not": "veto the Kaggle Goedel-Prover adapter (prover.build_goals / judge_goals with guided attribution); an availability failure or a failure on these six holes says nothing about another specialized filler",
+  "credit": "a C solve is guided: the guide chose the propositions, Lean and the lane (plus the free chain) proved every step; never 'free models plus tools'. Measurement rows committed; the accepted TEXT held in the run's recovery artifact (SB_GUIDED_OUT, 30 days), not in verified/, ledger/ or on the site, until the lab decides how guided solves are shown",
+  "claim": "none",
+  "before_any_comparative_claim": "REQUIRED (Codex 20261109T220030181138Z Q3, 220521632877Z f3): arm A must wait out router benches with the same bound as arm C (attempt.patient or equivalent in the sweep) and the arms' REALIZED call budgets must be matched and reported side by side; until then A vs C is feasibility evidence only, never tool lift",
+  "verdicts": ["20261115T234113711421Z_codex", "20261115T234449896697Z_codex", "20261115T234650357794Z_codex"]
+}
