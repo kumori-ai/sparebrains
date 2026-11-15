@@ -56,3 +56,35 @@ Inputs for `tools/replay.py`: a lane's stored answers, re-run with zero model ca
   the reply and sends no ablation row. Design: Codex 20261109T200739796471Z AGREE.
 - Public already: the first and last ids, 3968 and 101911, are served at https://sparebrains.kumori.ai/attempts/<id>,
   both 200 signed out, 2026-11-09.
+
+## all-lanes-ladder-x3-2026-11-14.jsonl.gz
+
+- What: every answered (accept or reject) `ladder-x3` attempt by any lane, created from 2026-11-09T18:00Z (after
+  replay run 42663548076 began, 17:22Z) to 2026-11-14T23:59Z, on the same 164 targets baseline 2
+  (`baseline-2-2026-11-09`) tested and did not prove: 2,307 attempts (2,197 reject, 110 accept) from 30 lanes on all
+  164 targets, ids 101902 to 105917. No Ministral reply is in it (those lanes have none since the first cohort), and
+  no id is shared with `ministral-ladder-x3-2026-11-09`. Fields as that cohort. 1,276,140 bytes; sha256 begins
+  257a1cf37d71f502.
+- From: kumori's `sparebrains_attempts`, 2026-11-14, one read-only query as `adhoc_session`: `SELECT id, created_at,
+  run_id, target_set, target, statement_sha, attempt_no, mode, verdict, reason, failure_kind, rung, response, backend
+  FROM sparebrains_attempts WHERE mode = 'ladder-x3' AND verdict IN ('accept','reject') AND created_at >=
+  '2026-11-09 18:00+00' AND created_at < '2026-11-14 23:59+00' AND (target_set || '/' || target) = ANY(<the 164>)
+  ORDER BY id`. No filter on lane or outcome.
+- Why: the Ministral replay found 107 of 2,827 rejected replies accepted after the chain, on 17 targets (8 more were
+  accepted as extracted; recounted from the result rows 2026-11-14, DECISIONS.md's "0 accepted as written" is wrong).
+  That was one model family and a historical set. This asks whether it holds on other lanes' later replies, which
+  did not exist when that run was read. Tool changes since 2026-11-09T18:00Z touch no chain file (fixer.py,
+  proof_text.py, toolscore.py unchanged; Codex's check and mine); that is no proof nobody read these replies.
+- The read, written before the run: per reply, its recorded verdict (the raw answer), accepted after the chain, and
+  the no-model baseline (it rejected all 164, so every accept here is off the baseline). Reported per lane, per
+  tools and Lean version (this run is not pooled with 42663548076: tools 39dfcb35ec then, 278a8cc155 now), and on
+  the report half of the problems (`toolscore.problem_half`) beside the total. **It holds if, on the report half, at
+  least 1% of rejected replies are accepted after the chain and at least 5 distinct targets are rescued; otherwise it
+  does not.** Judged only on a complete run. For scale, the Ministral run by half: 83 rescues on the tune half, 24 on
+  the report half (Codex's recount, to be re-derived with this run's read).
+- Not claimed whatever it shows: new mathematics (none of the 164 need be open), independent replies (repeat tries
+  on one target are not; targets are the unit), or that no model is needed (the chain keeps the model's structure).
+- Public already: the first and last ids, 101902 and 105917, are served at https://sparebrains.kumori.ai/attempts/<id>,
+  both 200 signed out, 2026-11-14.
+- Design: Codex 20261114T235518274863Z AGREE (f1 follow-up: `--report` has no per-half table yet; the bar above is
+  read from the result rows by half).
