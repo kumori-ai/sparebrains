@@ -1,0 +1,1 @@
+{"run_id": "43740188701", "run_attempt": "1", "ts": "2026-11-15T17:19:17+00:00", "problem": "minif2f/test/amc12a_2021_p25", "calls": 45, "accepts": 0, "relay_rows": 28, "woken_by": {"kind": "model", "model": "mistralai/Mistral-Small-3.2-24B-Instruct-2506"}, "backed_off": true}
