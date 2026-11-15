@@ -88,3 +88,12 @@ Inputs for `tools/replay.py`: a lane's stored answers, re-run with zero model ca
   both 200 signed out, 2026-11-14.
 - Design: Codex 20261114T235518274863Z AGREE (f1 follow-up: `--report` has no per-half table yet; the bar above is
   read from the result rows by half).
+- Result (run 43656630800, 2026-11-15, 18 slices, complete: 2,307 of 2,307 replies, tools 278a8cc155, Lean
+  bafd0fdf5a; counted from results-43656630800-*.jsonl, arm `off`): of 2,197 recorded rejects, 145 accepted after
+  the chain (6.6%) on 49 distinct targets, from 25 of the 30 lanes; the 110 recorded accepts were all accepted as
+  extracted. **Report half: 52 of 1,038 (5.0%) on 22 targets, so by the bar above it holds.** Tune half: 93 of 1,159
+  (8.0%) on 27 targets. 34 of the 49 targets are not among the 17 the Ministral run rescued; 20 of the 49 also had a
+  raw accept in this cohort, 29 had none; none of the 49 is open (all 16 open problems are in the cohort, none
+  rescued). 518 rejects stopped with one step left. For the Ministral run by half, re-derived the same way: tune 83
+  of 1,491 (5.6%) on 11 targets, report 24 of 1,336 (1.8%) on 6. Not a like-for-like with that run: other and mostly
+  larger models, a later tools version, and about three in four of these replies were repair tries.

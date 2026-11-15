@@ -87,9 +87,23 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   automation alone, and the remaining four (the four-divisor classification, the p^3 and pq bounds, the 1837
   computation) are the real work. Fix: fill's Lean tier uses baseline_one per hole. Still a feasibility read, no claim.
 
+- **The chain's rescue of rejected replies holds on other lanes' later replies, by a bar set before the run (#574;
+  kumori #691).** Cohort `all-lanes-ladder-x3-2026-11-14`: every answered ladder-x3 reply by any lane from
+  2026-11-09T18:00Z to 11-14 on the 164 targets baseline 2 did not prove, 2,307 replies (2,197 reject, 110 accept),
+  30 lanes, none Ministral, no filter on lane or outcome. Bar, in ledger/replay/README.md before the run: on the
+  report half, at least 1% of rejects accepted after the chain and at least 5 distinct targets. Run 43656630800
+  (2026-11-15, complete, zero model calls, tools 278a8cc155): 145 of 2,197 rejects accepted after the chain (6.6%) on
+  49 targets from 25 lanes; report half 52 of 1,038 (5.0%) on 22 targets, tune half 93 of 1,159 (8.0%) on 27. So as
+  of 2026-11-15 it holds. For scale the Ministral run by half: tune 83 of 1,491, report 24 of 1,336 (1.8%) on 6.
+  Not claimed: a like-for-like gain over that run (other and mostly larger models, a later tools version, about
+  three in four of these replies were repair tries); a new solve (none of the 49 is open; the 16 open problems are
+  all in the cohort and none was rescued); independence of replies (targets are the unit). 20 of the 49 targets also
+  had a raw accept in the cohort, 29 had none; 518 rejects stopped one step from done. Residual: `replay.py
+  --report` has no per-half table, the half read is from the rows. Codex 20261114T235518274863Z AGREE (design).
 - **Small lanes plus the free chain reach targets Lean's automation alone does not; the repair tries never got the
   chain (#574 step 1).** Replay of the Ministral lanes' 2,835 answered ladder-x3 replies on the 164 targets baseline 2
-  tested and did not prove (CI run 42663548076, zero model calls): 0 accepted as written, 107 accepted after
+  tested and did not prove (CI run 42663548076, zero model calls): 8 accepted as written (all 14B; this line said 0
+  until 2026-11-15, recounted from the result rows), 107 of the 2,827 rejects accepted after
   toolscore.run_chain (fixer, holes, Lean's automation), on 17 distinct targets (3B 7, 8B 9, 14B 12), Lean 3 recovery
   0 extra. Baseline 2 ran every AUTO_TACTIC on each whole goal and rejected all 17, so as of 2026-11-09 this is
   lift over that baseline from the model's structure plus automation, not tools alone. Spot check, attempt 39262
