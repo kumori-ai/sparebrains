@@ -350,6 +350,40 @@ class KaggleBatch(unittest.TestCase):
         self.assertEqual(f["closed_by"], {2: "sample"})
         self.assertEqual([(t["hole"], t["repaired"]) for t in f["tries"]], [(1, False), (2, True), (3, False)])
 
+    def test_a_continuing_manifest_exports_only_its_open_holes_and_says_which(self):
+        """2026-11-16: the second batch samples holes 1 and 3; the closed ones are carried, not sampled again."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bp, _ = self.work(tmp)
+            man = {"id": "pilot-x", "problems": ["minif2f/test/demo"], "holes": [1, 3]}
+            work = blueprint.kaggle_work(man, 8, read=lambda s, t: self.TARGET, find=lambda name: bp, rel=lambda path: path.name)
+        self.assertEqual([(w["guided"]["hole"], w["guided"]["exported"], w["guided"]["holes"]) for w in work],
+                         [(1, [1, 3], 3), (3, [1, 3], 3)])
+
+    def test_a_carried_hole_is_judged_again_and_closes_without_a_sample(self):
+        """The first batch's closed holes 2 and 4 lived only in Kaggle's output (2026-11-16). A carried body is a
+        claim like any sample: Lean judges it on the hole's own lemma before it counts."""
+        seen = []
+        base = self.judge()
+        judge_text = lambda text: (seen.append(text), base(text))[1]
+        f = self.fill({1: [self.GOOD, self.GOOD], 3: [self.GOOD, self.BAD]}, judge_text=judge_text,
+                      carried={2: ["exact good"]}, exported=[1, 3])
+        self.assertEqual(f["closed_by"], {1: "sample", 2: "carried", 3: "sample"})
+        self.assertTrue(any(": 0 < n → n ≠ 0 := by\n  exact good\n" in t for t in seen), "the carried body went to the judge")
+        self.assertEqual((f["planned"], f["generated"], f["truncated"]), ({1: 2, 2: 0, 3: 2}, {1: 2, 2: 0, 3: 2}, False))
+        self.assertEqual(f["final"], "accept")
+        self.assertEqual(f["bodies"], {1: {"lines": ["exact good"], "sample": 0, "repaired": False}, 2: {"lines": ["exact good"]},
+                                       3: {"lines": ["exact good"], "sample": 0, "repaired": False}})
+
+    def test_a_carried_body_that_no_longer_judges_leaves_its_hole_open_and_is_never_repaired(self):
+        repair = Mock(return_value="  exact good\n")
+        f = self.fill({1: [self.GOOD, self.GOOD], 3: [self.GOOD, self.GOOD]}, carried={2: ["exact bad"]}, exported=[1, 3])
+        self.assertEqual((f["closed_by"], f["carry_failed"], f["unattempted"]), ({1: "sample", 3: "sample"}, [2], [2]))
+        self.assertNotIn("final", f, "an open hole: the whole proof is not checked")
+        g = blueprint.fill_samples(PREFIX, self.S3, {}, self.judge(), proof_of=self.proof_of, planned=2, repair=repair,
+                                   carried={2: ["exact bad"]}, exported=[1, 3])
+        self.assertEqual(g["carry_failed"], [2])
+        repair.assert_not_called()
+
 
 @unittest.skipUnless((Path(__file__).parent.parent / ".lake" / "packages" / "mathlib").is_dir(), "needs the local Mathlib build")
 class AuditInLean(unittest.TestCase):

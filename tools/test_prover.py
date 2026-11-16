@@ -337,6 +337,81 @@ class GuidedBatchTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.judge(a + [dict(a[0], guided=dict(a[0]["guided"], manifest="pilot-other"))])
 
+    def held(self, batch=None):
+        return self.root / "held" / f"holes-{batch or self.batch}.json"
+
+    def test_every_closed_holes_proof_is_held_beside_the_accept_and_the_row_carries_its_hash(self):
+        """2026-11-16: the first batch closed holes 2 and 4 and their proofs were kept nowhere a second batch could
+        read. Held with the accepted text (the artifact), never in the ledger: the hole bodies together are the solve."""
+        judge_text = lambda text: {"verdict": "accept" if "x + 0 = x := by" in text and "have bp_" not in text else "reject",
+                                   "reason": "", "output": ""}
+        prover.judge_guided(self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]}), judge_text=judge_text,
+                            read=lambda s, t: TARGET, run_id="t1", stall=self.stall, guided_out=self.root / "held",
+                            closer=lambda lp: None, blueprint_at=lambda rel: Path(rel))
+        (row,) = self.rows()
+        doc = json.loads(self.held().read_text())
+        hole = doc["problems"][f"minif2f/test/{NAME}"]["holes"]
+        self.assertEqual(hole, {"2": {"by": prover.BACKEND, "batch": self.batch, "lines": ["rfl"], "sample": 0, "repaired": False}})
+        self.assertEqual(row["hole_sha"], {"2": hashlib.sha256(b"rfl").hexdigest()})
+        self.assertEqual(row["holes_file_sha"], hashlib.sha256(self.held().read_bytes()).hexdigest())
+        self.assertNotIn("rfl", json.dumps(row))
+        self.assertEqual(sorted(p.name for p in self.stall.iterdir()), ["blueprints", f"{self.batch}.jsonl", f"{self.MID}.json"])
+
+    def continuing(self, first_holes, sha=None, tag="b"):
+        """A second manifest that carries `first_holes` from self.batch and samples hole 1 only."""
+        g = self.work[0]["guided"]
+        text = json.dumps({"batch": self.batch, "problems": {f"minif2f/test/{NAME}": {
+            "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"], "holes": first_holes}}})
+        (self.root / "in").mkdir(exist_ok=True)
+        (self.root / "in" / f"holes-{self.batch}.json").write_text(text)
+        mid = self.MID + "-" + tag
+        man = {"id": mid, "filler": "kaggle", "problems": [f"minif2f/test/{NAME}"], "samples_per_hole": 2, "holes": [1],
+               "carry": {"batch": self.batch, "run": 7, "artifact": "a", "sha256": sha or hashlib.sha256(text.encode()).hexdigest()}}
+        (self.stall / f"{mid}.json").write_text(json.dumps(man))
+        import blueprint
+        work = blueprint.kaggle_work(man, 2, read=lambda s, t: TARGET, find=lambda name: self.bp, rel=lambda path: str(path))
+        batch = f"guided-{mid}-20261116T0000"
+        answers = [{"batch": batch, "target_set": w["target_set"], "target": w["target"], "sample": k, "guided": w["guided"],
+                    "text": self.GOOD, "config": {"model": prover.MODEL}} for w in work for k in range(2)]
+        stats = prover.judge_guided(answers, judge_text=lambda text: {"verdict": "reject" if "stale" in text else "accept",
+                                                                      "reason": "", "output": ""},
+                                    read=lambda s, t: TARGET, run_id="t2", stall=self.stall, guided_out=self.root / "held",
+                                    guided_in=self.root / "in", closer=lambda lp: None, blueprint_at=lambda rel: Path(rel))
+        (row,) = [json.loads(l) for l in (self.stall / f"{batch}.jsonl").read_text().splitlines()]
+        return row, stats, batch
+
+    FIRST = {"2": {"by": "kaggle-goedel-prover-v2-8b", "batch": "first", "lines": ["simp"], "sample": 3, "repaired": True}}
+
+    def test_a_second_batch_carries_the_first_batchs_hole_and_credits_its_first_closer(self):
+        row, stats, batch = self.continuing(self.FIRST)
+        self.assertEqual(row["closed_by"], {"1": prover.BACKEND, "2": f"carried:{self.batch}"})
+        self.assertEqual(row["carried_from"], {"2": "kaggle-goedel-prover-v2-8b+chain"}, "never the second batch's samples")
+        self.assertEqual((row["planned"], row["generated"], row["truncated"]), ({"1": 2, "2": 0}, {"1": 2, "2": 0}, False))
+        self.assertEqual((row["final"], row["carry_missing"], row["carry_failed"]), ("accept", None, []))
+        hole = json.loads(self.held(batch).read_text())["problems"][f"minif2f/test/{NAME}"]["holes"]
+        self.assertEqual(hole["2"], self.FIRST["2"], "the cumulative file keeps who first proved a carried hole")
+        self.assertEqual((hole["1"]["by"], hole["1"]["batch"]), (prover.BACKEND, batch))
+
+    def test_a_carry_that_is_missing_altered_or_stale_leaves_the_hole_open_and_says_why(self):
+        row, _, _ = self.continuing(self.FIRST, sha="0" * 64)
+        self.assertEqual((row["closed_by"], row["unattempted"]), ({"1": prover.BACKEND}, [2]))
+        self.assertIn("not the bytes the manifest froze", row["carry_missing"])
+        self.assertIsNone(row["final"], "an open hole: not checked")
+        row, _, _ = self.continuing({"2": dict(self.FIRST["2"], lines=["stale"])}, tag="c")
+        self.assertEqual((row["carry_failed"], row["unattempted"], row["carry_missing"]), ([2], [2], None))
+
+    def test_judging_a_batch_again_writes_its_holes_file_and_leaves_the_committed_row_alone(self):
+        """The backfill for the batch judged before holes were kept (workflow input `rejudge`)."""
+        a = self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]})
+        self.judge(a, verdict="reject")
+        before = (self.stall / f"{self.batch}.jsonl").read_bytes()
+        self.assertFalse(self.held().exists())
+        stats = self.judge(a)
+        self.assertEqual((self.stall / f"{self.batch}.jsonl").read_bytes(), before)
+        self.assertEqual(stats["holes_kept"], {f"minif2f/test/{NAME}": [1, 2]})
+        self.assertTrue(stats["rejudged_for_holes_only"])
+        self.assertEqual(sorted(json.loads(self.held().read_text())["problems"][f"minif2f/test/{NAME}"]["holes"]), ["1", "2"])
+
     def test_a_truncated_batch_is_recorded_incomplete_with_coverage_by_hole(self):
         self.judge(self.answers({1: [self.GOOD]}), verdict="reject")
         (row,) = self.rows()

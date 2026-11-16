@@ -21,12 +21,17 @@ on:
         description: "with push: the TPU leg pushes the 32B on the reachable problems instead of the 8B"
         type: boolean
         default: false
+      rejudge:
+        description: "judge the finished guided batch again for its holes file only (its committed row stays); GPU leg"
+        type: boolean
+        default: false
       smoke:
         description: "with push: a TPU-only smoke batch of this many problems (startup check); the GPU leg pushes nothing"
         default: ""
 
 permissions:
   contents: write        # publish the ledger rows and verified proofs
+  actions: read          # download an earlier judge run's held holes (a guided batch's `carry`), this repo's own artifact
 
 concurrency:
   group: prover
@@ -145,7 +150,7 @@ jobs:
           if [ ! -s "$RUNNER_TEMP/kout/answers.jsonl" ]; then
             echo "::error::the batch completed with no answers; read its log on Kaggle before pushing again"; exit 1
           fi
-          pending=$(python3 tools/prover.py pending --answers "$RUNNER_TEMP/kout/answers.jsonl")
+          pending=$(python3 tools/prover.py pending --answers "$RUNNER_TEMP/kout/answers.jsonl" ${{ (inputs.rejudge && matrix.accel == 'gpu') && '--rejudge' || '' }})
           echo "answers still to judge: $pending"
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
 
@@ -172,6 +177,19 @@ jobs:
           # Fails the step if the header outlives it, so no later step, Lean included, runs with it.
           git config --unset-all http.https://github.com/.extraheader
           ! git config --get-regexp '^http\..*extraheader'
+
+      # A guided batch that continues an earlier one (its manifest's `carry`) gets that judge run's held hole proofs:
+      # downloaded here, before any Lean runs, the token in this step only. A failed download fails the job, so the
+      # batch stays owed and the next run tries again; judge_guided uses the file only if its bytes are the frozen ones.
+      - name: carried holes
+        if: steps.kaggle.outputs.state == 'judge'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          carry=$(python3 tools/prover.py carry --answers "$RUNNER_TEMP/kout/answers.jsonl")
+          [ -n "$carry" ] || exit 0
+          gh run download "${carry%% *}" -n "${carry#* }" -D "$RUNNER_TEMP/sparebrains-carried" -R "$GITHUB_REPOSITORY"
+          ls -l "$RUNNER_TEMP/sparebrains-carried"
 
       # One shared cache of Mathlib's packages, keyed on the toolchain and manifest, restored here and saved right after
       # the build, before any untrusted Lean runs. lean-action's own cache is keyed on the commit (2.4 GB per commit); on
@@ -207,18 +225,19 @@ jobs:
           # a guided batch's accepted proof (a blueprint's holes, 2026-11-15) is held in this run's artifact, never
           # committed: the row in ledger/stall carries its hash (the same rule as attempt.yml's pilot)
           SB_GUIDED_OUT: ${{ runner.temp }}/sparebrains-guided
+          SB_GUIDED_IN: ${{ runner.temp }}/sparebrains-carried
         run: |
           python3 tools/prover.py judge --answers "$RUNNER_TEMP/kout/answers.jsonl" --max-minutes 270 | tee "$RUNNER_TEMP/judge.txt"
           echo "summary=$(tail -1 "$RUNNER_TEMP/judge.txt")" >> "$GITHUB_OUTPUT"
 
-      - name: keep a guided accept's text (30 days)
+      - name: keep a guided batch's held text (closed holes, an accept; 90 days)
         # hashFiles reads only the workspace, so the step runs on every judge and uploads nothing when the directory is empty
         if: always() && steps.kaggle.outputs.state == 'judge'
         uses: actions/upload-artifact@v7
         with:
           name: prover-guided-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.accel }}
           path: ${{ runner.temp }}/sparebrains-guided/
-          retention-days: 30
+          retention-days: 90
           if-no-files-found: ignore
 
       # Queue and run times, once per batch (DECISIONS.md 2026-10-17): Kaggle publishes no wait times, so we

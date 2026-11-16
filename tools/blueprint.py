@@ -282,8 +282,10 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
     gated blueprint as a file of its own, earlier statements as hypotheses, `n` samples each. All holes go, the ones
     Lean will close too: the workflow's push step runs no Lean, and the discarded samples are counted as cost at judge
     time. `guided` comes back on every answer (never `goal` or `arm`, which are the public paths) and pins what was
-    exported: the blueprint and the target by hash, the hole, the samples planned."""
-    out = []
+    exported: the blueprint and the target by hash, the hole, the samples planned. A manifest that continues an earlier
+    batch lists the holes still open in `holes` (1-based): only those are exported, and every answer says which
+    (`exported`), so the judge plans no samples for the rest."""
+    out, only = [], man.get("holes")
     for key in man["problems"]:
         tset, name = key.rsplit("/", 1)
         bp = find(name)
@@ -297,15 +299,19 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
             raise SystemExit(f"{man['id']}: {key}'s {' and '.join(drift)} is not what the manifest froze: nothing exported")
         stmts, prefix = json.loads(raw)["statements"], goal_closer.prefix_of(text)
         for i in range(len(stmts)):
+            if only and i + 1 not in only:
+                continue
             out.append({"target_set": tset, "target": name, "n": n,
                         "statement": subgoals.lemma_file(prefix, lemma_text(prefix, stmts, i), "  sorry\n"),
                         "guided": {"manifest": man["id"], "hole": i + 1, "holes": len(stmts), "n": n, "blueprint": rel(bp),
                                    "blueprint_sha": hashlib.sha256(raw).hexdigest(),
-                                   "target_sha": hashlib.sha256(text.encode()).hexdigest()}})
+                                   "target_sha": hashlib.sha256(text.encode()).hexdigest(),
+                                   **({"exported": sorted(only)} if only else {})}})
     return out
 
 
-def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repair=None, run_lean=None, closer=None):
+def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repair=None, run_lean=None, closer=None,
+                 carried=None, exported=None):
     """fill for a prover batch: `samples` maps a 1-based hole to its answers' texts in sample order. Lean's closers on
     every hole first; then each sample of an open hole in order, through subgoals.try_body (the judge, then the free
     chain), the first accept closing the hole. asked = every sample generated; answered = samples read that held a
@@ -314,23 +320,41 @@ def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repai
     at its GPU budget and still ends as complete (Codex 20261115T235234646209Z f2). A hole left open with a sample
     Lean did not finish judging (check.unfinished: our timeout, the memory limit) is `judge_unfinished`, not failed,
     and `judging_complete` is false for it or for an unfinished whole-proof check: neither is a finished read, and
-    neither is generation cut short (Codex 20261116T000117894936Z f3)."""
+    neither is generation cut short (Codex 20261116T000117894936Z f3).
+    `carried` maps a 1-based hole to the tactic lines an earlier batch closed it with (2026-11-16: the first batch's
+    two closed holes lived nowhere a second batch could reach). A carried body is never trusted: after Lean's own
+    closers it is judged again on the hole's lemma, with no repair, and closes the hole (closed_by "carried") only on
+    an accept; one that no longer judges is listed in `carry_failed` and the hole goes on to its samples. `exported`
+    is the holes this batch sampled (None: all): the others have 0 planned. `bodies` holds every closed hole's lines
+    with the sample that wrote them; it is for the caller's held file, never a ledger row."""
+    carried, exported = carried or {}, set(exported) if exported else None
     sk = sketch(prefix, stmts)
     hole_lines = subgoals.holes(sk, prefix.count("\n") + 1)
     rep = (lambda body, stmt, out: repair(body, subgoals.lemma_file(prefix, stmt, "").rstrip("\n"), out)) if repair else None
     close = closer or (lambda lp: lean_tier(lp, judge_text, run_lean))
     plan = {}
     log = {"holes": len(stmts), "closed_by": {}, "failed": [], "unattempted": [], "tries": [], "answered": 0, "no_proof": 0,
-           "planned": {}, "generated": {}, "judge_unfinished": []}
+           "planned": {}, "generated": {}, "judge_unfinished": [], "carry_failed": [], "bodies": {}}
     read = 0
     for i in range(len(stmts)):
         n, stmt, texts = i + 1, lemma_text(prefix, stmts, i), samples.get(i + 1, [])
-        log["planned"][n], log["generated"][n] = planned, len(texts)
+        log["planned"][n] = planned if exported is None or n in exported else 0
+        log["generated"][n] = len(texts)
         got = close(subgoals.lemma_file(prefix, stmt, "").rstrip("\n"))
         if got:
             plan[i], log["closed_by"][n] = [got], "lean"
+            log["bodies"][n] = {"lines": [got]}
             continue
         cut = False
+        if n in carried:
+            body = "".join(("  " + l if l.strip() else "") + "\n" for l in carried[n])
+            lines, _, r = subgoals.try_body(prefix, stmt, body, judge_text, None)
+            if lines:
+                plan[i], log["closed_by"][n] = lines, "carried"
+                log["bodies"][n] = {"lines": lines}
+                continue
+            cut = check.unfinished(str(r.get("reason") or ""))
+            log["carry_failed"].append(n)
         for k, text in enumerate(texts):
             read += 1
             body = proof_of(text)
@@ -346,12 +370,13 @@ def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repai
                                  "reason": (r.get("reason") or "")[:200]})
             if lines:
                 plan[i], log["closed_by"][n] = lines, "sample"
+                log["bodies"][n] = {"lines": lines, "sample": k, "repaired": bool(r.get("repaired"))}
                 break
         if i not in plan:
             log["judge_unfinished" if cut else "failed" if texts else "unattempted"].append(n)
     log["asked"] = sum(log["generated"].values())
     log["unread"] = log["asked"] - read
-    log["truncated"] = any(log["generated"][n] < planned for n in log["generated"])
+    log["truncated"] = any(log["generated"][n] < log["planned"][n] for n in log["generated"])
     _assemble(log, sk, hole_lines, plan, len(stmts), judge_text)
     log["judging_complete"] = not log["judge_unfinished"] and not check.unfinished(log.get("final_reason", ""))
     return log

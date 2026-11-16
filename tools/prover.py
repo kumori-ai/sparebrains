@@ -349,31 +349,62 @@ def guided_pending(answers, stall=STALL):
     return 0 if (Path(stall) / f"{answers[0]['batch']}.jsonl").exists() else len(answers)
 
 
-def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=None, repair=None, run_lean=None,
-                 closer=None, blueprint_at=lambda rel: ROOT / rel):
-    """A guided batch's answers (blueprint.kaggle_work's holes, sampled by the prover): blueprint.fill_samples per
-    problem, one row each in ledger/stall/<batch>.jsonl, arm K, try mode `guided`. An accepted whole proof's text goes
-    to `guided_out` (SB_GUIDED_OUT, the run's artifact) and the row carries its hash, as attempt.py's pilot does:
-    never verified/, the public ledger or the site. Nothing is judged for a problem whose blueprint or target is not
-    byte for byte what was exported."""
-    import blueprint, goal_closer
-    stall = Path(stall)
+def guided_manifest(answers, stall=STALL):
+    """The one manifest a guided batch's answers name; anything else judges nothing."""
     ids = {(a["batch"], a["guided"]["manifest"]) for a in answers}
     if len(ids) != 1:
         raise SystemExit(f"guided answers from more than one batch or manifest ({sorted(ids)}): nothing judged")
     batch, mid = next(iter(ids))
     if not batch.startswith(f"guided-{mid}-"):
         raise SystemExit(f"batch {batch} is not named for manifest {mid}: nothing judged")
-    mans = [m for m in (json.loads(p.read_text()) for p in sorted(stall.glob("*.json"))) if m.get("id") == mid]
+    mans = [m for m in (json.loads(p.read_text()) for p in sorted(Path(stall).glob("*.json"))) if m.get("id") == mid]
     if len(mans) != 1:
         raise SystemExit(f"{len(mans)} manifests with id {mid} in {stall}: nothing judged")
+    return batch, mans[0]
+
+
+def carried_holes(man, guided_in):
+    """(the earlier batch's held holes by problem key, why not) for a manifest with `carry`. The file is the earlier
+    judge run's artifact, downloaded by the workflow; it is used only when its bytes are the ones the manifest froze."""
+    carry = man.get("carry")
+    if not carry:
+        return {}, None
+    f = Path(guided_in or os.environ.get("SB_GUIDED_IN") or ROOT / ".lake" / "guided") / f"holes-{carry['batch']}.json"
+    if not f.exists():
+        return {}, f"carry file {f.name} is missing"
+    raw = f.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != carry.get("sha256"):
+        return {}, f"carry file {f.name} is not the bytes the manifest froze"
+    return json.loads(raw)["problems"], None
+
+
+def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=None, repair=None, run_lean=None,
+                 closer=None, blueprint_at=lambda rel: ROOT / rel, guided_in=None):
+    """A guided batch's answers (blueprint.kaggle_work's holes, sampled by the prover): blueprint.fill_samples per
+    problem, one row each in ledger/stall/<batch>.jsonl, arm K, try mode `guided`. An accepted whole proof's text goes
+    to `guided_out` (SB_GUIDED_OUT, the run's artifact) and the row carries its hash, as attempt.py's pilot does:
+    never verified/, the public ledger or the site. Nothing is judged for a problem whose blueprint or target is not
+    byte for byte what was exported.
+    Every closed hole's proof lines go to `holes-<batch>.json` beside the accepted text (the artifact, never the
+    ledger: six hole bodies are the solve), the row carrying each one's hash, so a later batch can continue from them
+    (its manifest's `carry`; blueprint.fill_samples judges each carried body again). The file is cumulative: a carried
+    hole keeps the closer and batch that first proved it.
+    A batch whose rows file already exists is judged again for its holes file only (the workflow's `rejudge`, for a
+    batch judged before the holes were kept): the committed row is the first read and is not rewritten."""
+    import blueprint, goal_closer
+    stall = Path(stall)
+    batch, man = guided_manifest(answers, stall)
+    mid, rows_file = man["id"], stall / f"{batch}.jsonl"
+    held = Path(guided_out or os.environ.get("SB_GUIDED_OUT") or ROOT / ".lake" / "guided")
+    carry, carry_why = carried_holes(man, guided_in)
+    kept = {}
     samples, meta = defaultdict(lambda: defaultdict(list)), {}
     for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["guided"]["hole"], a["sample"])):
         key = (a["target_set"], a["target"])
         samples[key][a["guided"]["hole"]].append(a.get("text") or "")
         meta[key] = a["guided"]
     rows, stats = [], Counter()
-    for problem in mans[0]["problems"]:
+    for problem in man["problems"]:
         key = tuple(problem.rsplit("/", 1))
         g = meta.get(key)
         row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, "batch": batch,
@@ -390,11 +421,26 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
             row.update(note="blueprint or target changed since export: nothing judged")
             stats["changed_since_export"] += 1
             continue
+        was = carry.get(problem) or {}
+        if was and (was["blueprint_sha"], was["target_sha"]) != (g["blueprint_sha"], g["target_sha"]):
+            was, carry_why = {}, "the carried holes are of another blueprint or target"
+        old = {int(n): h for n, h in (was.get("holes") or {}).items()}
         f = blueprint.fill_samples(goal_closer.prefix_of(text), json.loads(bp.read_text())["statements"], samples[key],
                                    judge_text, proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair,
-                                   run_lean=run_lean, closer=closer)
+                                   run_lean=run_lean, closer=closer, exported=g.get("exported"),
+                                   carried={n: h["lines"] for n, h in old.items()})
+        mine = lambda n, b: ({**old[n], "lines": b["lines"]} if f["closed_by"][n] == "carried" else
+                             {"by": "lean" if f["closed_by"][n] == "lean" else BACKEND, "batch": batch, **b})
+        kept[problem] = {"blueprint": g["blueprint"], "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"],
+                         "holes": {str(n): mine(n, b) for n, b in sorted(f["bodies"].items())}}
         row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], holes=f["holes"],
-                   closed_by={k: ("lean" if v == "lean" else BACKEND) for k, v in f["closed_by"].items()},
+                   closed_by={k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried" else BACKEND)
+                              for k, v in f["closed_by"].items()},
+                   carried_from={n: old[n]["by"] + ("+chain" if old[n].get("repaired") else "")
+                                 for n, v in f["closed_by"].items() if v == "carried"},
+                   carry_failed=f["carry_failed"], carry_missing=carry_why,
+                   hole_sha={n: hashlib.sha256("\n".join(h["lines"]).encode()).hexdigest()
+                             for n, h in kept[problem]["holes"].items()},
                    failed=f["failed"], unattempted=f["unattempted"], planned=f["planned"], generated=f["generated"],
                    asked=f["asked"], answered=f["answered"], no_proof=f["no_proof"], unread=f["unread"],
                    truncated=f["truncated"], judge_unfinished=f["judge_unfinished"], judging_complete=f["judging_complete"],
@@ -405,14 +451,26 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
         stats["truncated"] += bool(f["truncated"])
         stats["judging_unfinished"] += not f["judging_complete"]
         if f.get("accepted"):
-            acc = Path(guided_out or os.environ.get("SB_GUIDED_OUT") or ROOT / ".lake" / "guided") / f"{key[1]}-{batch}.lean"
+            acc = held / f"{key[1]}-{batch}.lean"
             acc.parent.mkdir(parents=True, exist_ok=True)
             acc.write_text(f["accepted"])
             row["accepted_sha"] = hashlib.sha256(f["accepted"].encode()).hexdigest()
             row["accepted_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": {acc.name}"
             stats["solved"] += 1
-    (stall / f"{batch}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    return {"guided": mid, "problems": len(rows), **{k: stats[k] for k in
+    if any(p["holes"] for p in kept.values()):
+        held.mkdir(parents=True, exist_ok=True)
+        text = json.dumps({"batch": batch, "manifest": mid, "credit": "guided", "problems": kept}, indent=1, sort_keys=True)
+        (held / f"holes-{batch}.json").write_text(text)
+        for r in rows:
+            if "hole_sha" in r:
+                r["holes_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": holes-{batch}.json"
+                r["holes_file_sha"] = hashlib.sha256(text.encode()).hexdigest()
+    again = rows_file.exists()
+    if not again:
+        rows_file.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return {"guided": mid, "problems": len(rows), **({"rejudged_for_holes_only": True, "holes_kept": {
+                p: sorted(int(n) for n in v["holes"]) for p, v in kept.items()}} if again else {}),
+            **{k: stats[k] for k in
             ("holes", "closed_by_lean", "closed_by_prover", "solved", "truncated", "judging_unfinished", "no_answers",
              "changed_since_export")}}
 
@@ -756,7 +814,7 @@ def read_answers(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours", "beats", "failed", "reserve",
-                                    "reserved"])
+                                    "reserved", "carry"])
     ap.add_argument("--batch", help="reserve/reserved: the failed batch")
     ap.add_argument("--status", help="failed: Kaggle's status line for the batch")
     ap.add_argument("--ledger", default=str(FAILED), help="failed: where failures are recorded")
@@ -770,6 +828,7 @@ def main():
     ap.add_argument("--goals", action="store_true", help="next: a goal batch from ledger/goal-queue.json (task #461)")
     ap.add_argument("--hours", type=float, help="next: the session's hours (from `hours`); the kernel stops before them")
     ap.add_argument("--max-problems", type=int, help="next --tpu: at most this many problems (a smoke batch)")
+    ap.add_argument("--rejudge", action="store_true", help="pending: a judged guided batch counts as owed (holes file only)")
     ap.add_argument("--smoke", action="store_true", help="next --tpu: name the batch smoke-..., a startup check only")
     args = ap.parse_args()
     if args.tpu32 and not args.tpu:
@@ -891,8 +950,12 @@ def main():
         print(json.dumps(rec) if rec else "batch already recorded")
         return 0
     guided = guided_answers(answers)                 # before every other kind: these never reach a Recorder
-    if guided and args.cmd == "pending":
-        print(guided_pending(guided))
+    if guided and args.cmd == "pending":           # --rejudge: judge it again for its holes file (the row stays)
+        print(len(guided) if args.rejudge else guided_pending(guided))
+        return 0
+    if args.cmd == "carry":                         # "<run id> <artifact name>" when the batch continues an earlier one
+        carry = guided_manifest(guided)[1].get("carry") if guided else None
+        print(f"{carry['run']} {carry['artifact']}" if carry else "")
         return 0
     if guided:
         import lean_tools, toolscore
