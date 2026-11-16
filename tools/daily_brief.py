@@ -139,7 +139,8 @@ def brief(d, history):
             continue
         if r["rung"] in RETIRED:                         # the details table still lists it; the brief stays quiet
             continue
-        if idle is not None and idle > IDLE_FIX_DAYS:
+        source_down = bool(r.get("source")) and not r["source"]["ok"]   # it cannot be restarted: the cause below is the fix
+        if idle is not None and idle > IDLE_FIX_DAYS and not source_down:
             fixes.append(f"{r['rung']} idle {idle} days: restart it or retire it from the report.")
         if r["rung"] == "openproblems.bio":
             src = r.get("source") or {}

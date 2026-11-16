@@ -222,6 +222,22 @@ class Brief(unittest.TestCase):
         self.assertTrue(any("answers again since 2026-11-09" in f and "re-enable" in f for f in back), back)
         self.assertFalse(any("data source" in f for f in self.op_with({"ok": True, "at": "x"})))
 
+    def test_a_rung_whose_data_source_is_down_is_not_also_told_to_restart_or_retire(self):
+        """2026-11-15's mail said both 'openproblems.bio idle 10.4 days: restart it or retire it' and, two lines on,
+        that its data source is down and its workflows stay disabled: it cannot be restarted, and the cause is the fix."""
+        def fixes(source):
+            t = copy.deepcopy(TODAY)
+            r = next(r for r in t["rungs"] if r["rung"] == "openproblems.bio")
+            r["idle_days"], r["source"] = 10.4, source
+            return brief(t)["fixes"]
+        down = fixes({"ok": False, "at": "2026-11-15T06:40:00+00:00", "code": "AllAccessDisabled",
+                      "down_since": "2026-11-05T06:40:00+00:00"})
+        self.assertTrue(any("down since 2026-11-05" in f for f in down), down)
+        self.assertFalse(any("openproblems.bio idle" in f for f in down), down)
+        self.assertTrue(any("openproblems.bio idle 10.4 days: restart it or retire it" in f for f in fixes({"ok": True, "at": "x"})),
+                        "idle with its source answering is still a fix")
+        self.assertTrue(any("openproblems.bio idle 10.4 days" in f for f in fixes(None)), "no probe at all: still a fix")
+
     def test_markdown_puts_the_brief_first(self):
         md = daily_brief.render(brief())
         self.assertTrue(md.index("**Wins**") < md.index("**Fix**") < md.index("**Ideas**"))
