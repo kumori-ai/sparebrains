@@ -39,6 +39,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   cohort is comparable by the brief's 0.6 rule (ministral-3b 36 problems against 45, 8b 42 against 44, 14b 44 against
   43), which says nothing about its other flags (3b's accept rate down, refusals above targets); the Actions cache is
   one entry, 2.35 GB.
+  **The hand run, read (43789067849, 2026-11-16 01:55 to 04:09 UTC, 39 Leanstral asks, $0): 0 solves.** 25 goals on
+  10 of the 16 open problems, more than the 12 I counted: 11 goals new to the ledger, 14 asked before and still
+  eligible under `tried_by` (earlier asks unanswered or deadline-cut). 24 failed; 1 goal proved but not spliced
+  (amc12b_2021_p13, a `sin (π - x) = -sin (-π + x)` step inside a sketch whose own claim, sin x ≥ 0 past π, is false,
+  so no splice could have closed the problem). Goal checks: 13 well-formed, 2 rejected by Lean. All runs to date: 332
+  goals, 13 solved, 4 proved but not spliced, 315 failed; the last four runs, 86 goals, 1 solve. Decompose rests as
+  decided; #642 closed.
 
 ## 2026-11-15
 
