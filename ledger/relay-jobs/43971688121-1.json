@@ -1,0 +1,1 @@
+{"run_id": "43971688121", "run_attempt": "1", "ts": "2026-11-16T22:39:13+00:00", "problem": "minif2f/test/imoshortlist_2007_algebra_p6", "calls": 45, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "model", "model": "particle-ai/particle-1:free"}, "backed_off": true}
