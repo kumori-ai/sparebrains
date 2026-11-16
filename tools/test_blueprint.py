@@ -2,6 +2,7 @@
 proof text, audits each statement in Lean for smuggled proof terms, drops a statement equivalent to the target, and
 keeps only a sketch Lean calls wellformed. Codex 20261109T204513251417Z, 204946451069Z, 205417832903Z: the three ways
 a guide's proof leaked past the earlier gates are regressions here."""
+import hashlib
 import json
 import sys
 import tempfile
@@ -77,6 +78,27 @@ class Gate(unittest.TestCase):
             self.assertIn("statements", g["why"][0])
         self.assertEqual(calls, [])
         judge.assert_not_called()
+
+    def test_a_closer_that_times_out_does_not_hide_one_that_works_and_the_blueprint_records_it(self):
+        """2026-11-16: hole 1's six sub-statements close it by `grind` in 13 s, but `aesop` ran out of heartbeats
+        first, and `first | ...` does not catch that: the one closing line failed and the gate said REJECT."""
+        stmts = ["n ≠ 0", "0 < n"]
+        starts = dict(blueprint.duplicate_text(PREFIX, stmts)[1])
+        not_dup = "".join(f"proof.lean:{starts[r] + 1}:2: error: linarith failed\n" for r in ("r1", "r2"))
+        run_lean, _ = self.lean(audit_out="AUDIT_OK\nAUDIT_OK\n", dup_out=not_dup)
+
+        def judge(text):
+            if text.rstrip().endswith("\n  grind"):
+                return {"verdict": "wellformed", "reason": ""}
+            return {"verdict": "reject", "reason": "(deterministic) timeout at `whnf`, maximum number of heartbeats"}
+        g = blueprint.gate(PREFIX, stmts, run_lean, judge)
+        self.assertTrue(g["ok"], g["why"])
+        self.assertEqual(g["final"], "grind")
+        self.assertTrue(g["sketch"].endswith("    sorry\n  grind\n"))
+        self.assertEqual(blueprint.sketch(PREFIX, stmts, g["final"]), g["sketch"])
+        none = blueprint.gate(PREFIX, stmts, run_lean, lambda text: {"verdict": "reject", "reason": "unsolved goals"})
+        self.assertFalse(none["ok"])
+        self.assertNotIn("final", none)
 
     def test_a_proof_term_inside_a_statement_fails_the_audit_by_index(self):
         stmts = ["n ≠ 0", "(Nat.add_zero n : n + 0 = n) = Nat.add_zero n", "0 < n"]
@@ -350,6 +372,13 @@ class KaggleBatch(unittest.TestCase):
         self.assertEqual(f["closed_by"], {2: "sample"})
         self.assertEqual([(t["hole"], t["repaired"]) for t in f["tries"]], [(1, False), (2, True), (3, False)])
 
+    def test_a_holes_own_lemma_splits_at_the_signatures_colon_not_one_inside_its_conclusion(self):
+        """2026-11-16: hole 1's lemma concludes `∀ m : ℕ, ...`; split at the LAST top-level colon, its binders took
+        `: ∀ m` with them and the gate rejected all six sub-statements on a parse error."""
+        lemma = "import Mathlib\n\ntheorem sb_goal (S : Finset ℕ) (h : 0 < 1) : ∀ m : ℕ, m ∈ S → (m : ℤ) = m := by"
+        self.assertEqual(blueprint.split_signature(lemma), ("(S : Finset ℕ) (h : 0 < 1)", "∀ m : ℕ, m ∈ S → (m : ℤ) = m"))
+        self.assertEqual(blueprint.split_signature(PREFIX), ("(n : ℕ) (h : 0 < n)", "n + 0 = n"))
+
     def test_a_continuing_manifest_exports_only_its_open_holes_and_says_which(self):
         """2026-11-16: the second batch samples holes 1 and 3; the closed ones are carried, not sampled again."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -358,6 +387,33 @@ class KaggleBatch(unittest.TestCase):
             work = blueprint.kaggle_work(man, 8, read=lambda s, t: self.TARGET, find=lambda name: bp, rel=lambda path: path.name)
         self.assertEqual([(w["guided"]["hole"], w["guided"]["exported"], w["guided"]["holes"]) for w in work],
                          [(1, [1, 3], 3), (3, [1, 3], 3)])
+
+    def test_a_holes_own_blueprint_is_exported_as_its_holes_and_refused_unless_it_is_the_frozen_gated_one(self):
+        """2026-11-16: hole 1 is a theorem in itself; the guide split it and its pieces go to the prover instead of
+        more samples of the whole (Codex 20261116T051804114308Z q2)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bp, first = self.work(tmp)
+            sp = Path(tmp) / "demo.bp1-x.json"
+            doc = {"ok": True, "statements": ["n = n", "0 ≤ n"], "parent_sha": first[0]["guided"]["blueprint_sha"], "hole": 1}
+            sp.write_text(json.dumps(doc))
+            sub = {"hole": 1, "blueprint": sp.name, "sha256": hashlib.sha256(sp.read_bytes()).hexdigest()}
+            man = {"id": "pilot-x", "problems": ["minif2f/test/demo"], "holes": [3], "sub": {"minif2f/test/demo": sub}}
+            go = lambda m: blueprint.kaggle_work(m, 8, read=lambda s, t: self.TARGET, find=lambda name: bp,
+                                                 rel=lambda path: path.name, at=lambda r: Path(tmp) / r)
+            work = go(man)
+            self.assertEqual([(w["guided"].get("sub"), w["guided"]["hole"], w["guided"]["holes"], w["guided"]["exported"])
+                              for w in work], [(None, 3, 3, [3]), (1, 1, 2, [3]), (1, 2, 2, [3])])
+            self.assertTrue(work[2]["statement"].endswith("theorem sb_goal (n : ℕ) (h : 0 < n) (bp_1 : n = n) : 0 ≤ n := by\n  sorry\n"),
+                            work[2]["statement"][-90:])
+            self.assertEqual(work[1]["guided"]["sub_blueprint_sha"], sub["sha256"])
+            for bad in ({**man, "holes": [1, 3]}, {k: v for k, v in man.items() if k != "holes"},
+                        {**man, "sub": {"minif2f/test/demo": {**sub, "sha256": "0" * 64}}},
+                        {**man, "sub": {"minif2f/test/demo": {**sub, "hole": 2}}}):
+                with self.assertRaises(SystemExit):
+                    go(bad)
+            sp.write_text(json.dumps({**doc, "parent_sha": "0" * 64}))
+            with self.assertRaises(SystemExit):
+                go({**man, "sub": {"minif2f/test/demo": {**sub, "sha256": hashlib.sha256(sp.read_bytes()).hexdigest()}}})
 
     def test_a_carried_hole_is_judged_again_and_closes_without_a_sample(self):
         """The first batch's closed holes 2 and 4 lived only in Kaggle's output (2026-11-16). A carried body is a
@@ -373,6 +429,10 @@ class KaggleBatch(unittest.TestCase):
         self.assertEqual(f["final"], "accept")
         self.assertEqual(f["bodies"], {1: {"lines": ["exact good"], "sample": 0, "repaired": False}, 2: {"lines": ["exact good"]},
                                        3: {"lines": ["exact good"], "sample": 0, "repaired": False}})
+
+    def test_a_blueprints_own_closing_line_is_the_one_assembled(self):
+        f = self.fill({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD], 3: [self.GOOD, self.GOOD]}, final="grind")
+        self.assertTrue(f["accepted"].endswith("\n  grind\n"), f["accepted"][-80:])
 
     def test_a_carried_body_that_no_longer_judges_leaves_its_hole_open_and_is_never_repaired(self):
         repair = Mock(return_value="  exact good\n")

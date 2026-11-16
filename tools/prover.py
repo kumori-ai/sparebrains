@@ -399,9 +399,14 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
     carry, carry_why = carried_holes(man, guided_in)
     kept = {}
     samples, meta = defaultdict(lambda: defaultdict(list)), {}
+    subsamples, submeta = defaultdict(lambda: defaultdict(list)), {}
     for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["guided"]["hole"], a["sample"])):
         key = (a["target_set"], a["target"])
-        samples[key][a["guided"]["hole"]].append(a.get("text") or "")
+        if a["guided"].get("sub"):                  # a hole of the hole's own blueprint (blueprint.kaggle_work's `sub`)
+            subsamples[key][a["guided"]["hole"]].append(a.get("text") or "")
+            submeta[key] = a["guided"]
+        else:
+            samples[key][a["guided"]["hole"]].append(a.get("text") or "")
         meta[key] = a["guided"]
     rows, stats = [], Counter()
     for problem in man["problems"]:
@@ -425,19 +430,62 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
         if was and (was["blueprint_sha"], was["target_sha"]) != (g["blueprint_sha"], g["target_sha"]):
             was, carry_why = {}, "the carried holes are of another blueprint or target"
         old = {int(n): h for n, h in (was.get("holes") or {}).items()}
-        f = blueprint.fill_samples(goal_closer.prefix_of(text), json.loads(bp.read_text())["statements"], samples[key],
-                                   judge_text, proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair,
-                                   run_lean=run_lean, closer=closer, exported=g.get("exported"),
-                                   carried={n: h["lines"] for n, h in old.items()})
-        mine = lambda n, b: ({**old[n], "lines": b["lines"]} if f["closed_by"][n] == "carried" else
-                             {"by": "lean" if f["closed_by"][n] == "lean" else BACKEND, "batch": batch, **b})
+        doc = json.loads(bp.read_text())
+        stmts, fill = doc["statements"], dict(
+            proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair, run_lean=run_lean, closer=closer)
+        # the hole's own blueprint first: every one of its holes closed and its assembled proof accepted is the hole's body
+        # what the manifest asked for, not what came back: a batch cut before the first sub answer is still a sub read,
+        # with nothing generated (Codex 20261116T055155373979Z f2)
+        ms = (man.get("sub") or {}).get(problem)
+        sm, given, keep_sub = submeta.get(key), {}, None
+        if ms and not sm:
+            sm = {"sub": ms["hole"], "sub_blueprint": ms["blueprint"], "sub_blueprint_sha": ms["sha256"], "n": g["n"],
+                  **({"sub_exported": ms["holes"]} if ms.get("holes") is not None else {})}
+        row["guide_rounds"] = 2 if sm else 1         # the guide chose a second set of propositions for one hole
+        if sm:
+            sp = blueprint_at(sm["sub_blueprint"])
+            if not sp.exists() or hashlib.sha256(sp.read_bytes()).hexdigest() != sm["sub_blueprint_sha"]:
+                row["sub"] = {"hole": sm["sub"], "note": "sub-blueprint changed since export: nothing judged for it"}
+                stats["changed_since_export"] += 1
+            else:
+                sprefix = goal_closer.prefix_of(blueprint.hole_target(text, stmts, sm["sub"]))
+                wsub = was.get("sub") or {}
+                sold = ({int(n): h for n, h in wsub["holes"].items()}
+                        if (wsub.get("hole"), wsub.get("blueprint_sha")) == (sm["sub"], sm["sub_blueprint_sha"]) else {})
+                sdoc = json.loads(sp.read_text())
+                fs = blueprint.fill_samples(sprefix, sdoc["statements"], subsamples[key], judge_text, final=sdoc.get("final"),
+                                            exported=sm.get("sub_exported"), carried={n: h["lines"] for n, h in sold.items()}, **fill)
+                if fs.get("accepted"):
+                    given[sm["sub"]] = [l[2:] for l in fs["accepted"][len(sprefix):].strip("\n").split("\n")]
+                smine = lambda n, b: ({**sold[n], "lines": b["lines"]} if fs["closed_by"][n] == "carried" else
+                                      {"by": "lean" if fs["closed_by"][n] == "lean" else BACKEND, "batch": batch, **b})
+                keep_sub = {"hole": sm["sub"], "blueprint": sm["sub_blueprint"], "blueprint_sha": sm["sub_blueprint_sha"],
+                            "holes": {str(n): smine(n, b) for n, b in sorted(fs["bodies"].items())}}
+                row["sub"] = {"hole": sm["sub"], "blueprint": sm["sub_blueprint"], "blueprint_sha": sm["sub_blueprint_sha"],
+                              "closed_by": {k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried"
+                                                else BACKEND) for k, v in fs["closed_by"].items()},
+                              "hole_sha": {n: hashlib.sha256("\n".join(h["lines"]).encode()).hexdigest()
+                                           for n, h in keep_sub["holes"].items()},
+                              **{k: fs.get(k) for k in ("holes", "failed", "unattempted", "planned", "generated", "asked",
+                                                        "answered", "no_proof", "unread", "truncated", "judge_unfinished",
+                                                        "judging_complete", "carry_failed", "final", "final_reason", "tries")}}
+                stats["truncated"] += bool(fs["truncated"])
+                stats["judging_unfinished"] += not fs["judging_complete"]
+        f = blueprint.fill_samples(goal_closer.prefix_of(text), stmts, samples[key], judge_text, exported=g.get("exported"),
+                                   final=doc.get("final"),
+                                   carried={**{n: h["lines"] for n, h in old.items()}, **given}, **fill)
+        how = {n: ("sub" if v == "carried" and n in given else v) for n, v in f["closed_by"].items()}
+        mine = lambda n, b: ({**old[n], "lines": b["lines"]} if how[n] == "carried" else
+                             {"by": "lean" if how[n] == "lean" else "sub-blueprint" if how[n] == "sub" else BACKEND,
+                              "batch": batch, **b})
         kept[problem] = {"blueprint": g["blueprint"], "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"],
-                         "holes": {str(n): mine(n, b) for n, b in sorted(f["bodies"].items())}}
+                         "holes": {str(n): mine(n, b) for n, b in sorted(f["bodies"].items())},
+                         **({"sub": keep_sub} if keep_sub else {})}
         row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], holes=f["holes"],
-                   closed_by={k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried" else BACKEND)
-                              for k, v in f["closed_by"].items()},
+                   closed_by={k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried"
+                                  else "sub-blueprint" if v == "sub" else BACKEND) for k, v in how.items()},
                    carried_from={n: old[n]["by"] + ("+chain" if old[n].get("repaired") else "")
-                                 for n, v in f["closed_by"].items() if v == "carried"},
+                                 for n, v in how.items() if v == "carried"},
                    carry_failed=f["carry_failed"], carry_missing=carry_why,
                    hole_sha={n: hashlib.sha256("\n".join(h["lines"]).encode()).hexdigest()
                              for n, h in kept[problem]["holes"].items()},
@@ -457,7 +505,7 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
             row["accepted_sha"] = hashlib.sha256(f["accepted"].encode()).hexdigest()
             row["accepted_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": {acc.name}"
             stats["solved"] += 1
-    if any(p["holes"] for p in kept.values()):
+    if any(p["holes"] or (p.get("sub") or {}).get("holes") for p in kept.values()):
         held.mkdir(parents=True, exist_ok=True)
         text = json.dumps({"batch": batch, "manifest": mid, "credit": "guided", "problems": kept}, indent=1, sort_keys=True)
         (held / f"holes-{batch}.json").write_text(text)

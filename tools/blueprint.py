@@ -62,9 +62,10 @@ def statements(reply):
     return []
 
 
-def sketch(prefix, stmts):
+def sketch(prefix, stmts, final=None):
+    """`final` is the blueprint's own closing line when the gate had to pick one (its `final`), else FINAL."""
     body = "".join(f"  have bp_{i} : {s} := by\n    sorry\n" for i, s in enumerate(stmts, 1))
-    return prefix + "\n" + body + f"  {FINAL}\n"
+    return prefix + "\n" + body + f"  {final or FINAL}\n"
 
 
 def _parts(prefix):
@@ -121,14 +122,15 @@ def split_signature(prefix):
     header = prefix[subgoals.DECL.search(prefix).start():]
     sig = re.sub(r":=\s*by\s*$", "", header.strip())
     sig = re.sub(r"^(?:theorem|lemma)\s+\S+", "", sig, count=1)
-    depth, last = 0, None
-    for i, c in enumerate(sig):
+    depth, last = 0, None                        # the first top-level colon: binders are bracketed, a conclusion's
+    for i, c in enumerate(sig):                  # `∀ m : ℕ,` is not (the last one split hole 1's lemma there, 2026-11-16)
         if c in "([{⟨":
             depth += 1
         elif c in ")]}⟩":
             depth -= 1
         elif c == ":" and depth == 0 and sig[i + 1:i + 2] != "=":
             last = i
+            break
     squash = lambda t: re.sub(r"\s+", " ", t).strip()
     return (squash(sig[:last]), squash(sig[last + 1:])) if last is not None else ("", squash(sig))
 
@@ -172,6 +174,15 @@ def gate(prefix, stmts, run_lean, judge_text):
     v = j.get("verdict")
     if v == "wellformed":
         return {"ok": True, "why": [], "sketch": sk, "audit": a, "duplicates": [], "judge": v}
+    if v != "accept":
+        # `first | a | b` does not catch a closer that runs out of heartbeats, so one slow alternative fails the line
+        # (2026-11-16: aesop timed out before grind, which closes hole 1's sub-blueprint alone in 13 s). Each closer
+        # apart, in FINAL's order; the first that leaves only the holes is recorded and is the line assembled later.
+        for alt in FINAL[len("first | "):].split(" | "):
+            ska = sketch(prefix, stmts, alt)
+            if judge_text(ska).get("verdict") == "wellformed":
+                return {"ok": True, "why": [], "sketch": ska, "final": alt, "audit": a, "duplicates": [], "judge": "wellformed",
+                        "note": f"the one-line closer failed ({(j.get('reason') or '')[:200]}); `{alt}` alone closes it"}
     why = ("the statements alone close the target: nothing left for a small lane" if v == "accept" else
            f"statements do not imply the target by automation: {(j.get('reason') or '')[:300]}")
     return {"ok": False, "why": [why], "sketch": sk, "audit": a, "duplicates": [], "judge": v}
@@ -189,6 +200,14 @@ def lemma_text(prefix, stmts, i):
     return f"theorem sb_goal {binders}{earlier} : {stmts[i]} := by"
 
 
+def hole_target(target_text, stmts, hole):
+    """Hole `hole` (1-based) as a target of its own, `sorry` for its proof: what a sub-blueprint decomposes. Hole 1 of
+    the first blueprint is a theorem in itself (a number with four divisors is p^3 or p*q, with both divisor sums);
+    8 prover samples left 3 with a sorry and 5 rejected (2026-11-16)."""
+    prefix = goal_closer.prefix_of(target_text)
+    return subgoals.lemma_file(prefix, lemma_text(prefix, stmts, hole - 1), "  sorry\n")
+
+
 PASSES = (1, 2)          # breadth first: every open hole gets one try from each lane before any gets a second
 
 
@@ -203,7 +222,7 @@ def lean_tier(lemma_prefix, judge_text, run_lean=None):
 
 
 def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=None, repair=None, passes=PASSES,
-         run_lean=None, closer=None):
+         run_lean=None, closer=None, final=None):
     """Prove the holes: Lean's closers on each hole's lemma first (`closer(lemma_prefix)` or lean_tier); then the lanes, breadth first: pass 1 gives
     every open hole one try from each ask in turn, pass 2 two tries (the second carrying Lean's error), so the easy
     holes are reached before the hard ones eat the budget (run 42705124685: holes 1-3 took 12 asks, 4-6 were never
@@ -211,7 +230,7 @@ def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=Non
     proved) and `unattempted` (the budget ran out first) stay apart (Codex 20261109T204513251417Z f6). closed_by maps
     a 1-based hole to "lean" or the index of the ask that proved it. When every hole closes the bodies are spliced
     under their `have` and the whole file is judged: `final` is that verdict, `accepted` the text on accept."""
-    sk = sketch(prefix, stmts)
+    sk = sketch(prefix, stmts, final)
     top = prefix.count("\n") + 1
     hole_lines = subgoals.holes(sk, top)
     budget, plan = {"asks": 0, "max": max_asks}, {}
@@ -277,14 +296,18 @@ def latest_gated(name, root=BLUEPRINTS):
     return gated[-1] if gated else None
 
 
-def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relative_to(ROOT))):
+def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relative_to(ROOT)), at=lambda r: ROOT / r):
     """A manifest's holes as prover-batch problems (prover.build's `problems`): every hole of each problem's latest
     gated blueprint as a file of its own, earlier statements as hypotheses, `n` samples each. All holes go, the ones
     Lean will close too: the workflow's push step runs no Lean, and the discarded samples are counted as cost at judge
     time. `guided` comes back on every answer (never `goal` or `arm`, which are the public paths) and pins what was
     exported: the blueprint and the target by hash, the hole, the samples planned. A manifest that continues an earlier
     batch lists the holes still open in `holes` (1-based): only those are exported, and every answer says which
-    (`exported`), so the judge plans no samples for the rest."""
+    (`exported`), so the judge plans no samples for the rest.
+    `sub` gives a problem's hole a blueprint of its own (hole_target's lemma, decomposed by the guide and gated): that
+    sub-blueprint's holes are exported too, marked `sub`, each with the lemma's binders and the earlier sub-statements
+    as hypotheses. Hole 1 only for now: a later hole's lemma already has hypotheses named bp_1.., which the
+    sub-statements' names would shadow."""
     out, only = [], man.get("holes")
     for key in man["problems"]:
         tset, name = key.rsplit("/", 1)
@@ -298,20 +321,42 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
         if drift:                                   # a newer blueprint or an edited target is another experiment
             raise SystemExit(f"{man['id']}: {key}'s {' and '.join(drift)} is not what the manifest froze: nothing exported")
         stmts, prefix = json.loads(raw)["statements"], goal_closer.prefix_of(text)
+        base = {"manifest": man["id"], "n": n, "blueprint": rel(bp), "blueprint_sha": got["blueprint"],
+                "target_sha": got["target"], **({"exported": sorted(only)} if only is not None else {})}
         for i in range(len(stmts)):
-            if only and i + 1 not in only:
+            if only is not None and i + 1 not in only:
                 continue
             out.append({"target_set": tset, "target": name, "n": n,
                         "statement": subgoals.lemma_file(prefix, lemma_text(prefix, stmts, i), "  sorry\n"),
-                        "guided": {"manifest": man["id"], "hole": i + 1, "holes": len(stmts), "n": n, "blueprint": rel(bp),
-                                   "blueprint_sha": hashlib.sha256(raw).hexdigest(),
-                                   "target_sha": hashlib.sha256(text.encode()).hexdigest(),
-                                   **({"exported": sorted(only)} if only else {})}})
+                        "guided": {**base, "hole": i + 1, "holes": len(stmts)}})
+        sub = (man.get("sub") or {}).get(key)
+        if not sub:
+            continue
+        sraw = at(sub["blueprint"]).read_bytes()
+        sdoc = json.loads(sraw)
+        why = ("it is not hole 1" if sub["hole"] != 1 else
+               "the manifest's `holes` still samples that hole whole" if only is None or sub["hole"] in only else
+               "it is not the bytes the manifest froze" if hashlib.sha256(sraw).hexdigest() != sub["sha256"] else
+               "it did not pass the gate" if not sdoc.get("ok") else
+               "it was gated against another blueprint or hole" if (sdoc.get("parent_sha"), sdoc.get("hole")) != (got["blueprint"], sub["hole"])
+               else None)
+        if why:
+            raise SystemExit(f"{man['id']}: {key}'s sub-blueprint for hole {sub['hole']}: {why}: nothing exported")
+        sstmts, sprefix = sdoc["statements"], goal_closer.prefix_of(hole_target(text, stmts, sub["hole"]))
+        sonly = sub.get("holes")
+        for i in range(len(sstmts)):
+            if sonly is not None and i + 1 not in sonly:
+                continue
+            out.append({"target_set": tset, "target": name, "n": n,
+                        "statement": subgoals.lemma_file(sprefix, lemma_text(sprefix, sstmts, i), "  sorry\n"),
+                        "guided": {**base, "hole": i + 1, "holes": len(sstmts), "sub": sub["hole"],
+                                   "sub_blueprint": sub["blueprint"], "sub_blueprint_sha": sub["sha256"],
+                                   **({"sub_exported": sorted(sonly)} if sonly is not None else {})}})
     return out
 
 
 def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repair=None, run_lean=None, closer=None,
-                 carried=None, exported=None):
+                 carried=None, exported=None, final=None):
     """fill for a prover batch: `samples` maps a 1-based hole to its answers' texts in sample order. Lean's closers on
     every hole first; then each sample of an open hole in order, through subgoals.try_body (the judge, then the free
     chain), the first accept closing the hole. asked = every sample generated; answered = samples read that held a
@@ -327,8 +372,8 @@ def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repai
     an accept; one that no longer judges is listed in `carry_failed` and the hole goes on to its samples. `exported`
     is the holes this batch sampled (None: all): the others have 0 planned. `bodies` holds every closed hole's lines
     with the sample that wrote them; it is for the caller's held file, never a ledger row."""
-    carried, exported = carried or {}, set(exported) if exported else None
-    sk = sketch(prefix, stmts)
+    carried, exported = carried or {}, set(exported) if exported is not None else None
+    sk = sketch(prefix, stmts, final)
     hole_lines = subgoals.holes(sk, prefix.count("\n") + 1)
     rep = (lambda body, stmt, out: repair(body, subgoals.lemma_file(prefix, stmt, "").rstrip("\n"), out)) if repair else None
     close = closer or (lambda lp: lean_tier(lp, judge_text, run_lean))
@@ -402,6 +447,7 @@ def main(argv=None):
     ap.add_argument("--gate", metavar="SET/TARGET", help="run the gate on a guide's reply (--reply) and store the result")
     ap.add_argument("--reply", help="file holding the guide's reply")
     ap.add_argument("--guide", default="codex", help="who wrote the reply (recorded, e.g. codex, claude)")
+    ap.add_argument("--hole", type=int, help="the target is this hole (1-based) of the problem's latest gated blueprint")
     args = ap.parse_args(argv)
     from proof_text import PROOF_SEP
     key = args.prompt or args.gate
@@ -409,6 +455,12 @@ def main(argv=None):
         ap.error("--prompt or --gate")
     tset, name = key.rsplit("/", 1)
     target_text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
+    parent = {}
+    if args.hole:
+        bp = latest_gated(name)
+        raw = bp.read_bytes()
+        target_text = hole_target(target_text, json.loads(raw)["statements"], args.hole)
+        parent = {"parent": str(bp.relative_to(ROOT)), "parent_sha": hashlib.sha256(raw).hexdigest(), "hole": args.hole}
     prefix = target_text[:PROOF_SEP.search(target_text).end()]
     if args.prompt:
         import relay
@@ -421,8 +473,8 @@ def main(argv=None):
     g = gate(prefix, stmts, lean_tools.run_lean, lean_tools.judge_text)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     BLUEPRINTS.mkdir(parents=True, exist_ok=True)
-    out = BLUEPRINTS / f"{name}-{ts}.json"
-    out.write_text(json.dumps({"ts": ts, "target_set": tset, "target": name, "guide": args.guide, "statements": stmts,
+    out = BLUEPRINTS / (f"{name}.bp{args.hole}-{ts}.json" if args.hole else f"{name}-{ts}.json")
+    out.write_text(json.dumps({"ts": ts, "target_set": tset, "target": name, **parent, "guide": args.guide, "statements": stmts,
                                **g}, indent=1, ensure_ascii=False) + "\n")
     print(("PASS" if g["ok"] else "REJECT") + f" {key}: {len(stmts)} statements; " + ("; ".join(g["why"]) or "wellformed")
           + f"\n  {out.relative_to(ROOT)}")

@@ -400,6 +400,56 @@ class GuidedBatchTests(unittest.TestCase):
         row, _, _ = self.continuing({"2": dict(self.FIRST["2"], lines=["stale"])}, tag="c")
         self.assertEqual((row["carry_failed"], row["unattempted"], row["carry_missing"]), ([2], [2], None))
 
+    def with_sub(self, tag, reject=None, keep=lambda a: True):
+        """A manifest whose hole 1 has a blueprint of its own (two holes); hole 2 is sampled whole."""
+        import blueprint
+        g = self.work[0]["guided"]
+        sp = self.stall / "blueprints" / f"{NAME}.bp1-x.json"
+        sp.write_text(json.dumps({"ok": True, "statements": ["x * 1 = x", "x = x * 1"], "parent_sha": g["blueprint_sha"],
+                                  "hole": 1, "final": "grind"}))
+        mid = f"{self.MID}-{tag}"
+        man = {"id": mid, "filler": "kaggle", "problems": [f"minif2f/test/{NAME}"], "samples_per_hole": 2, "holes": [2],
+               "sub": {f"minif2f/test/{NAME}": {"hole": 1, "blueprint": str(sp), "sha256": hashlib.sha256(sp.read_bytes()).hexdigest()}}}
+        (self.stall / f"{mid}.json").write_text(json.dumps(man))
+        work = blueprint.kaggle_work(man, 2, read=lambda s, t: TARGET, find=lambda name: self.bp, rel=lambda path: str(path),
+                                     at=lambda r: Path(r))
+        batch = f"guided-{mid}-20261116T0000"
+        answers = [{"batch": batch, "target_set": w["target_set"], "target": w["target"], "sample": k, "guided": w["guided"],
+                    "text": self.GOOD, "config": {"model": prover.MODEL}} for w in work for k in range(2)]
+        answers = [a for a in answers if keep(a)]
+        judge_text = lambda text: {"verdict": "reject" if reject and reject in text else "accept", "reason": "", "output": ""}
+        self.stats = prover.judge_guided(answers, judge_text=judge_text, read=lambda s, t: TARGET, run_id="t3", stall=self.stall,
+                            guided_out=self.root / "held", closer=lambda lp: None, blueprint_at=lambda rel: Path(rel))
+        (row,) = [json.loads(l) for l in (self.stall / f"{batch}.jsonl").read_text().splitlines()]
+        return row, json.loads(self.held(batch).read_text())["problems"][f"minif2f/test/{NAME}"], batch
+
+    def test_a_holes_own_blueprint_proved_whole_is_that_holes_body_and_is_credited_as_such(self):
+        row, kept, batch = self.with_sub("s")
+        self.assertEqual(row["closed_by"], {"1": "sub-blueprint", "2": prover.BACKEND})
+        self.assertEqual((row["sub"]["closed_by"], row["sub"]["final"]), ({"1": prover.BACKEND, "2": prover.BACKEND}, "accept"))
+        self.assertEqual((row["planned"], row["sub"]["planned"], row["final"]), ({"1": 0, "2": 2}, {"1": 2, "2": 2}, "accept"))
+        self.assertEqual(kept["holes"]["1"]["by"], "sub-blueprint")
+        self.assertEqual(kept["holes"]["1"]["lines"], ["have bp_1 : x * 1 = x := by", "  rfl", "have bp_2 : x = x * 1 := by", "  rfl", "grind"],
+                         "the sub-blueprint's own closing line, dedented to the hole")
+        self.assertEqual(sorted(kept["sub"]["holes"]), ["1", "2"])
+        held = (self.root / "held" / f"{NAME}-{batch}.lean").read_text()
+        self.assertIn("  have bp_1 : x = x := by\n    have bp_1 : x * 1 = x := by\n      rfl\n", held)
+
+    def test_a_budget_cut_before_the_first_sub_answer_still_records_the_subs_coverage_as_truncated(self):
+        """Codex 20261116T055155373979Z f2: the kernel's fit_chunk returned parent hole 3 alone with eight samples'
+        time left; with the child's coverage read from the answers, the row said nothing was cut."""
+        row, kept, _ = self.with_sub("u", keep=lambda a: not a["guided"].get("sub"))
+        self.assertEqual((row["sub"]["planned"], row["sub"]["generated"]), ({"1": 2, "2": 2}, {"1": 0, "2": 0}))
+        self.assertEqual((row["sub"]["truncated"], row["sub"]["unattempted"], self.stats["truncated"]), (True, [1, 2], 1))
+        self.assertEqual((row["closed_by"], row["unattempted"], row["final"]), ({"2": prover.BACKEND}, [1], None))
+        self.assertEqual(row["guide_rounds"], 2)
+
+    def test_a_holes_own_blueprint_left_open_leaves_the_hole_open_and_keeps_what_it_closed(self):
+        row, kept, _ = self.with_sub("t", reject="(bp_1 : x * 1 = x) : x = x * 1 := by")
+        self.assertEqual((row["closed_by"], row["unattempted"], row["final"]), ({"2": prover.BACKEND}, [1], None))
+        self.assertEqual((row["sub"]["closed_by"], row["sub"]["failed"], row["sub"]["final"]), ({"1": prover.BACKEND}, [2], None))
+        self.assertEqual((sorted(kept["holes"]), sorted(kept["sub"]["holes"])), (["2"], ["1"]))
+
     def test_judging_a_batch_again_writes_its_holes_file_and_leaves_the_committed_row_alone(self):
         """The backfill for the batch judged before holes were kept (workflow input `rejudge`)."""
         a = self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]})

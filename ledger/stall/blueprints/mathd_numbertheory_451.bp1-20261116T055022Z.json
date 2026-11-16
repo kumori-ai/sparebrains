@@ -1,0 +1,56 @@
+{
+ "ts": "20261116T055022Z",
+ "target_set": "minif2f/test",
+ "target": "mathd_numbertheory_451",
+ "parent": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+ "parent_sha": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a",
+ "hole": 1,
+ "guide": "codex (work ask 20261116T053703313021Z)",
+ "statements": [
+  "∀ m : ℕ, (Nat.divisors m).card = 4 → ∃ p : ℕ, Nat.Prime p ∧ p ∣ m",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m = p ^ 3",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ∣ m → ¬ p ^ 2 ∣ m → ∃ q : ℕ, Nat.Prime q ∧ p ≠ q ∧ m = p * q",
+  "∀ p : ℕ, Nat.Prime p → ∑ d ∈ Nat.divisors (p ^ 3), d = 1 + p + p ^ 2 + p ^ 3",
+  "∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → ∑ d ∈ Nat.divisors (p * q), d = (p + 1) * (q + 1)",
+  "∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ m = p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ m = p * q)"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA positive integer $n$ is nice if there is a positive integer $m$ with exactly four positive divisors (including $1$ and $m$) such that the sum of the four divisors is equal to $n.$ Find the sum of all the nice numbers in the set $\\{ 2010,2011,2012,\\dots,2019 \\}.$ -/\ntheorem sb_goal (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 2010 ≤ n ∧ n ≤ 2019 ∧ ∃ m, (Nat.divisors m).card = 4 ∧ ∑ p ∈ Nat.divisors m, p = n) : ∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ ∑ d ∈ Nat.divisors m, d = 1 + p + p ^ 2 + p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ ∑ d ∈ Nat.divisors m, d = (p + 1) * (q + 1)) := by\n  have bp_1 : ∀ m : ℕ, (Nat.divisors m).card = 4 → ∃ p : ℕ, Nat.Prime p ∧ p ∣ m := by\n    sorry\n  have bp_2 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m = p ^ 3 := by\n    sorry\n  have bp_3 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ∣ m → ¬ p ^ 2 ∣ m → ∃ q : ℕ, Nat.Prime q ∧ p ≠ q ∧ m = p * q := by\n    sorry\n  have bp_4 : ∀ p : ℕ, Nat.Prime p → ∑ d ∈ Nat.divisors (p ^ 3), d = 1 + p + p ^ 2 + p ^ 3 := by\n    sorry\n  have bp_5 : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → ∑ d ∈ Nat.divisors (p * q), d = (p + 1) * (q + 1) := by\n    sorry\n  have bp_6 : ∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ m = p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ m = p * q) := by\n    sorry\n  grind\n",
+ "final": "grind",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 5,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 6,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed",
+ "note": "the one-line closer failed (lean exit 1: proof.lean:6:0: error: (deterministic) timeout at `whnf`, maximum number of heartbeats (200000) has been reached); `grind` alone closes it"
+}

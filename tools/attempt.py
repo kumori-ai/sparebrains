@@ -1079,7 +1079,8 @@ def main():
             write({"arm": "none", "note": "no gated blueprint"})
             print(f"[pilot {man['id']}] {key}: no gated blueprint, skipped", flush=True)
             return None
-        stmts = json.loads(bp.read_text())["statements"]
+        doc = json.loads(bp.read_text())
+        stmts = doc["statements"]
         text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
         prefix = text[:PROOF_SEP.search(text).end()]
         live = asks_for(man["lanes"])                     # [(backend, ask)] for the lanes live today, in manifest order
@@ -1087,7 +1088,7 @@ def main():
         result = {}                                       # 20261109T213007122693Z f1: a missing lane shifted the credit)
         for arm, asks in (("B", []), ("C", [a for _, a in live])):
             f = blueprint.fill(prefix, stmts, lean_tools.judge_text, asks=asks, max_asks=man["asks_per_problem"], repair=repair,
-                               run_lean=lean_tools.run_lean)
+                               run_lean=lean_tools.run_lean, final=doc.get("final"))
             by = {str(k): ("lean" if v == "lean" else names[v]) for k, v in f["closed_by"].items()}
             row = {"arm": arm, "blueprint": str(bp.relative_to(ROOT)), "holes": f["holes"], "closed_by": by,
                    "failed": f["failed"], "unattempted": f["unattempted"], "asked": f["asked"], "answered": f["answered"],

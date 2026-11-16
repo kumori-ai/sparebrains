@@ -1,0 +1,81 @@
+{
+  "id": "pilot-guided-kaggle-2026-11-16",
+  "kind": "feasibility pilot (1 problem), second batch: the first batch's closed holes carried, hole 1 through a sub-blueprint, hole 3 sampled again; no claim",
+  "filler": "kaggle",
+  "continues": "pilot-guided-kaggle-2026-11-15 (batch guided-pilot-guided-kaggle-2026-11-15-20261116T0016): holes 5, 6 closed by Lean, 2 (prover plus the free chain) and 4 (prover) by samples, 1 and 3 failed, whole proof not checked",
+  "question": "with holes 2, 4, 5, 6 carried and judged again, do the prover's samples close hole 3 and the five open holes of hole 1's sub-blueprint, so that the whole proof is assembled and checked by the kernel? Nothing else is read from this run",
+  "problems": [
+    "minif2f/test/mathd_numbertheory_451"
+  ],
+  "target_sha256": {
+    "minif2f/test/mathd_numbertheory_451": "524404ad670f0e3dd0720cde8fc55da0ebfe8c17013d60fcf5626e29167bef2e"
+  },
+  "stalled_since_days": 74,
+  "guide": "codex: the blueprint (work ask 20261109T211612681102Z) and hole 1's sub-blueprint (work ask 20261116T053703313021Z); 12 propositions in two rounds",
+  "guide_rounds": 2,
+  "blueprint": {
+    "path": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+    "sha256": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a",
+    "holes_in_order": 6,
+    "note": "unchanged from the first batch, so the carried holes are of this blueprint byte for byte"
+  },
+  "holes": [
+    3
+  ],
+  "sub": {
+    "minif2f/test/mathd_numbertheory_451": {
+      "hole": 1,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1-20261116T055022Z.json",
+      "sha256": "365843c2c325608c449369ff9de89c064cf116a8f277c3cbb0c5e65324bbdaee",
+      "holes": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "note": "6 propositions for hole 1's own lemma, gate PASS with closing line `grind` (the one-line closer died on aesop's heartbeat timeout; grind alone closes it in 13 s). Lean's recipes alone, run locally 2026-11-16: sub-holes 1-5 open, 6 closed by grind, so 6 is not sampled"
+    }
+  },
+  "carry": {
+    "batch": "guided-pilot-guided-kaggle-2026-11-15-20261116T0016",
+    "run": 43811256358,
+    "artifact": "prover-guided-43811256358-1-gpu",
+    "sha256": "1413546c408e20ebda3efed925442351437dd12f8cb51b0dfdd5cbe2b8e1c6af",
+    "expires": "2027-02-14",
+    "note": "written by the rejudge of the first batch (run 43811256358: holes 2, 4, 5, 6 closed again, hole 2's free-chain repair reproduced); the first batch's committed row is untouched. Every carried body is judged again on its hole's lemma, never repaired, and credited to its first closer"
+  },
+  "lanes": [],
+  "samples_per_hole": 8,
+  "export": "6 files: hole 3 of the blueprint, then sub-holes 1-5 of hole 1's sub-blueprint, each with the earlier statements of its own blueprint as hypotheses; 48 samples planned, the first batch's budget",
+  "generation": {
+    "model": "Goedel-LM/Goedel-Prover-V2-8B, no revision pinned (the kernel downloads the current one; each answer's config records the model name only)",
+    "settings": "max_tokens 16000, temperature 1.0, top_p 0.95, half precision, 2 x T4 (tools/prover_kernel.py at the commit that carries this manifest)",
+    "prompt": "the kernel's PROMPT, unchanged: the hole's file with `sorry`, then the proof-plan instruction",
+    "expected": "about 2 h of the week's free GPU hours by the first batch's rate (48 samples in 112 min); $0"
+  },
+  "judging": {
+    "lean": "leanprover/lean4:v4.33.1, mathlib v4.33.1 (lake-manifest.json), the judge of tools/check.py",
+    "order": "hole 1's sub-blueprint first: Lean's 30 recipes on each sub-hole, then its samples in order (a fenced `theorem sb_goal` block, the free chain on a reject), and only if all six close is its assembled proof (closing line grind) judged; an accept is hole 1's body. Then the blueprint: Lean's recipes, then the carried body judged again, then hole 3's samples; with all six closed the whole proof is judged",
+    "attribution": "closed_by is lean, kaggle-goedel-prover-v2-8b, carried:<batch> (carried_from names the first closer, +chain when repaired) or sub-blueprint; a repaired try carries repaired=true"
+  },
+  "endpoint": "the row in ledger/stall/guided-<id>-<stamp>.jsonl: per hole and per sub-hole planned and generated samples, read with a proof, without, unread; closed by Lean, a carried body, a raw sample, a repaired sample, the sub-blueprint; failed, unattempted, judge_unfinished, carry_failed; the whole proof accept, reject (with its reason) or NOT CHECKED when final is null",
+  "incomplete_if": [
+    "truncated is true for the blueprint or the sub-blueprint (fewer samples than planned, including none)",
+    "judging_complete is false for either",
+    "carry_missing is set or carry_failed lists a hole that was not sampled",
+    "no answers came back, or the blueprint, sub-blueprint or target changed since export"
+  ],
+  "an_incomplete_run": "is recorded as incomplete and is not pushed again on its own; a new manifest is the lab's call",
+  "credit": "guided, two guide rounds: the guide chose 12 propositions; Lean, the prover and the free chain proved the steps. Never 'free models plus tools'. Rows committed; every proof TEXT (closed holes, an accept) is held in the prover run's artifact (90 days), not in verified/, ledger/ or on the site",
+  "claim": "none. One problem; a yes or no on whether carried holes plus a sub-blueprint reach a kernel-checked whole proof, not a rate and not tool lift",
+  "before_any_comparative_claim": "REQUIRED: a matched control (the same prover, the same sample budget, cold on the whole problem in the same batch) and more than one problem; until then this is feasibility evidence only",
+  "residual": "held proof text lives only in run artifacts that expire (the carry file on 2027-02-14); durable preservation is decided before the first expiry (Codex 20261116T051804114308Z f1, repeated in 055155373979Z and 055619070147Z)",
+  "not_verified_before_this_run": "the workflow's `carried holes` download step and a kernel batch with `sub` entries have only been exercised in unit tests; the artifact upload of a real file was first exercised by run 43811256358",
+  "verdicts": [
+    "20261116T051804114308Z_codex (design, AGREE)",
+    "20261116T055155373979Z_codex (code, DISAGREE: a cut before the first sub answer read as complete; fixed)",
+    "20261116T055619070147Z_codex (AGREE)"
+  ],
+  "known_gap": "a batch that returns an empty answers file stops the workflow before judging (prover.yml), so no row is written for it; no further push follows, and the gap is read from the run, not the ledger (Codex 20261116T001213948778Z f5)"
+}

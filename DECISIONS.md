@@ -5,6 +5,35 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-16
 
+- **Guided batches keep what they close, and a second batch continues the first (kumori #574).** The first Kaggle
+  guided batch closed holes 2 and 4 and kept their proofs nowhere: the raw samples sat in the kernel's output and hole
+  2's repaired body in nothing at all. Built: `prover.judge_guided` writes every closed hole's lines to
+  `holes-<batch>.json` in the run's artifact (the holding place DECISIONS 2026-11-09 gave guided text; six hole
+  bodies are the solve, so never ledger/, verified/ or the site), the row carrying each hole's hash; a later
+  manifest's `carry` names that artifact by run and sha256, the workflow downloads it before any Lean runs, and
+  `blueprint.fill_samples` judges each carried body again on its hole's lemma, never repaired, credited to its first
+  closer (`carried:<batch>`, `carried_from`). A manifest's `holes` exports only the open ones. Workflow input
+  `rejudge` judges a finished batch again for its holes file only; the committed row is not rewritten. **Backfill,
+  run 43811256358: holes 2, 4, 5, 6 closed again** (hole 2's free-chain repair reproduced), the artifact step's
+  first real upload. Codex's call on what to sample next (20261116T051804114308Z q2): not more samples of hole 1
+  whole (8 samples: 3 with a sorry, 3 dead on the old `∑ x in s` syntax, 2 other rejects) but a **sub-blueprint**:
+  the guide gave 6 propositions for hole 1's own lemma (ask 20261116T053703313021Z), gated with
+  `blueprint.py --gate --hole 1`; `kaggle_work`'s `sub` exports its holes and `judge_guided` fills it first, its
+  assembled and accepted proof becoming hole 1's body (`sub-blueprint`), which the parent judges again. Two tool bugs
+  found by using it, each with a test that failed first: `split_signature` cut at the last top-level colon, inside a
+  conclusion that starts `∀ m : ℕ,`; and the gate's one closing line dies when an early closer runs out of
+  heartbeats (`first` does not catch it: aesop timed out, grind alone closes hole 1 from the six in 13 s), so the
+  gate now tries each closer apart and the blueprint records its own `final`. Lean's recipes alone on the six
+  sub-holes, locally: 1-5 open, 6 closed by grind. Rows carry `guide_rounds` (2 here: 12 propositions for one
+  problem); try mode stays `guided`. Codex: 051804114308Z AGREE (design), 055155373979Z DISAGREE (a batch cut before
+  the first sub answer read as complete; confirmed, fixed), 055619070147Z AGREE. **Frozen and sent:
+  `ledger/stall/pilot-guided-kaggle-2026-11-16.json`**: hole 3 and sub-holes 1-5, 8 samples each (48, the first
+  batch's budget, about 2 GPU h, $0), holes 2, 4, 5, 6 carried. Feasibility only, one problem, no claim. Residual
+  (Codex f1, three rounds): held proof text lives only in artifacts that expire, the carry file on 2027-02-14;
+  durable preservation is decided before then. Not yet verified in Actions: the carry download step and a kernel
+  batch with `sub` entries. Seen, not built: a one-line rewrite of `∑ x in s` to `∑ x ∈ s` before judging would have
+  let three of hole 1's eight samples reach the kernel.
+
 - **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
   inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to
   fall and the slow lanes' accepts per call to rise. As frozen, ladder-x3: before (11-01T00Z to 11-08T22Z) 35 runs,
