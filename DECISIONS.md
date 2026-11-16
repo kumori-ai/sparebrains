@@ -94,6 +94,22 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   writing loop, pending 48 to 0, the gate comment carries counts only). Its f4, built with a failing test first: the
   export refuses when the blueprint or target on disk is not the manifest's hash. Its f5, recorded in the manifest
   and not built: an empty answers file stops the workflow before judging, so that case leaves no row.
+  **The read (batch guided-pilot-guided-kaggle-2026-11-15-20261116T0016, judged by run 43793035114; a complete read
+  by the manifest's rules: 48 of 48 samples generated, no judge timeout): the prover closed 2 of the 4 holes Lean
+  leaves open.** Lean's recipes: holes 5 and 6. The prover: hole 4 (the 1837 computation) on its first sample as
+  written, and hole 2 (no prime p has 1 + p + p^2 + p^3 in 2010..2019) on its fourth sample after the free chain, so
+  prover plus chain. Failed: hole 1 (the four-divisor classification), 8 samples: 3 left a `sorry` (wellformed), 5
+  rejects (3 Lean 3 `in` tokens, a recursion depth, an anonymous constructor); hole 3 (the (p+1)(q+1) = 2016 bound), 8
+  rejects, all arithmetic steps that did not close (linarith 5, "no goals" 2, omega 1). 21 samples read, every one a
+  complete Lean proof of `sb_goal` in form; 27 unread (16 on the holes Lean closed, 11 after an accept). The whole
+  proof is not checked: two holes are open. Kaggle: 112 minutes on 2 x T4, 389,131 tokens, $0. So the answer to the
+  manifest's question is yes on both counts, for this one blueprint: the samples come back as proofs, and they close
+  holes the router pilots never did (those: 13 answers over two runs, 0 holes). Not a rate, not tool lift, no control
+  arm. First real run of the adapter: the kernel echoed `guided` on all 48 answers and the rows landed in ledger/stall
+  only; the artifact step ran and uploaded nothing, as there was no accept, so the upload of a real file is still
+  unexercised. A gap this run shows: the bodies that closed holes 2 and 4 are kept nowhere but the Kaggle kernel's
+  own output (version 33), so a later batch on holes 1 and 3 cannot yet assemble the whole proof; carrying closed
+  holes forward is the next build, before any second batch.
 
 ## 2026-11-09
 
