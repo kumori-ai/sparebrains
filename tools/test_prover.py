@@ -386,6 +386,7 @@ class GuidedBatchTests(unittest.TestCase):
         row, stats, batch = self.continuing(self.FIRST)
         self.assertEqual(row["closed_by"], {"1": prover.BACKEND, "2": f"carried:{self.batch}"})
         self.assertEqual(row["carried_from"], {"2": "kaggle-goedel-prover-v2-8b+chain"}, "never the second batch's samples")
+        self.assertEqual((stats["closed_by_prover"], stats["carried"]), (1, 1), "the summary line does not count a carried hole as this batch's")
         self.assertEqual((row["planned"], row["generated"], row["truncated"]), ({"1": 2, "2": 0}, {"1": 2, "2": 0}, False))
         self.assertEqual((row["final"], row["carry_missing"], row["carry_failed"]), ("accept", None, []))
         hole = json.loads(self.held(batch).read_text())["problems"][f"minif2f/test/{NAME}"]["holes"]

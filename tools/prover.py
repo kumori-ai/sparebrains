@@ -495,7 +495,9 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
                    final=f.get("final"), final_reason=f.get("final_reason"), tries=f["tries"])
         stats["holes"] += f["holes"]
         stats["closed_by_lean"] += sum(1 for v in f["closed_by"].values() if v == "lean")
-        stats["closed_by_prover"] += sum(1 for v in f["closed_by"].values() if v != "lean")
+        stats["closed_by_prover"] += sum(1 for v in how.values() if v == "sample")
+        stats["carried"] += sum(1 for v in how.values() if v == "carried")       # not this batch's samples
+        stats["closed_by_sub_blueprint"] += sum(1 for v in how.values() if v == "sub")
         stats["truncated"] += bool(f["truncated"])
         stats["judging_unfinished"] += not f["judging_complete"]
         if f.get("accepted"):
@@ -519,7 +521,7 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
     return {"guided": mid, "problems": len(rows), **({"rejudged_for_holes_only": True, "holes_kept": {
                 p: sorted(int(n) for n in v["holes"]) for p, v in kept.items()}} if again else {}),
             **{k: stats[k] for k in
-            ("holes", "closed_by_lean", "closed_by_prover", "solved", "truncated", "judging_unfinished", "no_answers",
+            ("holes", "closed_by_lean", "closed_by_prover", "carried", "closed_by_sub_blueprint", "solved", "truncated", "judging_unfinished", "no_answers",
              "changed_since_export")}}
 
 
