@@ -37,6 +37,20 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   body in the old form is rejected as written and accepted through it. It applies to every lane's hole proofs and to
   the second batch's judging, which the manifest records as an amendment made before any judging. Not measured: how
   many of the three old samples would have passed past that line.
+   **Read of the second batch, 2026-11-16 17:58Z** (run 43917149539, started by hand: GitHub's 2-hourly schedule had
+   not fired since 07:20Z; row `ledger/stall/guided-pilot-guided-kaggle-2026-11-16-20261116T1515.jsonl`): not solved.
+   The carry worked in Actions for the first time: holes 2 and 4 were downloaded, re-judged and accepted
+   (`carry_failed` empty), holes 5 and 6 closed by Lean again. Hole 1's own blueprint went from 1 of 6 closed (Lean
+   alone, local) to 3 of 6: sub-holes 1 (a prime divisor exists) and 4 (the divisor sum of p^3) each closed by the
+   prover's first sample unrepaired, 6 by Lean; sub-holes 2 (p^2 divides m gives m = p^3), 3 (m = p*q) and 5 (the
+   divisor sum of p*q) took 8 samples each and failed, so hole 1 stays open. Hole 3 of the parent: 8 more samples, 7
+   rejects and 1 Lean timeout at 300 s, which is why the row reads `judging_complete: false` with
+   `judge_unfinished: [3]` (16 samples over two batches, none accepted). No sample was repaired by the binder
+   rewrite. Nothing truncated; 48 samples generated as planned. Held hole bodies: artifact
+   `prover-guided-43917149539-1-gpu` (expires 2027-02-14), holes file sha256 419c2335...7f4362. One problem, guided,
+   two guide rounds: feasibility only, no claim. Next: the four open pieces are parent hole 3 and sub-holes 2, 3, 5;
+   more cold samples at this size have now failed 16 and 8 times, so the next round splits them again or changes
+   their statements rather than sampling more.
 
 - **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
   inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to
