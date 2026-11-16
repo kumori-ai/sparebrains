@@ -290,6 +290,11 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
         if not bp:
             continue
         raw, text = bp.read_bytes(), read(tset, name)
+        got = {"blueprint": hashlib.sha256(raw).hexdigest(), "target": hashlib.sha256(text.encode()).hexdigest()}
+        want = {"blueprint": (man.get("blueprint") or {}).get("sha256"), "target": (man.get("target_sha256") or {}).get(key)}
+        drift = [k for k in got if want[k] and want[k] != got[k]]
+        if drift:                                   # a newer blueprint or an edited target is another experiment
+            raise SystemExit(f"{man['id']}: {key}'s {' and '.join(drift)} is not what the manifest froze: nothing exported")
         stmts, prefix = json.loads(raw)["statements"], goal_closer.prefix_of(text)
         for i in range(len(stmts)):
             out.append({"target_set": tset, "target": name, "n": n,

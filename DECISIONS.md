@@ -50,6 +50,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   failed hole, reproduced from check.py's return shapes and fixed with tests). 17 new tests, failing first; 288 pass
   across the seven suites touched. Not verified: the artifact step in Actions, and the kernel on Kaggle with `guided`
   entries. No manifest asks for it yet, so nothing runs differently until one is frozen and reviewed.
+  **Frozen and sent the same evening: `ledger/stall/pilot-guided-kaggle-2026-11-15.json`**, the same problem and gated
+  blueprint, 6 holes x 8 samples of Goedel-Prover-V2-8B on the free Kaggle GPU (0 of the week's 30 hours used at
+  23:11Z; about 2.1 hours by the last batches' 160 s a sample), a feasibility read with no control arm and no claim.
+  Codex 20261116T001213948778Z AGREE after its own dry run (48 distinct hole and sample pairs through the kernel's
+  writing loop, pending 48 to 0, the gate comment carries counts only). Its f4, built with a failing test first: the
+  export refuses when the blueprint or target on disk is not the manifest's hash. Its f5, recorded in the manifest
+  and not built: an empty answers file stops the workflow before judging, so that case leaves no row.
 
 ## 2026-11-09
 

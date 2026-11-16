@@ -1,0 +1,54 @@
+{
+  "id": "pilot-guided-kaggle-2026-11-15",
+  "kind": "feasibility pilot (1 problem), a blueprint's holes to the Kaggle prover; no claim",
+  "filler": "kaggle",
+  "supersedes": "pilot-guided-2026-11-15 (run 43776896439): arm B closed holes 5 and 6 by Lean's recipes; arm C 8 asked, 0 answered, every ask refused HTTP 503 provider_busy while the ladder (run 43773519397) held requesty-leanstral-1-5. Inconclusive by its own rule. Three router pilots, three starved on lanes shared with the ladder",
+  "question": "do samples from a Lean-trained prover (Goedel-Prover-V2-8B) come back as complete Lean proofs of this blueprint's holes, and do any close a hole Lean's recipes leave open? Nothing else is read from this run",
+  "problems": [
+    "minif2f/test/mathd_numbertheory_451"
+  ],
+  "target_sha256": {
+    "minif2f/test/mathd_numbertheory_451": "524404ad670f0e3dd0720cde8fc55da0ebfe8c17013d60fcf5626e29167bef2e"
+  },
+  "stalled_since_days": 73,
+  "guide": "codex (work ask 20261109T211612681102Z)",
+  "blueprint": {
+    "path": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+    "sha256": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a",
+    "holes_in_order": 6,
+    "note": "the only gated blueprint for this problem; the export refuses if the blueprint or the target on disk is not these hashes (blueprint.kaggle_work), every answer carries them, and judge_guided judges nothing if either differs at judge time"
+  },
+  "lanes": [],
+  "samples_per_hole": 8,
+  "export": "all 6 holes, each its own file with the earlier statements as hypotheses bp_1.. (blueprint.kaggle_work); 48 samples planned, in hole order, the kernel's chunks of 2 holes; holes Lean closes at judge time (5 and 6 in run 43776896439) are sampled too and those samples count as generated and unread",
+  "generation": {
+    "model": "Goedel-LM/Goedel-Prover-V2-8B, no revision pinned (the kernel downloads the current one; each answer's config records the model name only)",
+    "settings": "max_tokens 16000, temperature 1.0, top_p 0.95, half precision, 2 x T4 (tools/prover_kernel.py at the commit that carries this manifest)",
+    "prompt": "the kernel's PROMPT, unchanged: the hole's file with `sorry`, then the proof-plan instruction",
+    "expected": "about 160 s a sample by the last batches' rate, so about 2.1 h of the week's 30 free GPU hours plus the model load; $0"
+  },
+  "judging": {
+    "lean": "leanprover/lean4:v4.33.1, mathlib v4.33.1 (lake-manifest.json), the judge of tools/check.py",
+    "order": "Lean's 30 baseline recipes on every hole first (replay.baseline_one); then each sample of an open hole in sample order; a sample must contain a fenced block with `theorem sb_goal` (prover.final_proof), else it is read with no proof; a rejected proof goes through the free chain (toolscore.hole_repair) before it counts; the first accept closes the hole",
+    "attribution": "closed_by is lean or kaggle-goedel-prover-v2-8b; a try the free chain rescued carries repaired=true and is reported as prover plus chain, never prover alone"
+  },
+  "endpoint": "from the row in ledger/stall/guided-<id>-<stamp>.jsonl: per hole planned and generated samples; samples read with a complete proof, read without, unread; holes closed by Lean, by a raw sample, by a repaired sample, failed, unattempted, judge_unfinished; whole proof accept, reject (with its reason) or NOT CHECKED when final is null",
+  "incomplete_if": [
+    "truncated is true (a hole got fewer samples than planned: the kernel stops at its GPU budget and still ends as complete)",
+    "judging_complete is false (a sample or the whole proof hit Lean's timeout or memory limit)",
+    "no answers came back, or the blueprint or target changed since export"
+  ],
+  "an_incomplete_run": "is recorded as incomplete and is not pushed again on its own; a new manifest is a person's call",
+  "isolation": "the Kaggle GPU kernel is this repo's own and shares no router lane with the ladder; the GPU leg pushes this batch before any other kind",
+  "credit": "a solve here is guided: the guide chose the propositions, Lean and the prover (plus the free chain) proved every step; never 'free models plus tools'. Measurement rows committed; the accepted TEXT is held in the prover run's artifact (SB_GUIDED_OUT, 30 days), not in verified/, ledger/ or on the site, until the lab decides how guided solves are shown",
+  "claim": "none. One problem, one blueprint, 8 samples a hole: a yes or no on whether this route produces usable hole proofs, not a rate and not tool lift",
+  "before_any_comparative_claim": "REQUIRED: a matched control (the same prover, the same sample budget, cold on the whole problem in the same batch) and more than one problem; until then this is feasibility evidence only",
+  "not_verified_before_this_run": "the artifact step in prover.yml and the kernel with `guided` entries have only been exercised in unit tests",
+  "verdicts": [
+    "20261115T234113711421Z_codex",
+    "20261115T235234646209Z_codex",
+    "20261116T000117894936Z_codex",
+    "20261116T001213948778Z_codex"
+  ],
+  "known_gap": "a batch that returns an empty answers file stops the workflow before judging (prover.yml), so no row is written for it; no further push follows, and the gap is read from the run, not the ledger (Codex 20261116T001213948778Z f5)"
+}

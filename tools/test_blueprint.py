@@ -269,6 +269,21 @@ class KaggleBatch(unittest.TestCase):
         self.assertNotIn("goal", work[0], "a `goal` field would send the answers down the public goal-closer path")
         self.assertNotIn("arm", work[0])
 
+    def test_an_export_that_is_not_what_the_manifest_froze_is_refused(self):
+        """Codex 20261116T001213948778Z f4: the manifest's hashes were documentary; a newer blueprint or an edited
+        target before the push would have changed the experiment silently."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bp, work = self.work(tmp)
+            g = work[0]["guided"]
+            read, pick, rel = (lambda s, t: self.TARGET), (lambda name: bp), (lambda path: path.name)
+            frozen = {"id": "pilot-x", "problems": ["minif2f/test/demo"], "blueprint": {"sha256": g["blueprint_sha"]},
+                      "target_sha256": {"minif2f/test/demo": g["target_sha"]}}
+            self.assertEqual(len(blueprint.kaggle_work(frozen, 8, read=read, find=pick, rel=rel)), 3)
+            with self.assertRaises(SystemExit):
+                blueprint.kaggle_work({**frozen, "blueprint": {"sha256": "0" * 64}}, 8, read=read, find=pick, rel=rel)
+            with self.assertRaises(SystemExit):
+                blueprint.kaggle_work(frozen, 8, read=lambda s, t: self.TARGET + "\n", find=pick, rel=rel)
+
     def test_a_problem_with_no_gated_blueprint_exports_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self.work(tmp, ok=False)[1], [])
