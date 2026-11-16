@@ -1,0 +1,15 @@
+{"sha": "28ddffd2e8b6", "target_set": "minif2f/test", "target": "amc12a_2021_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "8350b50e6511", "target_set": "minif2f/test", "target": "amc12a_2008_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "09e860ca6220", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "reject", "reason": "lean exit 1: proof.lean:12:50: error: `num` is not a field of structure `Real`"}
+{"sha": "10922ca9f61b", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "497ec6e212d2", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "55129fd21ada", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "cc62cba1266b", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "e5fe01875fb4", "target_set": "minif2f/test", "target": "amc12a_2020_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "0662992cfbed", "target_set": "minif2f/test", "target": "amc12a_2021_p25", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "bcc5156867f9", "target_set": "minif2f/test", "target": "amc12b_2021_p13", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "8bc592dcf1a6", "target_set": "minif2f/test", "target": "imo_1977_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "97b6b58bd07f", "target_set": "minif2f/test", "target": "imo_1977_p6", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "bebc2157ec38", "target_set": "minif2f/test", "target": "imo_1977_p6", "verdict": "reject", "reason": "lean exit 1: proof.lean:18:24: error(lean.synthInstanceFailed): failed to synthesize instance of type class"}
+{"sha": "59f28ef5c29e", "target_set": "minif2f/test", "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
+{"sha": "b0a5b9d48be9", "target_set": "minif2f/test", "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1", "verdict": "wellformed", "reason": "statement type-checks, proof is sorry ['sb_goal']"}
