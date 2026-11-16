@@ -1,0 +1,53 @@
+{
+ "ts": "20261116T182030Z",
+ "target_set": "minif2f/test",
+ "target": "mathd_numbertheory_451",
+ "parent": "ledger/stall/blueprints/mathd_numbertheory_451.bp1-20261116T055022Z.json",
+ "parent_sha": "365843c2c325608c449369ff9de89c064cf116a8f277c3cbb0c5e65324bbdaee",
+ "hole": 2,
+ "path": [
+  1,
+  2
+ ],
+ "stem": "bq",
+ "guide": "codex",
+ "statements": [
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m ≠ 0 ∧ 2 ≤ p ∧ m ≠ p ^ 2",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → Nat.divisors m = {1, p, p ^ 2, m}",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p ∈ Nat.divisors m ∧ (m / p) * p = m",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p ≠ 1 ∧ m / p ≠ p ∧ m / p ≠ m",
+  "∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p = p ^ 2"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA positive integer $n$ is nice if there is a positive integer $m$ with exactly four positive divisors (including $1$ and $m$) such that the sum of the four divisors is equal to $n.$ Find the sum of all the nice numbers in the set $\\{ 2010,2011,2012,\\dots,2019 \\}.$ -/\ntheorem sb_goal (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 2010 ≤ n ∧ n ≤ 2019 ∧ ∃ m, (Nat.divisors m).card = 4 ∧ ∑ p ∈ Nat.divisors m, p = n) (bp_1 : ∀ m : ℕ, (Nat.divisors m).card = 4 → ∃ p : ℕ, Nat.Prime p ∧ p ∣ m) : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m = p ^ 3 := by\n  have bq_1 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m ≠ 0 ∧ 2 ≤ p ∧ m ≠ p ^ 2 := by\n    sorry\n  have bq_2 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → Nat.divisors m = {1, p, p ^ 2, m} := by\n    sorry\n  have bq_3 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p ∈ Nat.divisors m ∧ (m / p) * p = m := by\n    sorry\n  have bq_4 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p ≠ 1 ∧ m / p ≠ p ∧ m / p ≠ m := by\n    sorry\n  have bq_5 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m / p = p ^ 2 := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 5,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}

@@ -1,0 +1,123 @@
+{
+ "id": "pilot-guided-kaggle-split-2026-11-16",
+ "kind": "feasibility pilot (1 problem), third batch: the four pieces two batches left open are each split again by the guide; everything closed so far is carried; no claim",
+ "filler": "kaggle",
+ "continues": "pilot-guided-kaggle-2026-11-16 (batch guided-pilot-guided-kaggle-2026-11-16-20261116T1515, judged by run 43917149539): holes 2, 4 carried and accepted, 5, 6 by Lean; hole 1's blueprint 3 of 6 closed (1 and 4 by the prover, 6 by Lean), its holes 2, 3, 5 failed 8 samples each; hole 3 failed 16 samples over two batches (1 Lean timeout)",
+ "question": "with every closed hole carried and judged again, do the prover's samples close the pieces of hole 3 and of hole 1's holes 2, 3 and 5, so that the whole proof is assembled and checked by the kernel? Nothing else is read from this run",
+ "problems": [
+  "minif2f/test/mathd_numbertheory_451"
+ ],
+ "target_sha256": {
+  "minif2f/test/mathd_numbertheory_451": "524404ad670f0e3dd0720cde8fc55da0ebfe8c17013d60fcf5626e29167bef2e"
+ },
+ "stalled_since_days": 74,
+ "guide": "codex: the blueprint (work ask 20261109T211612681102Z), hole 1's blueprint (20261116T053703313021Z), and four more on 2026-11-16 (work asks 20261116T181034702572Z, 181034703713Z, 181034703831Z, 181034705311Z: hole 3 and holes 2, 3, 5 of hole 1's blueprint); 30 propositions in three rounds",
+ "guide_rounds": 3,
+ "blueprint": {
+  "path": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+  "sha256": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a",
+  "holes_in_order": 6,
+  "note": "unchanged from the first batch, so the carried holes are of this blueprint byte for byte"
+ },
+ "holes": [],
+ "subs": {
+  "minif2f/test/mathd_numbertheory_451": [
+   {
+    "hole": 1,
+    "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1-20261116T055022Z.json",
+    "sha256": "365843c2c325608c449369ff9de89c064cf116a8f277c3cbb0c5e65324bbdaee",
+    "holes": [],
+    "note": "unchanged; its holes 1, 4, 6 are carried, 2, 3, 5 each have a blueprint below",
+    "subs": [
+     {
+      "hole": 2,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_2-20261116T182030Z.json",
+      "sha256": "2e3f7d401f057573925de629f6d1ed99dd5b3dac5d2392e0f2038f8242a5d1e3",
+      "note": "5 propositions (bq_1..), gate PASS",
+      "holes": [
+       1,
+       2,
+       3,
+       4
+      ]
+     },
+     {
+      "hole": 3,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_3-20261116T182852Z.json",
+      "sha256": "c33818fc3fd2de4e4f20030ee151e58f0f88cd461a2e42d1e90808d45e70883d",
+      "note": "6 propositions (bq_1..), gate PASS with closing line grind",
+      "holes": [
+       1,
+       2,
+       3,
+       5,
+       6
+      ]
+     },
+     {
+      "hole": 5,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_5-20261116T183229Z.json",
+      "sha256": "69744fe785d4dd5799feb66927167edee7487308231e9017aae36a2bb6485336",
+      "note": "3 propositions (bq_1..), gate PASS",
+      "holes": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   {
+    "hole": 3,
+    "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp3-20261116T181649Z.json",
+    "sha256": "16dc1fa593b66a34bf106037d1b405f4814eb4964bb4f8c5a3f693c549064b68",
+    "note": "4 propositions (bq_1..), gate PASS",
+    "holes": [
+     1,
+     2,
+     3
+    ]
+   }
+  ]
+ },
+ "carry": {
+  "batch": "guided-pilot-guided-kaggle-2026-11-16-20261116T1515",
+  "run": 43917149539,
+  "artifact": "prover-guided-43917149539-1-gpu",
+  "sha256": "419c2335f899e28bf81a90474a15a9c4c730008e5f45e494633a20a1787f4362",
+  "expires": "2027-02-14",
+  "note": "the second batch's cumulative holes file: holes 2, 4, 5, 6 and holes 1, 4, 6 of hole 1's blueprint. Every carried body is judged again on its hole's lemma, never repaired, and credited to its first closer"
+ },
+ "lanes": [],
+ "samples_per_hole": 8,
+ "lean_alone": "run locally 2026-11-16 on real Lean with no samples (the judge's own path): Lean's recipes close hole 5 of 1.2's blueprint, hole 4 of 1.3's and hole 4 of 3's, so those three are not sampled; all seven carried bodies judged again and were accepted through the tree",
+ "export": "15 files: holes 1-4 of 1.2's blueprint, 1, 2, 3, 5, 6 of 1.3's, 1-3 of 1.5's, 1-3 of 3's, each with its lemma's hypotheses (bp_..) and the earlier statements of its own blueprint (bq_..); 120 samples planned",
+ "generation": {
+  "model": "Goedel-LM/Goedel-Prover-V2-8B, no revision pinned (the kernel downloads the current one; each answer's config records the model name only)",
+  "settings": "max_tokens 16000, temperature 1.0, top_p 0.95, half precision, 2 x T4 (tools/prover_kernel.py at the commit that carries this manifest)",
+  "prompt": "the kernel's PROMPT, unchanged: the hole's file with `sorry`, then the proof-plan instruction",
+  "expected": "about 4.7 h of the week's free GPU hours by the second batch's rate (48 samples in about 2 h; about 4 of 30 h used before this batch); $0"
+ },
+ "judging": {
+  "lean": "leanprover/lean4:v4.33.1, mathlib v4.33.1 (lake-manifest.json), the judge of tools/check.py",
+  "order": "deepest first: for each blueprint of a hole of hole 1's blueprint, and for hole 3's, Lean's 30 recipes on each of its holes, then a carried body judged again, then its samples in order (a fenced `theorem sb_goal` block; a rejected body in the retired `∑ x in s` form judged once more as `∑ x ∈ s`; then the free chain); only if all its holes close is its assembled proof judged, and an accept is the body of the hole it belongs to, judged again there. Then hole 1's blueprint the same way, then the problem's; with all six closed the whole proof is judged",
+  "attribution": "closed_by is lean, kaggle-goedel-prover-v2-8b, carried:<batch> (carried_from names the first closer, +chain when repaired) or sub-blueprint; a repaired try carries repaired=true"
+ },
+ "endpoint": "the row in ledger/stall/guided-<id>-<stamp>.jsonl: for the blueprint and, under `subs`, for each blueprint in the tree by `path`: planned and generated samples, read with a proof, without, unread; closed by Lean, a carried body, a raw sample, a repaired sample, a sub-blueprint; failed, unattempted, judge_unfinished, carry_failed; the whole proof accept, reject (with its reason) or NOT CHECKED when final is null",
+ "incomplete_if": [
+  "truncated is true for any blueprint in the tree (fewer samples than planned, including none)",
+  "judging_complete is false for any of them",
+  "carry_missing is set or carry_failed lists a hole that was not sampled",
+  "no answers came back, or a blueprint or the target changed since export"
+ ],
+ "an_incomplete_run": "is recorded as incomplete and is not pushed again on its own; a new manifest is the lab's call",
+ "credit": "guided, three guide rounds: the guide chose 30 propositions; Lean, the prover and the free chain proved the steps. Never 'free models plus tools'. Rows committed; every proof TEXT (closed holes, an accept) is held in the prover run's artifact (90 days), not in verified/, ledger/ or on the site",
+ "claim": "none. One problem; a yes or no on whether a third round of splitting reaches a kernel-checked whole proof, not a rate and not tool lift",
+ "before_any_comparative_claim": "REQUIRED: a matched control (the same prover, the same sample budget, cold on the whole problem in the same batch) and more than one problem; until then this is feasibility evidence only",
+ "residual": "held proof text lives only in run artifacts that expire (the carry file on 2027-02-14); durable preservation is decided before the first expiry (Codex 20261116T051804114308Z f1, repeated in 055155373979Z and 055619070147Z)",
+ "not_verified_before_this_run": "a kernel batch whose answers carry `path`, and the judge of a tree in Actions, have only been exercised in unit tests and in the local simulation above",
+ "known_gap": "a batch that returns an empty answers file stops the workflow before judging (prover.yml), so no row is written for it; no further push follows, and the gap is read from the run, not the ledger (Codex 20261116T001213948778Z f5)",
+ "verdicts": [
+  "20261116T193206464578Z_codex (code and manifest, AGREE: 15 holes, 120 samples, carry hash and seven bodies checked)"
+ ]
+}

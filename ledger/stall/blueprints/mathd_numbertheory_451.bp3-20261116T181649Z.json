@@ -1,0 +1,46 @@
+{
+ "ts": "20261116T181649Z",
+ "target_set": "minif2f/test",
+ "target": "mathd_numbertheory_451",
+ "parent": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+ "parent_sha": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a",
+ "hole": 3,
+ "path": [
+  3
+ ],
+ "stem": "bq",
+ "guide": "codex",
+ "statements": [
+  "∀ p : ℕ, Nat.Prime p → p ≤ 43 → p ∈ ({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43} : Finset ℕ)",
+  "∀ p q : ℕ, p ∈ ({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43} : Finset ℕ) → Nat.Prime q → 2010 ≤ (p + 1) * (q + 1) → (p + 1) * (q + 1) ≤ 2019 → (p + 1) * (q + 1) = 2016",
+  "∀ p q : ℕ, (p + 1) * (q + 1) ≤ 2019 → p ≤ 43 ∨ q ≤ 43",
+  "∀ p q : ℕ, (p + 1) * (q + 1) = (q + 1) * (p + 1)"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA positive integer $n$ is nice if there is a positive integer $m$ with exactly four positive divisors (including $1$ and $m$) such that the sum of the four divisors is equal to $n.$ Find the sum of all the nice numbers in the set $\\{ 2010,2011,2012,\\dots,2019 \\}.$ -/\ntheorem sb_goal (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 2010 ≤ n ∧ n ≤ 2019 ∧ ∃ m, (Nat.divisors m).card = 4 ∧ ∑ p ∈ Nat.divisors m, p = n) (bp_1 : ∀ m : ℕ, (Nat.divisors m).card = 4 → (∃ p : ℕ, Nat.Prime p ∧ ∑ d ∈ Nat.divisors m, d = 1 + p + p ^ 2 + p ^ 3) ∨ (∃ p q : ℕ, Nat.Prime p ∧ Nat.Prime q ∧ p ≠ q ∧ ∑ d ∈ Nat.divisors m, d = (p + 1) * (q + 1))) (bp_2 : ∀ p : ℕ, Nat.Prime p → ¬ (2010 ≤ 1 + p + p ^ 2 + p ^ 3 ∧ 1 + p + p ^ 2 + p ^ 3 ≤ 2019)) : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → 2010 ≤ (p + 1) * (q + 1) → (p + 1) * (q + 1) ≤ 2019 → (p + 1) * (q + 1) = 2016 := by\n  have bq_1 : ∀ p : ℕ, Nat.Prime p → p ≤ 43 → p ∈ ({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43} : Finset ℕ) := by\n    sorry\n  have bq_2 : ∀ p q : ℕ, p ∈ ({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43} : Finset ℕ) → Nat.Prime q → 2010 ≤ (p + 1) * (q + 1) → (p + 1) * (q + 1) ≤ 2019 → (p + 1) * (q + 1) = 2016 := by\n    sorry\n  have bq_3 : ∀ p q : ℕ, (p + 1) * (q + 1) ≤ 2019 → p ≤ 43 ∨ q ≤ 43 := by\n    sorry\n  have bq_4 : ∀ p q : ℕ, (p + 1) * (q + 1) = (q + 1) * (p + 1) := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}

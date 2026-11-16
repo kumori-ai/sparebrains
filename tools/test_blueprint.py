@@ -401,8 +401,8 @@ class KaggleBatch(unittest.TestCase):
             go = lambda m: blueprint.kaggle_work(m, 8, read=lambda s, t: self.TARGET, find=lambda name: bp,
                                                  rel=lambda path: path.name, at=lambda r: Path(tmp) / r)
             work = go(man)
-            self.assertEqual([(w["guided"].get("sub"), w["guided"]["hole"], w["guided"]["holes"], w["guided"]["exported"])
-                              for w in work], [(None, 3, 3, [3]), (1, 1, 2, [3]), (1, 2, 2, [3])])
+            self.assertEqual([(w["guided"].get("path"), w["guided"]["hole"], w["guided"]["holes"], w["guided"]["exported"])
+                              for w in work], [(None, 3, 3, [3]), ([1], 1, 2, [3]), ([1], 2, 2, [3])])
             self.assertTrue(work[2]["statement"].endswith("theorem sb_goal (n : ℕ) (h : 0 < n) (bp_1 : n = n) : 0 ≤ n := by\n  sorry\n"),
                             work[2]["statement"][-90:])
             self.assertEqual(work[1]["guided"]["sub_blueprint_sha"], sub["sha256"])
@@ -414,6 +414,29 @@ class KaggleBatch(unittest.TestCase):
             sp.write_text(json.dumps({**doc, "parent_sha": "0" * 64}))
             with self.assertRaises(SystemExit):
                 go({**man, "sub": {"minif2f/test/demo": {**sub, "sha256": hashlib.sha256(sp.read_bytes()).hexdigest()}}})
+
+    def test_a_later_holes_blueprint_names_its_statements_apart_from_the_hypotheses_or_is_refused(self):
+        """Hole 3's lemma already has bp_1 and bp_2: a second bp_1 would hide the first from the statements after it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bp, first = self.work(tmp)
+            sp = Path(tmp) / "demo.bp3-x.json"
+            go = lambda: blueprint.kaggle_work(
+                {"id": "pilot-x", "problems": ["minif2f/test/demo"], "holes": [1, 2], "subs": {"minif2f/test/demo": [
+                    {"hole": 3, "blueprint": sp.name, "sha256": hashlib.sha256(sp.read_bytes()).hexdigest()}]}},
+                8, read=lambda s, t: self.TARGET, find=lambda name: bp, rel=lambda path: path.name, at=lambda r: Path(tmp) / r)
+            doc = {"ok": True, "statements": ["n = n", "0 ≤ n"], "parent_sha": first[0]["guided"]["blueprint_sha"], "hole": 3}
+            sp.write_text(json.dumps(doc))
+            with self.assertRaises(SystemExit) as e:
+                go()
+            self.assertIn("named bp_1", str(e.exception))
+            sp.write_text(json.dumps({**doc, "stem": "bq"}))
+            work = go()
+            self.assertEqual([(w["guided"].get("path"), w["guided"]["hole"]) for w in work], [(None, 1), (None, 2), ([3], 1), ([3], 2)])
+            self.assertTrue(work[3]["statement"].endswith(
+                "(bp_1 : n ≠ 0) (bp_2 : 0 < n → n ≠ 0) (bq_1 : n = n) : 0 ≤ n := by\n  sorry\n"), work[3]["statement"][-120:])
+        self.assertEqual(blueprint.sketch("theorem t : True := by", ["True"], "trivial", "bq"),
+                         "theorem t : True := by\n  have bq_1 : True := by\n    sorry\n  trivial\n")
+        self.assertEqual((blueprint.next_stem("bp"), blueprint.next_stem("bq")), ("bq", "br"))
 
     def test_a_carried_hole_is_judged_again_and_closes_without_a_sample(self):
         """The first batch's closed holes 2 and 4 lived only in Kaggle's output (2026-11-16). A carried body is a

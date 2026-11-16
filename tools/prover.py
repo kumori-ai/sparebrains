@@ -399,16 +399,18 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
     carry, carry_why = carried_holes(man, guided_in)
     kept = {}
     samples, meta = defaultdict(lambda: defaultdict(list)), {}
-    subsamples, submeta = defaultdict(lambda: defaultdict(list)), {}
     for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["guided"]["hole"], a["sample"])):
-        key = (a["target_set"], a["target"])
-        if a["guided"].get("sub"):                  # a hole of the hole's own blueprint (blueprint.kaggle_work's `sub`)
-            subsamples[key][a["guided"]["hole"]].append(a.get("text") or "")
-            submeta[key] = a["guided"]
-        else:
-            samples[key][a["guided"]["hole"]].append(a.get("text") or "")
-        meta[key] = a["guided"]
+        g, key = a["guided"], (a["target_set"], a["target"])
+        # a hole of a hole's own blueprint says where it sits (blueprint.kaggle_work's `path`; `sub` in the first form)
+        path = tuple(g.get("path") or ([g["sub"]] if g.get("sub") else []))
+        samples[key, path][g["hole"]].append(a.get("text") or "")
+        if not path:
+            meta[key] = g
+        meta.setdefault(key, {k: g[k] for k in ("n", "blueprint", "blueprint_sha", "target_sha") if k in g} | (
+            {"exported": g["exported"]} if "exported" in g else {}))
     rows, stats = [], Counter()
+    sha = lambda lines: hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    depth = lambda nodes: 1 + max(map(depth, map(blueprint.subs_of, nodes)), default=0) if nodes else 0
     for problem in man["problems"]:
         key = tuple(problem.rsplit("/", 1))
         g = meta.get(key)
@@ -429,70 +431,61 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
         was = carry.get(problem) or {}
         if was and (was["blueprint_sha"], was["target_sha"]) != (g["blueprint_sha"], g["target_sha"]):
             was, carry_why = {}, "the carried holes are of another blueprint or target"
-        old = {int(n): h for n, h in (was.get("holes") or {}).items()}
-        doc = json.loads(bp.read_text())
-        stmts, fill = doc["statements"], dict(
-            proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair, run_lean=run_lean, closer=closer)
-        # the hole's own blueprint first: every one of its holes closed and its assembled proof accepted is the hole's body
-        # what the manifest asked for, not what came back: a batch cut before the first sub answer is still a sub read,
-        # with nothing generated (Codex 20261116T055155373979Z f2)
-        ms = (man.get("sub") or {}).get(problem)
-        sm, given, keep_sub = submeta.get(key), {}, None
-        if ms and not sm:
-            sm = {"sub": ms["hole"], "sub_blueprint": ms["blueprint"], "sub_blueprint_sha": ms["sha256"], "n": g["n"],
-                  **({"sub_exported": ms["holes"]} if ms.get("holes") is not None else {})}
-        row["guide_rounds"] = 2 if sm else 1         # the guide chose a second set of propositions for one hole
-        if sm:
-            sp = blueprint_at(sm["sub_blueprint"])
-            if not sp.exists() or hashlib.sha256(sp.read_bytes()).hexdigest() != sm["sub_blueprint_sha"]:
-                row["sub"] = {"hole": sm["sub"], "note": "sub-blueprint changed since export: nothing judged for it"}
-                stats["changed_since_export"] += 1
-            else:
-                sprefix = goal_closer.prefix_of(blueprint.hole_target(text, stmts, sm["sub"]))
-                wsub = was.get("sub") or {}
-                sold = ({int(n): h for n, h in wsub["holes"].items()}
-                        if (wsub.get("hole"), wsub.get("blueprint_sha")) == (sm["sub"], sm["sub_blueprint_sha"]) else {})
-                sdoc = json.loads(sp.read_text())
-                fs = blueprint.fill_samples(sprefix, sdoc["statements"], subsamples[key], judge_text, final=sdoc.get("final"),
-                                            exported=sm.get("sub_exported"), carried={n: h["lines"] for n, h in sold.items()}, **fill)
+        fill = dict(proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair, run_lean=run_lean, closer=closer)
+        named = lambda v: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried"
+                           else "sub-blueprint" if v == "sub" else BACKEND)
+        reads = []
+
+        def node(text, doc, path, exported, was, specs):
+            """One blueprint of the problem's tree: the blueprints of its holes first (what the manifest asked for, not
+            what came back: a batch cut before a blueprint's first answer is still a read of it, with nothing
+            generated, Codex 20261116T055155373979Z f2), each one's accepted assembled proof being that hole's body;
+            then this blueprint's own holes. Returns (the fill, how each hole closed, what to hold)."""
+            stmts, stem = doc["statements"], blueprint.stem_of(doc)
+            old = {int(n): h for n, h in (was.get("holes") or {}).items()}
+            given, keeps = {}, []
+            for ms in specs:
+                here, sp = path + (ms["hole"],), blueprint_at(ms["blueprint"])
+                if not sp.exists() or hashlib.sha256(sp.read_bytes()).hexdigest() != ms["sha256"]:
+                    reads.append({"path": list(here), "hole": ms["hole"], "note": "sub-blueprint changed since export: nothing judged for it"})
+                    stats["changed_since_export"] += 1
+                    continue
+                stext = blueprint.hole_target(text, stmts, ms["hole"], stem)
+                w = next((x for x in blueprint.subs_of(was) if (x.get("hole"), x.get("blueprint_sha")) == (ms["hole"], ms["sha256"])), {})
+                at = len(reads)
+                reads.append(None)                     # a blueprint is listed before the blueprints of its holes
+                fs, show, keep = node(stext, json.loads(sp.read_text()), here, ms.get("holes"), w, blueprint.subs_of(ms))
                 if fs.get("accepted"):
-                    given[sm["sub"]] = [l[2:] for l in fs["accepted"][len(sprefix):].strip("\n").split("\n")]
-                smine = lambda n, b: ({**sold[n], "lines": b["lines"]} if fs["closed_by"][n] == "carried" else
-                                      {"by": "lean" if fs["closed_by"][n] == "lean" else BACKEND, "batch": batch, **b})
-                keep_sub = {"hole": sm["sub"], "blueprint": sm["sub_blueprint"], "blueprint_sha": sm["sub_blueprint_sha"],
-                            "holes": {str(n): smine(n, b) for n, b in sorted(fs["bodies"].items())}}
-                row["sub"] = {"hole": sm["sub"], "blueprint": sm["sub_blueprint"], "blueprint_sha": sm["sub_blueprint_sha"],
-                              "closed_by": {k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried"
-                                                else BACKEND) for k, v in fs["closed_by"].items()},
-                              "hole_sha": {n: hashlib.sha256("\n".join(h["lines"]).encode()).hexdigest()
-                                           for n, h in keep_sub["holes"].items()},
-                              **{k: fs.get(k) for k in ("holes", "failed", "unattempted", "planned", "generated", "asked",
-                                                        "answered", "no_proof", "unread", "truncated", "judge_unfinished",
-                                                        "judging_complete", "carry_failed", "final", "final_reason", "tries")}}
+                    given[ms["hole"]] = [l[2:] for l in fs["accepted"][len(goal_closer.prefix_of(stext)):].strip("\n").split("\n")]
+                keeps.append({"hole": ms["hole"], "blueprint": ms["blueprint"], "blueprint_sha": ms["sha256"], **keep})
+                reads[at] = {"path": list(here), "hole": ms["hole"], "blueprint": ms["blueprint"], "blueprint_sha": ms["sha256"], **show}
                 stats["truncated"] += bool(fs["truncated"])
                 stats["judging_unfinished"] += not fs["judging_complete"]
-        f = blueprint.fill_samples(goal_closer.prefix_of(text), stmts, samples[key], judge_text, exported=g.get("exported"),
-                                   final=doc.get("final"),
-                                   carried={**{n: h["lines"] for n, h in old.items()}, **given}, **fill)
-        how = {n: ("sub" if v == "carried" and n in given else v) for n, v in f["closed_by"].items()}
-        mine = lambda n, b: ({**old[n], "lines": b["lines"]} if how[n] == "carried" else
-                             {"by": "lean" if how[n] == "lean" else "sub-blueprint" if how[n] == "sub" else BACKEND,
-                              "batch": batch, **b})
-        kept[problem] = {"blueprint": g["blueprint"], "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"],
-                         "holes": {str(n): mine(n, b) for n, b in sorted(f["bodies"].items())},
-                         **({"sub": keep_sub} if keep_sub else {})}
-        row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], holes=f["holes"],
-                   closed_by={k: ("lean" if v == "lean" else f"carried:{man['carry']['batch']}" if v == "carried"
-                                  else "sub-blueprint" if v == "sub" else BACKEND) for k, v in how.items()},
-                   carried_from={n: old[n]["by"] + ("+chain" if old[n].get("repaired") else "")
-                                 for n, v in how.items() if v == "carried"},
-                   carry_failed=f["carry_failed"], carry_missing=carry_why,
-                   hole_sha={n: hashlib.sha256("\n".join(h["lines"]).encode()).hexdigest()
-                             for n, h in kept[problem]["holes"].items()},
-                   failed=f["failed"], unattempted=f["unattempted"], planned=f["planned"], generated=f["generated"],
-                   asked=f["asked"], answered=f["answered"], no_proof=f["no_proof"], unread=f["unread"],
-                   truncated=f["truncated"], judge_unfinished=f["judge_unfinished"], judging_complete=f["judging_complete"],
-                   final=f.get("final"), final_reason=f.get("final_reason"), tries=f["tries"])
+            f = blueprint.fill_samples(goal_closer.prefix_of(text), stmts, samples[key, path], judge_text, exported=exported,
+                                       final=doc.get("final"), stem=stem,
+                                       carried={**{n: h["lines"] for n, h in old.items()}, **given}, **fill)
+            how = {n: ("sub" if v == "carried" and n in given else v) for n, v in f["closed_by"].items()}
+            mine = lambda n, b: ({**old[n], "lines": b["lines"]} if how[n] == "carried" else
+                                 {"by": "lean" if how[n] == "lean" else "sub-blueprint" if how[n] == "sub" else BACKEND,
+                                  "batch": batch, **b})
+            keep = {"holes": {str(n): mine(n, b) for n, b in sorted(f["bodies"].items())}, **({"subs": keeps} if keeps else {})}
+            show = dict(holes=f["holes"], closed_by={k: named(v) for k, v in how.items()},
+                        carried_from={n: old[n]["by"] + ("+chain" if old[n].get("repaired") else "")
+                                      for n, v in how.items() if v == "carried"},
+                        carry_failed=f["carry_failed"], hole_sha={n: sha(h["lines"]) for n, h in keep["holes"].items()},
+                        failed=f["failed"], unattempted=f["unattempted"], planned=f["planned"], generated=f["generated"],
+                        asked=f["asked"], answered=f["answered"], no_proof=f["no_proof"], unread=f["unread"],
+                        truncated=f["truncated"], judge_unfinished=f["judge_unfinished"], judging_complete=f["judging_complete"],
+                        final=f.get("final"), final_reason=f.get("final_reason"), tries=f["tries"])
+            return ({**f, "how": how}, show, keep)
+
+        specs = blueprint.subs_of({"subs": (man.get("subs") or {}).get(problem), "sub": (man.get("sub") or {}).get(problem)})
+        row["guide_rounds"] = 1 + depth(specs)       # the guide chose propositions again for a hole, and for a hole of that
+        f, show, keep = node(text, json.loads(bp.read_text()), (), g.get("exported"), was, specs)
+        how = f["how"]
+        kept[problem] = {"blueprint": g["blueprint"], "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"], **keep}
+        row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], carry_missing=carry_why, **show,
+                   **({"subs": reads} if reads else {}))
         stats["holes"] += f["holes"]
         stats["closed_by_lean"] += sum(1 for v in f["closed_by"].values() if v == "lean")
         stats["closed_by_prover"] += sum(1 for v in how.values() if v == "sample")
@@ -507,7 +500,8 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
             row["accepted_sha"] = hashlib.sha256(f["accepted"].encode()).hexdigest()
             row["accepted_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": {acc.name}"
             stats["solved"] += 1
-    if any(p["holes"] or (p.get("sub") or {}).get("holes") for p in kept.values()):
+    holds = lambda p: bool(p["holes"]) or any(map(holds, blueprint.subs_of(p)))
+    if any(map(holds, kept.values())):
         held.mkdir(parents=True, exist_ok=True)
         text = json.dumps({"batch": batch, "manifest": mid, "credit": "guided", "problems": kept}, indent=1, sort_keys=True)
         (held / f"holes-{batch}.json").write_text(text)

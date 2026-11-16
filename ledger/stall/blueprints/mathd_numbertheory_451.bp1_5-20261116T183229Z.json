@@ -1,0 +1,41 @@
+{
+ "ts": "20261116T183229Z",
+ "target_set": "minif2f/test",
+ "target": "mathd_numbertheory_451",
+ "parent": "ledger/stall/blueprints/mathd_numbertheory_451.bp1-20261116T055022Z.json",
+ "parent_sha": "365843c2c325608c449369ff9de89c064cf116a8f277c3cbb0c5e65324bbdaee",
+ "hole": 5,
+ "path": [
+  1,
+  5
+ ],
+ "stem": "bq",
+ "guide": "codex",
+ "statements": [
+  "∀ p q d : ℕ, Nat.Prime p → Nat.Prime q → (d ∣ p * q ↔ d = 1 ∨ d = p ∨ d = q ∨ d = p * q)",
+  "∀ p q : ℕ, Nat.Prime p → Nat.Prime q → Nat.divisors (p * q) = {1, p, q, p * q}",
+  "∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → ∑ d ∈ ({1, p, q, p * q} : Finset ℕ), d = (p + 1) * (q + 1)"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA positive integer $n$ is nice if there is a positive integer $m$ with exactly four positive divisors (including $1$ and $m$) such that the sum of the four divisors is equal to $n.$ Find the sum of all the nice numbers in the set $\\{ 2010,2011,2012,\\dots,2019 \\}.$ -/\ntheorem sb_goal (S : Finset ℕ) (h₀ : ∀ n : ℕ, n ∈ S ↔ 2010 ≤ n ∧ n ≤ 2019 ∧ ∃ m, (Nat.divisors m).card = 4 ∧ ∑ p ∈ Nat.divisors m, p = n) (bp_1 : ∀ m : ℕ, (Nat.divisors m).card = 4 → ∃ p : ℕ, Nat.Prime p ∧ p ∣ m) (bp_2 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ^ 2 ∣ m → m = p ^ 3) (bp_3 : ∀ m p : ℕ, (Nat.divisors m).card = 4 → Nat.Prime p → p ∣ m → ¬ p ^ 2 ∣ m → ∃ q : ℕ, Nat.Prime q ∧ p ≠ q ∧ m = p * q) (bp_4 : ∀ p : ℕ, Nat.Prime p → ∑ d ∈ Nat.divisors (p ^ 3), d = 1 + p + p ^ 2 + p ^ 3) : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → ∑ d ∈ Nat.divisors (p * q), d = (p + 1) * (q + 1) := by\n  have bq_1 : ∀ p q d : ℕ, Nat.Prime p → Nat.Prime q → (d ∣ p * q ↔ d = 1 ∨ d = p ∨ d = q ∨ d = p * q) := by\n    sorry\n  have bq_2 : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → Nat.divisors (p * q) = {1, p, q, p * q} := by\n    sorry\n  have bq_3 : ∀ p q : ℕ, Nat.Prime p → Nat.Prime q → p ≠ q → ∑ d ∈ ({1, p, q, p * q} : Finset ℕ), d = (p + 1) * (q + 1) := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}

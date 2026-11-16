@@ -51,6 +51,15 @@ Everything NOT here is open and lives in `PLAN.md` §6.
    two guide rounds: feasibility only, no claim. Next: the four open pieces are parent hole 3 and sub-holes 2, 3, 5;
    more cold samples at this size have now failed 16 and 8 times, so the next round splits them again or changes
    their statements rather than sampling more.
+   **Third round, built the same day:** a blueprint can now belong to any hole, and to a hole of such a blueprint
+   (`blueprint.py --hole 1.2`; manifest and held file `subs`, a tree; rows list each blueprint's read under `subs` by
+   `path`; the first form `sub` is still read for carry). A blueprint whose lemma already has `bp_` hypotheses names
+   its statements `bq_`, and one that would reuse a hypothesis's name is refused at export. The guide (Codex, four
+   asks) split hole 3 into 4 propositions and holes 2, 3, 5 of hole 1's blueprint into 5, 6 and 3; all four passed
+   the gate. Run locally on real Lean with no samples, all seven held bodies were accepted again through the tree and
+   Lean alone closed 3 of the 18 new holes. Manifest `pilot-guided-kaggle-split-2026-11-16` frozen: 15 holes x 8
+   samples, about 4.7 free GPU h, three guide rounds (30 propositions), feasibility only. Codex
+   20261116T193206464578Z AGREE.
 
 - **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
   inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to
