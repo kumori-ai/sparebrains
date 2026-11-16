@@ -31,8 +31,12 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   batch's budget, about 2 GPU h, $0), holes 2, 4, 5, 6 carried. Feasibility only, one problem, no claim. Residual
   (Codex f1, three rounds): held proof text lives only in artifacts that expire, the carry file on 2027-02-14;
   durable preservation is decided before then. Not yet verified in Actions: the carry download step and a kernel
-  batch with `sub` entries. Seen, not built: a one-line rewrite of `∑ x in s` to `∑ x ∈ s` before judging would have
-  let three of hole 1's eight samples reach the kernel.
+  batch with `sub` entries. Seen there and built the same day: three of hole 1's eight samples stopped at
+  `∑ x in s`, the binder form Mathlib retired. `subgoals.try_body` now judges a rejected body once more with `∈`
+  (`modern_binders`, no model, before the free chain, marked repaired with the rewrite as its reason); on real Lean a
+  body in the old form is rejected as written and accepted through it. It applies to every lane's hole proofs and to
+  the second batch's judging, which the manifest records as an amendment made before any judging. Not measured: how
+  many of the three old samples would have passed past that line.
 
 - **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
   inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to

@@ -268,11 +268,27 @@ def real_names(said, names):
     return ("\nNames Lean did not know, and real mathlib names close to them:\n" + "\n".join(out) + "\n") if out else ""
 
 
+OLD_BINDER = re.compile(r"([∑∏])\s+([^,\n]*?)\s+in\s+")
+
+
+def modern_binders(body):
+    """`∑ x in s, f x` as `∑ x ∈ s, f x` (∏ too): the form Mathlib retired, which Lean now stops at with "unexpected
+    token 'in'". Only between the operator and its comma."""
+    return OLD_BINDER.sub(r"\1 \2 ∈ ", body)
+
+
 def try_body(prefix, statement, body, judge_text, repair=None):
     """One proof body of a lemma, judged, with the free chain on a reject: (its tactic lines dedented or None, the body
     judged, Lean's verdict). The one path for a lane's reply (prove_goal) and a prover batch's sample
     (blueprint.fill_samples), so a hole is held to the same judge whoever wrote its proof."""
     r = judge_text(lemma_file(prefix, statement, body))
+    # a reject in the retired binder form is judged once more in today's (2026-11-16: 3 of hole 1's 8 prover samples
+    # stopped there); no model, so it runs before the chain and whether or not there is one. Marked repaired.
+    new = modern_binders(body) if r["verdict"] != "accept" else body
+    if new != body:
+        body, r2 = new, judge_text(lemma_file(prefix, statement, new))
+        r = ({**r2, "repaired": True, "reason": "kernel accepted after `∑ x in s` was rewritten to `∑ x ∈ s`"}
+             if r2["verdict"] == "accept" else r2)
     if r["verdict"] != "accept" and repair:
         fixed = repair(body, statement, r.get("output") or "")
         if fixed:

@@ -6,6 +6,7 @@ marker, the never-executed linter on a `first | ...` line).
 """
 import sys
 import unittest
+from unittest.mock import Mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -189,6 +190,36 @@ class Repair(unittest.TestCase):
         log = sg.repair(PREFIX + "\n  exact Nat.foo", PREFIX, "x.lean:5:2: error: Unknown constant `Nat.foo`",
                         ask=None, run_lean=run_lean, judge_text=judge_text)
         self.assertEqual(log["stopped"], "no step of the proof survived")
+
+
+class RetiredSumSyntax(unittest.TestCase):
+    """2026-11-16: 3 of the 8 prover samples for hole 1 died at `∑ d in s, d` (unexpected token 'in'): Mathlib retired
+    that binder form and the prover learned the old one. A rejected body is judged once more with `∈`."""
+    PRE = "import Mathlib\n\ntheorem demo (n : ℕ) : n = n := by"
+
+    def test_only_the_binder_of_a_big_operator_is_rewritten(self):
+        self.assertEqual(sg.modern_binders("  have h : ∑ d in Nat.divisors m, d = 7 ∧ ∏ i in s, f i = 1 := by simp\n"),
+                         "  have h : ∑ d ∈ Nat.divisors m, d = 7 ∧ ∏ i ∈ s, f i = 1 := by simp\n")
+        for same in ("  simp [h] at h2\n", "  have h : ∑ d ∈ s, d = 1 := by simp\n", "  let x := 1 in x\n"):
+            self.assertEqual(sg.modern_binders(same), same)
+
+    def test_a_rejected_body_in_the_old_form_is_judged_again_rewritten_and_marked_repaired(self):
+        judge = lambda text: {"verdict": "reject" if " in " in text else "accept", "reason": "unexpected token 'in'", "output": ""}
+        repair = Mock()
+        lines, body, r = sg.try_body(self.PRE, "theorem sb_goal : True := by", "  have h : ∑ d in s, d = 1 := by simp\n", judge, repair)
+        self.assertEqual(lines, ["have h : ∑ d ∈ s, d = 1 := by simp"])
+        self.assertTrue(r["repaired"])
+        self.assertIn("∈", r["reason"])
+        repair.assert_not_called()
+
+    def test_an_accepted_body_is_never_touched_and_a_rewrite_that_still_fails_goes_on_to_the_chain(self):
+        ok = lambda text: {"verdict": "accept", "reason": "", "output": ""}
+        self.assertNotIn("repaired", sg.try_body(self.PRE, "theorem sb_goal : True := by", "  simp\n", ok)[2])
+        no = lambda text: {"verdict": "reject", "reason": "bad", "output": "out"}
+        repair = Mock(return_value=None)
+        lines, _, r = sg.try_body(self.PRE, "theorem sb_goal : True := by", "  have h : ∑ d in s, d = 1 := by simp\n", no, repair)
+        self.assertIsNone(lines)
+        self.assertIn("∈", repair.call_args[0][0], "the chain starts from the rewritten body")
 
 
 class Queue(unittest.TestCase):

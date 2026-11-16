@@ -77,5 +77,8 @@
     "20261116T055155373979Z_codex (code, DISAGREE: a cut before the first sub answer read as complete; fixed)",
     "20261116T055619070147Z_codex (AGREE)"
   ],
-  "known_gap": "a batch that returns an empty answers file stops the workflow before judging (prover.yml), so no row is written for it; no further push follows, and the gap is read from the run, not the ledger (Codex 20261116T001213948778Z f5)"
+  "known_gap": "a batch that returns an empty answers file stops the workflow before judging (prover.yml), so no row is written for it; no further push follows, and the gap is read from the run, not the ledger (Codex 20261116T001213948778Z f5)",
+  "amended": [
+    "2026-11-16, after the push and before any judging: a rejected body written in the retired `∑ x in s` binder form is judged once more as `∑ x ∈ s` (subgoals.try_body, no model), before the free chain; such a try carries repaired=true and its reason names the rewrite. Generation is unchanged. A hole closed this way is prover plus a syntax rewrite, never prover alone"
+  ]
 }
