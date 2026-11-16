@@ -268,6 +268,22 @@ def real_names(said, names):
     return ("\nNames Lean did not know, and real mathlib names close to them:\n" + "\n".join(out) + "\n") if out else ""
 
 
+def try_body(prefix, statement, body, judge_text, repair=None):
+    """One proof body of a lemma, judged, with the free chain on a reject: (its tactic lines dedented or None, the body
+    judged, Lean's verdict). The one path for a lane's reply (prove_goal) and a prover batch's sample
+    (blueprint.fill_samples), so a hole is held to the same judge whoever wrote its proof."""
+    r = judge_text(lemma_file(prefix, statement, body))
+    if r["verdict"] != "accept" and repair:
+        fixed = repair(body, statement, r.get("output") or "")
+        if fixed:
+            body, r = fixed, {**r, "verdict": "accept", "repaired": True, "reason": "kernel accepted after the free chain"}
+    if r["verdict"] != "accept":
+        return None, body, r
+    lines = body.rstrip("\n").split("\n")
+    base = min(indent(l) for l in lines if l.strip())
+    return [l[base:] if l.strip() else "" for l in lines], body, r
+
+
 def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, names=None, tries_max=2, repair=None):
     """(tactic lines or None, [tries]). The same model, up to `tries_max` asks: the second carries Lean's error and
     real names for any it invented (the first live ask, 2026-10-08: `Nat.coprime_pow_eq_pow_iff`). `repair(body,
@@ -293,16 +309,10 @@ def prove_goal(prefix, statement, sketch, lean_said, ask, judge_text, budget, na
                           "reason": "no proof extracted from reply", "lean_output": ""})
             last = (reply, "no proof could be read from the reply")
             continue
-        r = judge_text(lemma_file(prefix, statement, body))
-        if r["verdict"] != "accept" and repair:
-            fixed = repair(body, statement, r.get("output") or "")
-            if fixed:
-                body, r = fixed, {**r, "verdict": "accept", "repaired": True, "reason": "kernel accepted after the free chain"}
+        lines, body, r = try_body(prefix, statement, body, judge_text, repair)
         tries.append({"prompt": prompt, "reply": reply, "proof": body, **r})
-        if r["verdict"] == "accept":
-            lines = [l for l in body.rstrip("\n").split("\n")]
-            base = min(indent(l) for l in lines if l.strip())
-            return [l[base:] if l.strip() else "" for l in lines], tries
+        if lines:
+            return lines, tries
         last = (body, r.get("output") or r.get("reason") or "")
     return None, tries
 

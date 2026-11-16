@@ -317,6 +317,106 @@ def judge_plan(answers, *, judge_text, record, run_id, plans_id, read, out, stil
     return {k: dict(v) for k, v in stats.items()}
 
 
+STALL = ROOT / "ledger" / "stall"
+
+
+def guided_owed(stall=STALL):
+    """The first manifest in ledger/stall that asks for the Kaggle prover on its blueprint's holes (`"filler":
+    "kaggle"`) and has no rows file yet; None when there is none. One manifest is one batch: a batch the GPU budget
+    cut short is recorded truncated and is not pushed again on its own (a new manifest is a person's call)."""
+    for p in sorted(Path(stall).glob("*.json")):
+        man = json.loads(p.read_text())
+        if man.get("filler") == "kaggle" and not list(Path(stall).glob(f"guided-{man['id']}-*.jsonl")):
+            return man
+    return None
+
+
+def guided_batch_name(manifest_id, now):
+    return f"guided-{manifest_id}-" + now.strftime("%Y%m%dT%H%M")
+
+
+def guided_answers(answers):
+    """The answers when this is a guided batch, [] when it is not. A batch that mixes guided answers with any other
+    kind is refused whole: a guided proof must never reach judge_goals, judge_plan or a Recorder (verified/, the site)."""
+    g = [a for a in answers if a.get("guided")]
+    if g and (len(g) != len(answers) or any(a.get("goal") or a.get("arm") for a in g)):
+        raise SystemExit("a batch mixing guided answers with another kind: nothing judged")
+    return g
+
+
+def guided_pending(answers, stall=STALL):
+    """Judged whole in one job, like a plan batch: owed until its rows file exists."""
+    return 0 if (Path(stall) / f"{answers[0]['batch']}.jsonl").exists() else len(answers)
+
+
+def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=None, repair=None, run_lean=None,
+                 closer=None, blueprint_at=lambda rel: ROOT / rel):
+    """A guided batch's answers (blueprint.kaggle_work's holes, sampled by the prover): blueprint.fill_samples per
+    problem, one row each in ledger/stall/<batch>.jsonl, arm K, try mode `guided`. An accepted whole proof's text goes
+    to `guided_out` (SB_GUIDED_OUT, the run's artifact) and the row carries its hash, as attempt.py's pilot does:
+    never verified/, the public ledger or the site. Nothing is judged for a problem whose blueprint or target is not
+    byte for byte what was exported."""
+    import blueprint, goal_closer
+    stall = Path(stall)
+    ids = {(a["batch"], a["guided"]["manifest"]) for a in answers}
+    if len(ids) != 1:
+        raise SystemExit(f"guided answers from more than one batch or manifest ({sorted(ids)}): nothing judged")
+    batch, mid = next(iter(ids))
+    if not batch.startswith(f"guided-{mid}-"):
+        raise SystemExit(f"batch {batch} is not named for manifest {mid}: nothing judged")
+    mans = [m for m in (json.loads(p.read_text()) for p in sorted(stall.glob("*.json"))) if m.get("id") == mid]
+    if len(mans) != 1:
+        raise SystemExit(f"{len(mans)} manifests with id {mid} in {stall}: nothing judged")
+    samples, meta = defaultdict(lambda: defaultdict(list)), {}
+    for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["guided"]["hole"], a["sample"])):
+        key = (a["target_set"], a["target"])
+        samples[key][a["guided"]["hole"]].append(a.get("text") or "")
+        meta[key] = a["guided"]
+    rows, stats = [], Counter()
+    for problem in mans[0]["problems"]:
+        key = tuple(problem.rsplit("/", 1))
+        g = meta.get(key)
+        row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, "batch": batch,
+               "manifest": mid, "target_set": key[0], "target": key[1], "arm": "K", "try_mode": "guided", "lane": BACKEND,
+               "config": answers[0].get("config")}
+        rows.append(row)
+        if not g:
+            row.update(note="no answers came back for this problem", truncated=True)
+            stats["no_answers"] += 1
+            continue
+        bp, text = blueprint_at(g["blueprint"]), read(*key)
+        if (not bp.exists() or hashlib.sha256(bp.read_bytes()).hexdigest() != g["blueprint_sha"]
+                or hashlib.sha256(text.encode()).hexdigest() != g["target_sha"]):
+            row.update(note="blueprint or target changed since export: nothing judged")
+            stats["changed_since_export"] += 1
+            continue
+        f = blueprint.fill_samples(goal_closer.prefix_of(text), json.loads(bp.read_text())["statements"], samples[key],
+                                   judge_text, proof_of=lambda t: final_proof(t, "sb_goal"), planned=g["n"], repair=repair,
+                                   run_lean=run_lean, closer=closer)
+        row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], holes=f["holes"],
+                   closed_by={k: ("lean" if v == "lean" else BACKEND) for k, v in f["closed_by"].items()},
+                   failed=f["failed"], unattempted=f["unattempted"], planned=f["planned"], generated=f["generated"],
+                   asked=f["asked"], answered=f["answered"], no_proof=f["no_proof"], unread=f["unread"],
+                   truncated=f["truncated"], judge_unfinished=f["judge_unfinished"], judging_complete=f["judging_complete"],
+                   final=f.get("final"), final_reason=f.get("final_reason"), tries=f["tries"])
+        stats["holes"] += f["holes"]
+        stats["closed_by_lean"] += sum(1 for v in f["closed_by"].values() if v == "lean")
+        stats["closed_by_prover"] += sum(1 for v in f["closed_by"].values() if v != "lean")
+        stats["truncated"] += bool(f["truncated"])
+        stats["judging_unfinished"] += not f["judging_complete"]
+        if f.get("accepted"):
+            acc = Path(guided_out or os.environ.get("SB_GUIDED_OUT") or ROOT / ".lake" / "guided") / f"{key[1]}-{batch}.lean"
+            acc.parent.mkdir(parents=True, exist_ok=True)
+            acc.write_text(f["accepted"])
+            row["accepted_sha"] = hashlib.sha256(f["accepted"].encode()).hexdigest()
+            row["accepted_at"] = ("run artifact" if os.environ.get("GITHUB_RUN_ID") else "local") + f": {acc.name}"
+            stats["solved"] += 1
+    (stall / f"{batch}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return {"guided": mid, "problems": len(rows), **{k: stats[k] for k in
+            ("holes", "closed_by_lean", "closed_by_prover", "solved", "truncated", "judging_unfinished", "no_answers",
+             "changed_since_export")}}
+
+
 def final_proof(text, name):
     """The proof in the answer's last fenced block that states the theorem. The prover writes a plan, then a
     sketch with `sorry`, then the complete proof (canary, 2026-10-17); extract_proof alone takes the longest
@@ -740,7 +840,19 @@ def main():
         print(batch)
         print(f"tpu batch {batch}: {n} problems, {sum(o for _, o in work)} samples", file=sys.stderr)
         return 0
-    if args.cmd == "next":                        # a plan batch (task #433) goes before any other kind
+    if args.cmd == "next":                        # a guided batch (a blueprint's holes, 2026-11-15) goes before any other
+        man = guided_owed()
+        if man:
+            import blueprint
+            work = blueprint.kaggle_work(man, man.get("samples_per_hole", GOAL_SAMPLES),
+                                         read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text())
+            if work:
+                batch = guided_batch_name(man["id"], datetime.now(timezone.utc))
+                build(args.out, None, batch, budget_h=args.hours, problems=work)
+                print(batch)
+                print(f"guided batch {batch}: {len(work)} holes x {work[0]['n']} samples", file=sys.stderr)
+                return 0
+    if args.cmd == "next":                        # a plan batch (task #433) goes before the rest
         open_keys = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
         doc = plan_owed(open_keys=open_keys)
         work = plan_work(doc, open_keys) if doc else []
@@ -777,6 +889,18 @@ def main():
         batch = answers[0]["batch"] if answers else None
         rec = batch_record(args.dir, batch, datetime.now(timezone.utc), answers) if batch else None
         print(json.dumps(rec) if rec else "batch already recorded")
+        return 0
+    guided = guided_answers(answers)                 # before every other kind: these never reach a Recorder
+    if guided and args.cmd == "pending":
+        print(guided_pending(guided))
+        return 0
+    if guided:
+        import lean_tools, toolscore
+        stats = judge_guided(guided, judge_text=lean_tools.judge_text, run_lean=lean_tools.run_lean,
+                             repair=toolscore.hole_repair(lean_tools.index(), lean_tools),
+                             read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text(),
+                             run_id=f"prover-{guided[0]['batch']}")
+        print(json.dumps({"batch": guided[0]["batch"], **stats}), flush=True)
         return 0
     open_now = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
     plan_answers = [a for a in answers if a.get("arm")]

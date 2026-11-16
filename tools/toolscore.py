@@ -587,6 +587,15 @@ def run_chain(proof, prefix, said, names_ix, lean, skip=()):
             "final": final}
 
 
+def hole_repair(names_ix, lean):
+    """run_chain as the repair hook of a blueprint hole (blueprint.fill, fill_samples -> subgoals.try_body): the
+    kernel-accepted body after the free chain, or None. One hook for the router pilot and the Kaggle batch."""
+    def repair(body, lemma_prefix, said):
+        ch = run_chain(body, lemma_prefix, said, names_ix, lean)
+        return ch["final"][len(lemma_prefix):].lstrip("\n") if ch["c_verdict"] == "accept" else None
+    return repair
+
+
 def arms_to_run(full):
     """The leave-one-out arms worth a Lean run after a full-chain result. A closer can only close steps, so
     without it a rejected chain stays rejected: closers are re-run only on a turn. A fixer pass rewrites the

@@ -1068,19 +1068,17 @@ def main():
         credit line: a guided solve is the guide's propositions plus Lean and small lanes, not "free models plus tools").
         {"B": final verdict, "C": final verdict} or None when the problem has no gated blueprint."""
         tset, name = key.rsplit("/", 1)
-        gated = [p for p in sorted((ROOT / "ledger" / "stall" / "blueprints").glob(f"{name}-*.json"))
-                 if json.loads(p.read_text()).get("ok")]
+        bp = blueprint.latest_gated(name, ROOT / "ledger" / "stall" / "blueprints")
 
         def write(row):
             with lock:
                 with out.open("a") as fh:
                     fh.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id,
                                          "manifest": man["id"], "target_set": tset, "target": name, **row}) + "\n")
-        if not gated:
+        if not bp:
             write({"arm": "none", "note": "no gated blueprint"})
             print(f"[pilot {man['id']}] {key}: no gated blueprint, skipped", flush=True)
             return None
-        bp = gated[-1]
         stmts = json.loads(bp.read_text())["statements"]
         text = (ROOT / "targets" / tset / f"{name}.lean").read_text()
         prefix = text[:PROOF_SEP.search(text).end()]
@@ -1296,9 +1294,7 @@ def main():
         asks_for = lambda names: [(b, patient(make_ask(live_lanes[b]), lambda b=b: benched(b))) for b in names if b in live_lanes]
         names_ix = lean_tools.index()
 
-        def repair(body, lemma_prefix, said):           # the free chain on a hole's rejected proof (blueprint.fill -> prove_goal)
-            ch = toolscore.run_chain(body, lemma_prefix, said, names_ix, lean_tools)
-            return ch["final"][len(lemma_prefix):].lstrip("\n") if ch["c_verdict"] == "accept" else None
+        repair = toolscore.hole_repair(names_ix, lean_tools)   # the free chain on a hole's rejected proof
         results = {p: pilot_one(p, man, asks_for, out, repair) for p in man["problems"]}
         print(f"pilot {man['id']}: " + "; ".join(f"{p} {r}" for p, r in results.items()), flush=True)
     elif args.lemmas:                                    # the lemma queue: the strongest lanes on the fixer's open steps

@@ -587,7 +587,7 @@ class PilotTests(unittest.TestCase):
         os.environ["SB_GUIDED_OUT"] = str(root / "held")
         self.addCleanup(os.environ.pop, "SB_GUIDED_OUT", None)
         env = dict(vars(attempt), ROOT=root, json=json, lock=threading.Lock(), record=Mock(), run_id="r1",
-                   blueprint=Mock(fill=Mock(side_effect=fills)), lean_tools=Mock())
+                   blueprint=Mock(fill=Mock(side_effect=fills), latest_gated=attempt.blueprint.latest_gated), lean_tools=Mock())
         exec(compile(ast.Module(body=[node], type_ignores=[]), attempt.__file__, 'exec'), env)
         return env, root
 

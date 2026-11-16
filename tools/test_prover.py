@@ -1,4 +1,4 @@
-import json, re, sys, tempfile, unittest
+import hashlib, json, re, sys, tempfile, unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -245,6 +245,126 @@ class PlanArmTests(unittest.TestCase):
                     self.assertEqual(rec["pushed_at"], "2026-10-24T00:00:00+00:00")
             finally:
                 prover.BATCHES = old
+
+
+class GuidedBatchTests(unittest.TestCase):
+    """A gated blueprint's holes through the Kaggle prover (DECISIONS.md 2026-11-15). A guided solve is the guide's
+    propositions plus the prover: its answers must never reach judge_goals, judge_plan, a Recorder, verified/ or the
+    site. The only writers are the rows file in ledger/stall and the accepted text in SB_GUIDED_OUT."""
+    STMTS = ["x = x", "x + 0 = x"]
+    MID = "pilot-guided-kaggle-x"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.stall = self.root / "stall"
+        (self.stall / "blueprints").mkdir(parents=True)
+        self.bp = self.stall / "blueprints" / f"{NAME}-20261109T000000Z.json"
+        self.bp.write_text(json.dumps({"ok": True, "statements": self.STMTS}))
+        self.man = {"id": self.MID, "filler": "kaggle", "problems": [f"minif2f/test/{NAME}"], "samples_per_hole": 2}
+        (self.stall / f"{self.MID}.json").write_text(json.dumps(self.man))
+        import blueprint
+        self.work = blueprint.kaggle_work(self.man, 2, read=lambda s, t: TARGET, find=lambda name: self.bp,
+                                          rel=lambda path: str(path))
+        self.batch = f"guided-{self.MID}-20261115T0000"
+
+    def answers(self, texts_by_hole):
+        return [{"batch": self.batch, "target_set": w["target_set"], "target": w["target"], "sample": k, "guided": w["guided"],
+                 "text": text, "tokens": 10, "finish": "stop", "seconds": 1.0, "config": {"model": prover.MODEL}}
+                for w in self.work for k, text in enumerate(texts_by_hole.get(w["guided"]["hole"], []))]
+
+    GOOD = "```lean4\ntheorem sb_goal (x : ℝ) : x = x := by\n  rfl\n```"
+
+    def judge(self, answers, verdict="accept", **kw):
+        judge_text = lambda text: {"verdict": verdict, "reason": "", "output": "error"}
+        return prover.judge_guided(answers, judge_text=judge_text, read=lambda s, t: TARGET, run_id="t1", stall=self.stall,
+                                   guided_out=self.root / "held", closer=lambda lp: None,
+                                   blueprint_at=lambda rel: Path(rel), **kw)
+
+    def rows(self):
+        return [json.loads(l) for l in (self.stall / f"{self.batch}.jsonl").read_text().splitlines()]
+
+    def test_a_manifest_is_owed_until_its_rows_file_exists_and_only_when_it_asks_for_kaggle(self):
+        self.assertEqual(prover.guided_owed(self.stall)["id"], self.MID)
+        (self.stall / "pilot-router.json").write_text(json.dumps({"id": "pilot-router", "lanes": ["a"], "problems": []}))
+        self.assertEqual(prover.guided_owed(self.stall)["id"], self.MID, "a router pilot (no filler) is never a Kaggle batch")
+        self.judge(self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]}))
+        self.assertIsNone(prover.guided_owed(self.stall))
+
+    def test_a_batch_mixing_guided_answers_with_any_other_kind_is_refused(self):
+        a = self.answers({1: [self.GOOD]})
+        self.assertEqual(prover.guided_answers(a), a)
+        self.assertEqual(prover.guided_answers([answer(0)]), [])
+        with self.assertRaises(SystemExit):
+            prover.guided_answers(a + [answer(0)])
+        with self.assertRaises(SystemExit):
+            prover.guided_answers(a + [dict(answer(0), goal="abc")])
+
+    def test_every_hole_proved_is_a_guided_accept_held_out_of_the_ledger(self):
+        stats = self.judge(self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]}))
+        (row,) = self.rows()
+        self.assertEqual((row["arm"], row["manifest"], row["batch"], row["final"]), ("K", self.MID, self.batch, "accept"))
+        self.assertEqual(row["closed_by"], {"1": prover.BACKEND, "2": prover.BACKEND})
+        self.assertEqual((row["asked"], row["answered"], row["unread"], row["truncated"]), (4, 2, 2, False))
+        self.assertEqual(row["try_mode"], "guided")
+        held = list((self.root / "held").glob("*.lean"))
+        self.assertEqual(len(held), 1)
+        self.assertEqual(row["accepted_sha"], hashlib.sha256(held[0].read_bytes()).hexdigest())
+        self.assertNotIn("rfl", json.dumps(row), "the accepted text is in the artifact, the row carries its hash")
+        self.assertEqual(stats["solved"], 1)
+        self.assertEqual(sorted(p.name for p in self.stall.iterdir()), ["blueprints", f"{self.batch}.jsonl", f"{self.MID}.json"])
+
+    def test_pending_is_the_whole_batch_until_the_rows_file_exists(self):
+        a = self.answers({1: [self.GOOD], 2: [self.GOOD]})
+        self.assertEqual(prover.guided_pending(a, self.stall), 2)
+        self.judge(a)
+        self.assertEqual(prover.guided_pending(a, self.stall), 0)
+
+    def test_a_blueprint_or_target_changed_since_export_judges_nothing(self):
+        a = self.answers({1: [self.GOOD], 2: [self.GOOD]})
+        self.bp.write_text(json.dumps({"ok": True, "statements": ["x = x", "True"]}))
+        self.judge(a)
+        (row,) = self.rows()
+        self.assertIn("changed since export", row["note"])
+        self.assertNotIn("final", row)
+        self.assertFalse((self.root / "held").exists())
+
+    def test_answers_from_another_manifest_or_a_batch_named_for_another_are_refused(self):
+        a = self.answers({1: [self.GOOD]})
+        with self.assertRaises(SystemExit):
+            self.judge([dict(a[0], batch="guided-pilot-other-20261115T0000")])
+        with self.assertRaises(SystemExit):
+            self.judge(a + [dict(a[0], guided=dict(a[0]["guided"], manifest="pilot-other"))])
+
+    def test_a_truncated_batch_is_recorded_incomplete_with_coverage_by_hole(self):
+        self.judge(self.answers({1: [self.GOOD]}), verdict="reject")
+        (row,) = self.rows()
+        self.assertEqual((row["planned"], row["generated"]), ({"1": 2, "2": 2}, {"1": 1, "2": 0}))
+        self.assertEqual((row["failed"], row["unattempted"], row["truncated"]), ([1], [2], True))
+        self.assertEqual((row["judge_unfinished"], row["judging_complete"]), ([], True), "generation cut short is its own flag")
+
+    def test_a_judge_timeout_is_recorded_as_unfinished_judging_and_the_batch_is_not_owed_again(self):
+        """Codex 20261116T000117894936Z f3: unfinished judging must not read as a finished failure, and must not by
+        itself spend another GPU push."""
+        a = self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]})
+        timeout = lambda text: {"verdict": "reject", "reason": "timeout after 300s", "output": ""}
+        stats = prover.judge_guided(a, judge_text=timeout, read=lambda s, t: TARGET, run_id="t1", stall=self.stall,
+                                    guided_out=self.root / "held", closer=lambda lp: None, blueprint_at=lambda rel: Path(rel))
+        (row,) = self.rows()
+        self.assertEqual((row["judge_unfinished"], row["failed"], row["judging_complete"]), ([1, 2], [], False))
+        self.assertEqual(stats["judging_unfinished"], 1)
+        self.assertIsNone(prover.guided_owed(self.stall))
+
+    def test_the_kernel_echoes_the_guided_field_and_a_guided_batch_goes_before_any_other_kind(self):
+        src = (Path(prover.__file__).parent / "prover_kernel.py").read_text()
+        self.assertIn('**({"guided": p["guided"]} if p.get("guided") else {})', src)
+        self.assertEqual(prover.guided_batch_name(self.MID, datetime(2026, 11, 15, tzinfo=timezone.utc)), self.batch)
+        with tempfile.TemporaryDirectory() as out:
+            n = prover.build(out, None, self.batch, problems=self.work)
+            built = (Path(out) / "prover_kernel.py").read_text()
+        self.assertEqual(n, 2)
+        self.assertIn('"guided": {"manifest": "' + self.MID, built)
 
 
 class BatchTimingTests(unittest.TestCase):

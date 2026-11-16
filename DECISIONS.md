@@ -28,6 +28,28 @@ Everything NOT here is open and lives in `PLAN.md` §6.
   or refusal causes are recorded; both read in the code and taken out of the manifest), 234650357794Z AGREE. Residual:
   no lane isolation from the ladder, overlap is listed beside the result; a feasibility read, no claim. The Kaggle
   Goedel-Prover adapter is the step after, whatever this run shows.
+  **The run (43776896439, 2026-11-15T23:49Z to 2026-11-16T00:01Z): inconclusive by the rule written before it.** Arm
+  B: Lean's recipes closed holes 5 and 6 in Actions, as they had locally; 1 to 4 stay open. Arm C: 8 asked, 0
+  answered, every one refused `HTTP 503 [provider_busy]` (the lane's provider allows one request at a time); holes 1
+  to 4 unattempted, the whole proof not checked. Arm A: 0 of 4, "requesty: share held for other tenants; parked for
+  448s". Overlapping attempt run: 43773519397 (the ladder, in progress since 23:12Z). Three router pilots, three
+  starved by the ladder on the same lanes; nothing is learned about a Lean-trained filler.
+
+- **Blueprint holes can go to the Kaggle prover, which shares no lane with the ladder (built, not yet run).** A
+  manifest in ledger/stall with `"filler": "kaggle"` is one GPU batch: `blueprint.kaggle_work` exports every hole as
+  its own file with the earlier statements as hypotheses, `prover.py next` pushes it before any other kind, the kernel
+  echoes `guided` on each answer, and `prover.judge_guided` takes those answers before the plan, goal and problem
+  branches, so no Recorder, verified/ file or site call is reached. `blueprint.fill_samples`: Lean's recipes first,
+  then each sample in order through `subgoals.try_body` (the judge, then the free chain; the same step a lane's
+  reply gets), rows to `ledger/stall/<batch>.jsonl`, arm K, try mode guided, an accepted text to SB_GUIDED_OUT (now
+  an artifact step in prover.yml), its hash in the row. Kept apart in the row: samples generated, read with a proof,
+  read without, never needed; a hole with no samples (unattempted); a batch the GPU budget cut short (truncated);
+  a sample or the whole proof Lean did not finish judging (judge_unfinished, judging_complete). A blueprint or target
+  that is not byte for byte what was exported judges nothing. Codex 20261115T235234646209Z AGREE (design; f1 artifact
+  retention and f2 truncated batches, both built), 20261116T000117894936Z AGREE (code; f3 a judge timeout read as a
+  failed hole, reproduced from check.py's return shapes and fixed with tests). 17 new tests, failing first; 288 pass
+  across the seven suites touched. Not verified: the artifact step in Actions, and the kernel on Kaggle with `guided`
+  entries. No manifest asks for it yet, so nothing runs differently until one is frozen and reviewed.
 
 ## 2026-11-09
 

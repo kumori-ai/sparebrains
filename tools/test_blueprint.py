@@ -2,7 +2,9 @@
 proof text, audits each statement in Lean for smuggled proof terms, drops a statement equivalent to the target, and
 keeps only a sketch Lean calls wellformed. Codex 20261109T204513251417Z, 204946451069Z, 205417832903Z: the three ways
 a guide's proof leaked past the earlier gates are regressions here."""
+import json
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock
 from pathlib import Path
@@ -236,6 +238,102 @@ class Fill(unittest.TestCase):
         f = blueprint.fill(PREFIX, self.S3, self.judge(), asks=[silent], max_asks=12)
         self.assertEqual((f["failed"], f["unattempted"], f["tries"]), ([], [1, 2, 3], []))
         self.assertEqual((f["asked"], f["answered"], f["unanswered"]), (6, 0, 6), "Codex f3: budget spent, nothing answered")
+
+
+class KaggleBatch(unittest.TestCase):
+    """The holes of a gated blueprint as a prover batch and back (DECISIONS.md 2026-11-15): Goedel-Prover on Kaggle is
+    a batch, not a router lane, so attempt.py --pilot cannot reach it (Codex 20261115T234113711421Z f3)."""
+    S3 = Fill.S3
+    TARGET = PREFIX + "\n  sorry\n"
+
+    def work(self, tmp, ok=True):
+        bp = Path(tmp) / "demo-20261109T000000Z.json"
+        bp.write_text(json.dumps({"ok": ok, "statements": self.S3}))
+        man = {"id": "pilot-x", "problems": ["minif2f/test/demo"]}
+        return bp, blueprint.kaggle_work(man, 8, read=lambda s, t: self.TARGET, find=lambda name: bp if ok else None,
+                                         rel=lambda path: path.name)
+
+    def test_every_hole_is_exported_as_its_own_file_with_the_earlier_statements_as_hypotheses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bp, work = self.work(tmp)
+        self.assertEqual([(w["target_set"], w["target"], w["n"], w["guided"]["hole"]) for w in work],
+                         [("minif2f/test", "demo", 8, k) for k in (1, 2, 3)])
+        self.assertTrue(work[2]["statement"].startswith("import Mathlib\n\nopen scoped Nat\n\n"))
+        self.assertTrue(work[2]["statement"].endswith(
+            "theorem sb_goal (n : ℕ) (h : 0 < n) (bp_1 : n ≠ 0) (bp_2 : 0 < n → n ≠ 0) : n + 0 = n := by\n  sorry\n"),
+            "2026-11-09: the queue's extract_goal dropped bp_1..bp_4 from hole 5")
+        g = work[0]["guided"]
+        self.assertEqual((g["manifest"], g["holes"], g["n"], g["blueprint"]), ("pilot-x", 3, 8, "demo-20261109T000000Z.json"))
+        self.assertEqual(len(g["blueprint_sha"]), 64)
+        self.assertEqual(len(g["target_sha"]), 64)
+        self.assertNotIn("goal", work[0], "a `goal` field would send the answers down the public goal-closer path")
+        self.assertNotIn("arm", work[0])
+
+    def test_a_problem_with_no_gated_blueprint_exports_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.work(tmp, ok=False)[1], [])
+
+    def judge(self, lean_closes=(), accept_final=True):
+        return Fill.judge(self, lean_closes, accept_final)
+
+    GOOD = "```lean4\ntheorem sb_goal (n : ℕ) : n = n := by\n  exact good\n```"
+    BAD = "```lean4\ntheorem sb_goal (n : ℕ) : n = n := by\n  exact bad\n```"
+    proof_of = staticmethod(lambda text: ("  exact good\n" if "exact good" in text else "  exact bad\n") if "sb_goal" in text else None)
+
+    def fill(self, samples, **kw):
+        kw.setdefault("judge_text", self.judge())
+        return blueprint.fill_samples(PREFIX, self.S3, samples, kw.pop("judge_text"), proof_of=self.proof_of, planned=2, **kw)
+
+    def test_lean_first_then_each_sample_in_order_and_the_first_accept_closes_only_its_hole(self):
+        f = self.fill({1: [self.BAD, self.BAD], 2: [self.BAD, self.GOOD], 3: [self.GOOD, self.GOOD]},
+                      judge_text=self.judge(lean_closes=[self.S3[0]]))
+        self.assertEqual(f["closed_by"], {1: "lean", 2: "sample", 3: "sample"})
+        self.assertEqual([(t["hole"], t["sample"], t["verdict"]) for t in f["tries"]], [(2, 0, "reject"), (2, 1, "accept"), (3, 0, "accept")])
+        self.assertEqual((f["asked"], f["answered"], f["no_proof"], f["unread"]), (6, 3, 0, 3),
+                         "asked is every sample generated: the two Lean made unneeded and the one after an accept are cost too")
+        self.assertEqual((f["final"], f["truncated"]), ("accept", False))
+        self.assertIn(f"  have bp_2 : {self.S3[1]} := by\n    exact good\n", f["accepted"])
+        self.assertNotIn("sorry", f["accepted"])
+
+    def test_one_proved_hole_is_not_a_solve_and_the_whole_proof_is_not_checked(self):
+        f = self.fill({1: [self.BAD, self.BAD], 2: [self.GOOD, self.BAD], 3: [self.BAD, "no fenced proof at all"]})
+        self.assertEqual((f["closed_by"], f["failed"], f["unattempted"]), ({2: "sample"}, [1, 3], []))
+        self.assertNotIn("final", f, "null means not checked, never a kernel reject (Codex 20261115T234449896697Z)")
+        self.assertNotIn("accepted", f)
+        self.assertEqual((f["answered"], f["no_proof"]), (4, 1))
+
+    def test_a_batch_the_gpu_budget_cut_short_is_truncated_and_its_empty_holes_are_unattempted(self):
+        """Codex 20261115T235234646209Z f2: the kernel's fit_chunk gave hole 1 eight samples and hole 2 one of eight."""
+        f = self.fill({1: [self.BAD, self.BAD], 2: [self.BAD]})
+        self.assertEqual((f["failed"], f["unattempted"]), ([1, 2], [3]))
+        self.assertEqual((f["planned"], f["generated"]), ({1: 2, 2: 2, 3: 2}, {1: 2, 2: 1, 3: 0}))
+        self.assertTrue(f["truncated"], "an incomplete read, not an exhausted one")
+
+    def test_a_sample_the_judge_did_not_finish_is_not_a_failed_hole(self):
+        """Codex 20261116T000117894936Z f3: check.py returns a reject for a timeout or a memory kill; read as a failed
+        hole, an unfinished judge run would pass for a finished feasibility result."""
+        slow = lambda text: {"verdict": "reject", "reason": "timeout after 300s" if ": n ≠ 0 := by" in text else "bad", "output": ""}
+        f = self.fill({1: [self.BAD, self.BAD], 2: [self.BAD, self.BAD], 3: [self.BAD, self.BAD]}, judge_text=slow)
+        self.assertEqual((f["judge_unfinished"], f["failed"]), ([1], [2, 3]))
+        self.assertFalse(f["judging_complete"])
+        killed = lambda text: {"verdict": "reject", "reason": "killed (exit 137) under the 4000 MB memory limit", "output": ""}
+        self.assertEqual(self.fill({1: [self.BAD], 2: [self.BAD], 3: [self.BAD]}, judge_text=killed)["judge_unfinished"], [1, 2, 3])
+        self.assertTrue(self.fill({1: [self.BAD, self.BAD], 2: [self.BAD, self.BAD], 3: [self.BAD, self.BAD]})["judging_complete"])
+
+    def test_the_whole_proofs_verdict_keeps_its_reason_and_a_timeout_there_is_unfinished_too(self):
+        def judge_text(text):
+            if "sb_goal" in text:
+                return {"verdict": "accept", "reason": "", "output": ""}
+            return {"verdict": "reject", "reason": "timeout after 300s", "output": ""}
+        f = self.fill({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD], 3: [self.GOOD, self.GOOD]}, judge_text=judge_text)
+        self.assertEqual((f["final"], f["final_reason"], f["judging_complete"]), ("reject", "timeout after 300s", False))
+        self.assertNotIn("accepted", f)
+
+    def test_a_rejected_sample_goes_through_the_free_chain_and_is_marked_repaired(self):
+        repair = Mock(side_effect=lambda body, pre, said: "  exact good\n" if pre.endswith(": 0 < n → n ≠ 0 := by") else None)
+        f = self.fill({1: [self.BAD], 2: [self.BAD], 3: [self.BAD]}, repair=repair)
+        self.assertEqual(f["closed_by"], {2: "sample"})
+        self.assertEqual([(t["hole"], t["repaired"]) for t in f["tries"]], [(1, False), (2, True), (3, False)])
 
 
 @unittest.skipUnless((Path(__file__).parent.parent / ".lake" / "packages" / "mathlib").is_dir(), "needs the local Mathlib build")

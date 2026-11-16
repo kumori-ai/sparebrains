@@ -13,6 +13,7 @@ Every kernel-checked step then comes from Lean's automation or a small lane (sub
 contribution is which propositions to prove, credited as try_mode `guided`, never as "free models plus tools".
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -252,12 +253,102 @@ def fill(prefix, stmts, judge_text, asks=(), max_asks=MAX_ASKS_PILOT, on_try=Non
     # lane, or the call cap, swallowed with no reply (Codex 20261109T213007122693Z f3)
     log["asked"] = budget["asks"]
     log["unanswered"] = budget["asks"] - log["answered"]
-    if len(plan) == len(stmts):
+    return _assemble(log, sk, hole_lines, plan, len(stmts), judge_text)
+
+
+def _assemble(log, sk, hole_lines, plan, n, judge_text):
+    """Every hole closed: the bodies under their `have`, and the whole file judged. `final` is that verdict and is
+    absent while a hole is open: not checked, never a kernel reject."""
+    if len(plan) == n:
         final = subgoals._with_tactics(sk, {hole_lines[i]: plan[i] for i in plan})
         j = judge_text(final)
-        log["final"] = j["verdict"]
+        log["final"], log["final_reason"] = j["verdict"], (j.get("reason") or "")[:300]
         if j["verdict"] == "accept":
             log["accepted"] = final
+    return log
+
+
+BLUEPRINTS = ROOT / "ledger" / "stall" / "blueprints"
+
+
+def latest_gated(name, root=BLUEPRINTS):
+    """The newest blueprint of a problem that passed the gate, or None."""
+    gated = [p for p in sorted(Path(root).glob(f"{name}-*.json")) if json.loads(p.read_text()).get("ok")]
+    return gated[-1] if gated else None
+
+
+def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relative_to(ROOT))):
+    """A manifest's holes as prover-batch problems (prover.build's `problems`): every hole of each problem's latest
+    gated blueprint as a file of its own, earlier statements as hypotheses, `n` samples each. All holes go, the ones
+    Lean will close too: the workflow's push step runs no Lean, and the discarded samples are counted as cost at judge
+    time. `guided` comes back on every answer (never `goal` or `arm`, which are the public paths) and pins what was
+    exported: the blueprint and the target by hash, the hole, the samples planned."""
+    out = []
+    for key in man["problems"]:
+        tset, name = key.rsplit("/", 1)
+        bp = find(name)
+        if not bp:
+            continue
+        raw, text = bp.read_bytes(), read(tset, name)
+        stmts, prefix = json.loads(raw)["statements"], goal_closer.prefix_of(text)
+        for i in range(len(stmts)):
+            out.append({"target_set": tset, "target": name, "n": n,
+                        "statement": subgoals.lemma_file(prefix, lemma_text(prefix, stmts, i), "  sorry\n"),
+                        "guided": {"manifest": man["id"], "hole": i + 1, "holes": len(stmts), "n": n, "blueprint": rel(bp),
+                                   "blueprint_sha": hashlib.sha256(raw).hexdigest(),
+                                   "target_sha": hashlib.sha256(text.encode()).hexdigest()}})
+    return out
+
+
+def fill_samples(prefix, stmts, samples, judge_text, *, proof_of, planned, repair=None, run_lean=None, closer=None):
+    """fill for a prover batch: `samples` maps a 1-based hole to its answers' texts in sample order. Lean's closers on
+    every hole first; then each sample of an open hole in order, through subgoals.try_body (the judge, then the free
+    chain), the first accept closing the hole. asked = every sample generated; answered = samples read that held a
+    complete proof; no_proof = read, none; unread = never needed (Lean closed the hole, or an earlier sample did).
+    A hole with no samples is unattempted, and a hole short of `planned` makes the read `truncated`: the kernel stops
+    at its GPU budget and still ends as complete (Codex 20261115T235234646209Z f2). A hole left open with a sample
+    Lean did not finish judging (check.unfinished: our timeout, the memory limit) is `judge_unfinished`, not failed,
+    and `judging_complete` is false for it or for an unfinished whole-proof check: neither is a finished read, and
+    neither is generation cut short (Codex 20261116T000117894936Z f3)."""
+    sk = sketch(prefix, stmts)
+    hole_lines = subgoals.holes(sk, prefix.count("\n") + 1)
+    rep = (lambda body, stmt, out: repair(body, subgoals.lemma_file(prefix, stmt, "").rstrip("\n"), out)) if repair else None
+    close = closer or (lambda lp: lean_tier(lp, judge_text, run_lean))
+    plan = {}
+    log = {"holes": len(stmts), "closed_by": {}, "failed": [], "unattempted": [], "tries": [], "answered": 0, "no_proof": 0,
+           "planned": {}, "generated": {}, "judge_unfinished": []}
+    read = 0
+    for i in range(len(stmts)):
+        n, stmt, texts = i + 1, lemma_text(prefix, stmts, i), samples.get(i + 1, [])
+        log["planned"][n], log["generated"][n] = planned, len(texts)
+        got = close(subgoals.lemma_file(prefix, stmt, "").rstrip("\n"))
+        if got:
+            plan[i], log["closed_by"][n] = [got], "lean"
+            continue
+        cut = False
+        for k, text in enumerate(texts):
+            read += 1
+            body = proof_of(text)
+            if not body:
+                log["no_proof"] += 1
+                log["tries"].append({"hole": n, "sample": k, "verdict": "reject", "repaired": False,
+                                     "reason": "no complete proof of the goal in the answer"})
+                continue
+            log["answered"] += 1
+            lines, _, r = subgoals.try_body(prefix, stmt, body, judge_text, rep)
+            cut = cut or (not lines and check.unfinished(str(r.get("reason") or "")))
+            log["tries"].append({"hole": n, "sample": k, "verdict": r["verdict"], "repaired": bool(r.get("repaired")),
+                                 "reason": (r.get("reason") or "")[:200]})
+            if lines:
+                plan[i], log["closed_by"][n] = lines, "sample"
+                break
+        if i not in plan:
+            log["judge_unfinished" if cut else "failed" if texts else "unattempted"].append(n)
+    log["asked"] = sum(log["generated"].values())
+    log["unread"] = log["asked"] - read
+    log["truncated"] = any(log["generated"][n] < planned for n in log["generated"])
+    _assemble(log, sk, hole_lines, plan, len(stmts), judge_text)
+    log["judging_complete"] = not log["judge_unfinished"] and not check.unfinished(log.get("final_reason", ""))
     return log
 
 
