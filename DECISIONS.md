@@ -3,6 +3,43 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-16
+
+- **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
+  inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to
+  fall and the slow lanes' accepts per call to rise. As frozen, ladder-x3: before (11-01T00Z to 11-08T22Z) 35 runs,
+  180.5 run-hours, 7,527 calls, 1,492 accepts, 8.3 per run-hour, 0.198 per call, 1,386 timeouts; after (11-08T22Z to
+  11-15T22Z) 32 runs, 160.0 run-hours, 5,162 calls, 441 accepts, 2.8 per run-hour, 0.085 per call, 710 timeouts. (My
+  before is about 3% more calls and 8% more accepts than the entry's 34 / 176.0 / 7,297 / 1,376; why is not found.)
+  The first leg cannot be read: on 11-09 the ladder stopped asking the 214 targets Lean's baseline proves, so its
+  target set went from 378 to 164 the day after the change. On the same 164 targets: whole ladder 244 accepts of 4,254
+  calls (0.057) before, 147 of 4,086 (0.036) after, a fall that is not attributed and is accepted as unresolved (cells
+  deplete as lanes finish their tries; cut cells closed 11-09). The slow lanes on those targets: Sea Lion 27B 6 of 336
+  (0.018, 85% timed out) to 14 of 362 (0.039, 73%); iteracompute Qwen3 27B 0 of 150 (96%) to 3 of 217 (0.014, 6%);
+  requesty Gemma 4 31B 0 of 127 (94%) to 8 of 201 (0.040, 31%). In the week, 36 accepts came from answers that took
+  over 120 s by `upstream_answer_s` (Sea Lion 19 of its 44, Gemma 10 of 17, iteracompute 7 of 8), which a 120 s bound
+  cannot return. Kept on that evidence. Not claimed: a whole-ladder gain, or that the longer calls cost nothing
+  (displacement of other calls is unmeasured). Revisit if a lane's 240 s asks stop producing accepts past 120 s. Codex
+  20261116T014040030315Z DISAGREE, three findings re-run and confirmed: I had counted late accepts by `call_seconds`,
+  which includes lock waits and retries (34 and 16 where the answer times give 19 and 10); I had read 30% average
+  worker occupancy as "nothing displaced", withdrawn; and see the next entry. 014355212128Z AGREE.
+- **The ladder's default of 4,000 output tokens stays (kumori #658).** After-window ladder-x3: 2,798 calls at 4,000,
+  667 ended `length` (24%), all rejects. Of those, the first Lean error sits at line 16 at the median and at or before
+  line 30 in 443 of the 631 with a positioned error; 6 reasons name the end of input; 32 had no fenced proof. The 51
+  accepts at this budget used 133 output tokens at the median, 1,402 at p90, 3,121 at most. An answer that reaches the
+  cap is long and, in at least 443 of 667, already wrong early. Not measured: whether any of the rest would pass with
+  more room; a per-lane trial is the way if it is ever worth the calls.
+- **Decompose gets no weekly schedule; one hand run on what is left (kumori #642).** 13 runs, 307 goals: 13 solved, 3
+  proved but not spliced, 291 failed; the last three runs (11-05 to 11-09) 61 goals, 1 solve. By the tool's own rule
+  (`decompose.tried_by`, which leaves unanswered and deadline-cut goals eligible) the queue holds 128 untried goals,
+  12 of them readable goals on 9 of the 16 open problems (I first counted 104 and 7 by treating every recorded goal as
+  tried; Codex f3). That is one run, not a cadence: dispatched by hand today, then decompose rests until a queue
+  refresh brings new goals. The 242 multi-goal sketches the queue skips are not built into decompose; whether they
+  become hole batches for the Kaggle prover is decided after the guided batch above is read. Also read: the tool-lift
+  cohort is comparable by the brief's 0.6 rule (ministral-3b 36 problems against 45, 8b 42 against 44, 14b 44 against
+  43), which says nothing about its other flags (3b's accept rate down, refusals above targets); the Actions cache is
+  one entry, 2.35 GB.
+
 ## 2026-11-15
 
 - **No ladder cutoff for thinking cuts; the next run is a Lean-trained filler on the blueprint's holes (Andy's
