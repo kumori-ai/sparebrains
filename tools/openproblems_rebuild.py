@@ -99,12 +99,17 @@ def versions():
     return out
 
 
-def verdict(expected_fp, got):
-    """same: a variant's digest is the recorded one. different: every variant produced a digest and none is.
-    Anything else decides nothing."""
-    if not got or any(not v.get("pred_fp") for v in got.values()):
-        return "incomplete"
-    return "same" if any(v["pred_fp"] == expected_fp for v in got.values()) else "different"
+def verdict(expected_fp, got, planned=VARIANTS):
+    """same: a variant's digest is the recorded one (one match is enough, at once). not_reproduced: every planned
+    variant produced a digest and none is the recorded one; that says this reconstruction, with these library
+    versions on this machine, did not reproduce the reference's prediction, not that the GEO deposit differs from
+    the S3 split (Codex 20261117T205540499338Z f1, f2). Anything else, a run that died part-way included, is
+    incomplete and decides nothing."""
+    if any(v.get("pred_fp") == expected_fp for v in got.values()):
+        return "same"
+    if all(got.get(v, {}).get("pred_fp") for v in planned):
+        return "not_reproduced"
+    return "incomplete"
 
 
 def main():

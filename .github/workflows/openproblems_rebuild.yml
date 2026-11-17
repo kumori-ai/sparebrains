@@ -1,8 +1,10 @@
 # The openproblems data outage (kumori #477; DECISIONS 2026-11-05 checkpoint): rebuild predict_modality's bmmc_cite
 # training files from the public GEO deposit with upstream's own scripts, run the task's knnr_py on the site-1
 # validation split, and compare its prediction digest with the one the ledger recorded on the S3 files. Same digest:
-# the rebuild is the benchmark we measured on. Different: a separately versioned benchmark. By hand only; trusted
-# code only (upstream's pinned scripts and ours), no model asked, nothing published: the receipt is the artifact.
+# the rebuild is the benchmark we measured on. No variant reproduces it: this reconstruction is not shown to be the
+# same (library versions and the R step are not controlled), and any use of it is a separately versioned benchmark.
+# By hand only; trusted code only (upstream's pinned scripts and ours), no model asked, nothing published: the
+# receipt and the environment's pip freeze are the artifact.
 name: openproblems-rebuild
 
 on:

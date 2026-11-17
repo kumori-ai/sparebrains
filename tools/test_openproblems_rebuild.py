@@ -43,16 +43,23 @@ class Verdict(unittest.TestCase):
     def test_one_matching_variant_is_the_same_benchmark(self):
         self.assertEqual(rb.verdict(FP, {"float64": {"pred_fp": "0" * 64}, "as_written": {"pred_fp": FP}}), "same")
 
-    def test_no_match_among_complete_variants_is_a_different_benchmark(self):
-        self.assertEqual(rb.verdict(FP, {"float64": {"pred_fp": "0" * 64}, "as_written": {"pred_fp": "1" * 64}}), "different")
+    def test_a_match_decides_at_once_before_the_other_variant_ran(self):
+        self.assertEqual(rb.verdict(FP, {"float64": {"pred_fp": FP}}), "same")
+
+    def test_no_match_among_every_planned_variant_is_not_reproduced(self):
+        self.assertEqual(rb.verdict(FP, {"float64": {"pred_fp": "0" * 64}, "as_written": {"pred_fp": "1" * 64}}), "not_reproduced")
+
+    def test_a_run_that_died_after_one_miss_decides_nothing(self):
+        # Codex 20261117T205540499338Z f1: the receipt is saved after each variant and uploaded even when the run dies
+        self.assertEqual(rb.verdict(FP, {"float64": {"pred_fp": "0" * 64}}), "incomplete")
 
     def test_nothing_measured_decides_nothing(self):
         self.assertEqual(rb.verdict(FP, {}), "incomplete")
-        self.assertEqual(rb.verdict(FP, {"float64": {"rmse": 0.97}}), "incomplete")
+        self.assertEqual(rb.verdict(FP, {"float64": {"rmse": 0.97}, "as_written": {"pred_fp": "1" * 64}}), "incomplete")
 
     def test_close_metrics_without_the_digest_are_not_the_same(self):
-        got = {"float64": {"pred_fp": FP[:-1] + "1", "rmse": 0.9691516160964966}}
-        self.assertEqual(rb.verdict(FP, got), "different")
+        got = {"float64": {"pred_fp": FP[:-1] + "1", "rmse": 0.9691516160964966}, "as_written": {"pred_fp": "1" * 64}}
+        self.assertEqual(rb.verdict(FP, got), "not_reproduced")
 
 
 class Recorded(unittest.TestCase):
