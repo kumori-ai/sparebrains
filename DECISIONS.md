@@ -3,6 +3,29 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-17
+
+- **openproblems: the GEO rebuild has the same cells and features and scores within 2e-5 of the recorded reference,
+  but not its bytes, so by the 11-05 rule it is a separately versioned benchmark (kumori #477).** The bucket still
+  answers 403 (daily probe, 12 days), task_predict_modality#85 has no reply, the 11-12 checkpoint passed with no
+  recovery route. Built `tools/openproblems_rebuild.py` and `openproblems_rebuild.yml` (by hand): GSE194122's
+  processed CITE-seq file from NCBI's FTP (616 MB, sha256 b9b50fad...8a5f361), upstream's loader, log_cp and prot_clr
+  unchanged at datasets ee5575cb, the training half of the task's process_dataset ported (it draws nothing at
+  random), then the task's knnr_py on the site-1 validation split. Run 44174311944, 5 min 6 s, receipt and pip
+  freeze in `ledger/sources/openproblems-rebuild-44174311944*`: 90,261 cells, 66,175 training cells (the number
+  the S3 files had), 13,953 genes, 134 proteins. Reference on validation, recorded on S3 / rebuilt with 64-bit
+  layers / rebuilt as written (32-bit): rmse 0.969152 / 0.969138 / 0.969137; mean Pearson per cell 0.785681 /
+  0.785698 / 0.785699; pred_fp e88684e2 / 58606915 / c65c66fa. Neither variant reproduces the digest:
+  `not_reproduced`. What that does and does not say (Codex 20261117T205540499338Z DISAGREE, f1 f2 taken): this
+  reconstruction, with scanpy 1.13.0, muon 0.2.1, anndata 0.13.4 and no R step, did not reproduce the reference's
+  prediction; it is not a finding that the deposit differs from the S3 split, whose processing versions are not
+  recorded anywhere we can read. Both metrics sit inside REF_TOL (1e-4), the band unseeded reference runs moved in
+  before 11-03, but the rule was bytes, and a row's bootstrap interval is against one reference's predictions. So:
+  the 91 rows scored on the S3 files stay as they are and are never pooled with rows on the rebuild; work resumes
+  only on the rebuild as its own version, with its own reference, after its design is reviewed (test files need
+  upstream's R sampler; the #598 pairs and the C2 arms restart on it). Not chased further: the historical library
+  versions (open-ended, nothing to check a guess against but this same digest).
+
 ## 2026-11-16
 
 - **Guided batches keep what they close, and a second batch continues the first (kumori #574).** The first Kaggle

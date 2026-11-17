@@ -1,0 +1,65 @@
+{
+ "source": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE194nnn/GSE194122/suppl/GSE194122%5Fopenproblems%5Fneurips2021%5Fcite%5FBMMC%5Fprocessed%2Eh5ad%2Egz",
+ "datasets_sha": "ee5575cb14089f632c4acb54456152259e0f118f",
+ "upstream": "bc9313f98ac3d0f1b8e6915dbdf8926a95976d9d",
+ "expected": {
+  "rmse": 0.9691516160964966,
+  "mae": 0.6671711206436157,
+  "mean_pearson_per_cell": 0.7856813180442257,
+  "bootstrap": true,
+  "pred_fp": "e88684e2b6297fd11e9045d45f087680592b355908278e366ae4b0c48d66c430",
+  "swap": {
+   "rmse": 0.32299262285232544,
+   "mae": 0.15540167689323425,
+   "mean_pearson_per_cell": 0.749552966052017
+  }
+ },
+ "versions": {
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "sklearn": "1.9.1",
+  "anndata": "0.13.4",
+  "scanpy": "1.13.0",
+  "muon": "0.2.1",
+  "pandas": "3.1.1",
+  "h5py": "3.16.0",
+  "zarr": "3.4.2"
+ },
+ "variants": {
+  "float64": {
+   "rmse": 0.969137966632843,
+   "mae": 0.6671522855758667,
+   "mean_pearson_per_cell": 0.785697685563512,
+   "bootstrap": true,
+   "pred_fp": "586069154c5b4e76d7fbfe314d626bb9b4c4019c9710db9ad0b95322ff14b4ea",
+   "same_digest": false
+  },
+  "as_written": {
+   "rmse": 0.9691365957260132,
+   "mae": 0.6671521663665771,
+   "mean_pearson_per_cell": 0.7856988555775423,
+   "bootstrap": true,
+   "pred_fp": "c65c66fa99ba2329c07891981b540c903a4b03a95bc0d9f48a089f179112ec51",
+   "same_digest": false
+  }
+ },
+ "verdict": "not_reproduced",
+ "source_sha256": "b9b50fade9349719cba23c97c6515d3501a32ee3735fe95fe51221d2e8a5f361",
+ "shape": {
+  "cells": 90261,
+  "train_cells": 66175,
+  "genes": 13953,
+  "proteins": 134,
+  "train_cells_expected": 66175,
+  "layer_dtype": {
+   "gex": "float32",
+   "adt": "float32"
+  },
+  "layer_format": {
+   "gex": "csr_matrix",
+   "adt": "csc_matrix"
+  }
+ },
+ "run": "44174311944",
+ "note": "verdict rewritten from the run's 'different' by the rule shipped after it started (Codex 20261117T205540499338Z f2): both planned variants completed, neither digest is the recorded one"
+}
