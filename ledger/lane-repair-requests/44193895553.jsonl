@@ -1,1 +1,2 @@
 {"at": 1794955833, "class": "unknown_name", "event": "requested", "lanes": ["requesty-leanstral-1-5"], "request": "44193895553", "rounds": 12}
+{"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1794960000, "reason": "lane_daily_cap"}}, "at": 1794955847, "due": 1794960000, "event": "deferred"}
