@@ -29,7 +29,7 @@ jobs:
       - name: python env (the reference's pinned numerical libraries, plus upstream's for the dataset steps)
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests scanpy muon zarr
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt -c tools/sandbox/dataset-constraints.txt numpy scipy scikit-learn anndata pyyaml requests scanpy muon zarr
           "$RUNNER_TEMP/venv/bin/pip" freeze > "$RUNNER_TEMP/pip-freeze.txt"
 
       - name: rebuild from GEO and compare the reference's digest
