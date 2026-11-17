@@ -64,7 +64,7 @@ jobs:
       - name: python env
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt -c tools/sandbox/dataset-constraints.txt numpy scipy scikit-learn anndata pyyaml requests scanpy muon zarr
 
       - name: the candidate (named, or the daily pick)
         id: pick
@@ -90,6 +90,8 @@ jobs:
       - name: leave one site out
         if: steps.pick.outputs.evolve_file != ''
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}      # the rebuild fetches upstream's pinned dataset scripts (#477)
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py qualify --work "$RUNNER_TEMP/op" \
             --evolve-file "${{ steps.pick.outputs.evolve_file }}" --round "${{ steps.pick.outputs.round }}" \
@@ -100,6 +102,8 @@ jobs:
       - name: screen agreement
         if: inputs.measure == 'screen-agreement'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}      # the rebuild fetches upstream's pinned dataset scripts (#477)
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py screen-agreement --work "$RUNNER_TEMP/op" \
             --out "ledger/openproblems/screen-agreement-${GITHUB_RUN_ID}.json" | tee "$RUNNER_TEMP/out.txt"
@@ -109,6 +113,8 @@ jobs:
       - name: experiment outcome
         if: inputs.measure == 'outcome'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}      # the rebuild fetches upstream's pinned dataset scripts (#477)
         run: |
           "$RUNNER_TEMP/venv/bin/python" -I tools/openproblems.py outcome --work "$RUNNER_TEMP/op" --ledger-root .ledger-main/ledger \
             --evolve-file "${{ inputs.evolve_file }}" --out "ledger/openproblems/experiments/outcome-${GITHUB_RUN_ID}.json" | tee "$RUNNER_TEMP/out.txt"

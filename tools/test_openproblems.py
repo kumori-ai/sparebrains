@@ -842,7 +842,7 @@ class NextQualify(unittest.TestCase):
     REF = {"rmse": 1.0, "mean_pearson_per_cell": 0.70}
 
     def rows(self):
-        good = lambda rnd, pear, code: {"round": rnd, "code": code, "reference": {"knnr_py": self.REF},
+        good = lambda rnd, pear, code: {"round": rnd, "code": code, "reference": {"knnr_py": self.REF}, "data_version": op.DATA_VERSION,
                                         "metrics": {"rmse": 0.9, "mean_pearson_per_cell": pear}}
         return {"ledger/openproblems/evolve-1.jsonl": [good(0, 0.72, "a"), {"round": 1, "error": "crash"}],
                 "ledger/openproblems/evolve-2.jsonl": [good(0, 0.75, "b"), good(1, 0.71, "c")]}
@@ -878,8 +878,8 @@ class SameMethod(unittest.TestCase):
     its own seed each day. The method's behavior on validation is the identity, not its text."""
 
     def rows(self, code_b="b", metrics_b=M):
-        a = {"round": 7, "code": "a", "metrics": M, "reference": {"knnr": REF}}
-        b = {"round": 2, "code": code_b, "metrics": metrics_b, "reference": {"knnr": REF}}
+        a = {"round": 7, "code": "a", "metrics": M, "reference": {"knnr": REF}, "data_version": op.DATA_VERSION}
+        b = {"round": 2, "code": code_b, "metrics": metrics_b, "reference": {"knnr": REF}, "data_version": op.DATA_VERSION}
         return {"ledger/openproblems/evolve-1.jsonl": [a], "ledger/openproblems/evolve-2.jsonl": [b]}
 
     def test_qualify_never_remeasures_the_same_program_and_takes_a_lookalike_only_when_nothing_is_fresh(self):
@@ -893,7 +893,7 @@ class SameMethod(unittest.TestCase):
         rows["ledger/openproblems/evolve-1.jsonl"][0]["code"] = "x = 1"
         self.assertEqual(op.next_qualify(rows, [receipt]), {"evolve_file": "ledger/openproblems/evolve-2.jsonl", "round": 2},
                          "a lookalike stays eligible: site 1 alone cannot prove it behaves the same on the other sites")
-        rows["ledger/openproblems/evolve-3.jsonl"] = [{"round": 0, "code": "y", "reference": {"knnr": REF},
+        rows["ledger/openproblems/evolve-3.jsonl"] = [{"round": 0, "code": "y", "reference": {"knnr": REF}, "data_version": op.DATA_VERSION,
                                                       "metrics": dict(M, mean_pearson_per_cell=0.8000)}]
         self.assertEqual(op.next_qualify(rows, [receipt]), {"evolve_file": "ledger/openproblems/evolve-3.jsonl", "round": 0},
                          "a fresh method, even a weaker one, goes before a lookalike")
@@ -913,7 +913,7 @@ class SameMethod(unittest.TestCase):
         self.assertIs(op.best_or_closest(rows + [seed], REF), seed, "a copy never replaces the seed as the elite")
         self.assertIsNone(op.best(rows, REF))
         for r in rows:
-            r.update(code="x = max(1, 1)", reference={"knnr": REF})      # another program, flagged a copy by its numbers
+            r.update(code="x = max(1, 1)", reference={"knnr": REF}, data_version=op.DATA_VERSION)      # another program, flagged a copy by its numbers
         by_file = {"f": [dict(seed, code="x = 1", reference={"knnr": REF})], "g": rows}
         import hashlib
         receipt = {"source": {"evolve_file": "f", "round": 6}, "code_sha": hashlib.sha256(b"x = 1").hexdigest()}

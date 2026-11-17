@@ -85,7 +85,7 @@ jobs:
       - name: python env (readable by the sandbox user)
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy scikit-learn anndata pyyaml requests   # numerical libs pinned with the candidate image (the host runs the reference)
+          "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt -c tools/sandbox/dataset-constraints.txt numpy scipy scikit-learn anndata pyyaml requests scanpy muon zarr   # numerical libs pinned with the candidate image (the host runs the reference)
           chmod -R o+rX "$RUNNER_TEMP/venv"
 
       - name: the task's data
@@ -94,7 +94,7 @@ jobs:
           path: |
             ${{ runner.temp }}/op/data
             ${{ runner.temp }}/op/data-swap
-          key: openproblems-predict-modality-bmmc-cite-normal-swap-log-cp10k-2026-09-30
+          key: openproblems-predict-modality-bmmc-cite-geo-rebuild-1
 
       # Trusted code only: the task's own knnr_py script scores the reference on the validation split.
       - name: validation split and the reference

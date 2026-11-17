@@ -31,6 +31,32 @@ UPSTREAM_SHA = "bc9313f98ac3d0f1b8e6915dbdf8926a95976d9d"
 REF_TOL = 1e-4      # two references are one when every metric agrees this closely; unseeded runs moved ~7e-4 (rmse)
 QUALIFY_SCORER = "local: knnr_chunked(random_state=0) reference and metrics(), no upstream script"
 S3 = "https://openproblems-data.s3.amazonaws.com/resources/task_predict_modality"
+# The data's version (kumori #477, DECISIONS 2026-11-17). Until 2026-11-04 the task's processed split came from that
+# bucket ("s3-2026-10": every row without a data_version); it has answered 403 since 11-05 and no copy was kept.
+# "geo-rebuild-1" is the same deposit rebuilt from NCBI's GEO by tools/openproblems_rebuild.py: the same 66,175
+# training cells, 13,953 genes and 134 proteins, a reference within 2e-5 on both validation metrics, but not the
+# same prediction bytes, so a separately versioned benchmark: no score, interval or qualify receipt carries over
+# (same_reference already refuses another reference's rows by pred_fp; code may be rescored, as a new row).
+# Its test files are not rebuilt (upstream samples them in R), so reproduce, drift and final are closed on it
+# (Codex 20261117T210236919705Z f3-f5: a frozen test split of its own, a swap reference on it, and a local copy of
+# the published scores come first).
+DATA_VERSION = "geo-rebuild-1"
+DATA_REF_FP = {"geo-rebuild-1": "c65c66fa99ba2329c07891981b540c903a4b03a95bc0d9f48a089f179112ec51"}
+TRAIN_FILES = ("train_mod1", "train_mod2")
+
+
+# sha256 of the two normalized training layers as cut for the normal direction (openproblems_rebuild.layers_fp): the
+# check every step's data passes when it is built, qualify and outcome included, which never run knnr_py.
+DATA_LAYERS_FP = {"geo-rebuild-1": None}       # recorded once two independent rebuilds agree; None refuses every build
+
+
+def row_version(row):
+    """A row's or receipt's data version; the ones written before the field existed are the S3 era's."""
+    return row.get("data_version") or "s3-2026-10"
+
+
+class Closed(Exception):
+    """A step this data version cannot run."""
 RESULTS = "run_2026-10-10_07-15-14"
 DATASET = "openproblems_neurips2021/bmmc_cite/normal"
 SWAP = "openproblems_neurips2021/bmmc_cite/swap"   # the other direction: the bar's check that a win is not a fit
@@ -1125,6 +1151,7 @@ def write_receipt(out, source, code, rows_by_direction, expected=None, screen=No
     if screen and screen.get("stopped_at"):
         assert not verdict["passed"] and any(not fold_won(r) for r in allrows), "a stop needs a lost fold"
     receipt = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "policy": QUALIFY_POLICY,
+               "data_version": DATA_VERSION,
                "source": source, "code_sha": hashlib.sha256(code.encode()).hexdigest(), "rows": rows_by_direction,
                "expected_sites": expected, "verdict": verdict, "scorer": QUALIFY_SCORER, **({"screen": screen} if screen else {})}
     Path(out).write_text(json.dumps(receipt, indent=1) + "\n")
@@ -1217,6 +1244,8 @@ def next_qualify(rows_by_file, receipts):
     fresh, lookalike = [], []
     for f, rows in rows_by_file.items():
         for r in rows:
+            if row_version(r) != DATA_VERSION:           # another data version's scores pick nothing (DECISIONS 2026-11-17)
+                continue
             if ("metrics" not in r or not r.get("code") or hashlib.sha256(r["code"].encode()).hexdigest() in done
                     or code_ast(r["code"]) in done_ast):
                 continue
@@ -1710,11 +1739,28 @@ def writer_ask(lane, clock=None, single=False):
     return decompose.router_ask(lane, chat=chat)[0], f"router lane {lane}"
 
 
-def download(data, dataset=DATASET, files=FILES):
-    data.mkdir(parents=True, exist_ok=True)
-    for f in files:
-        if not (data / f"{f}.h5ad").exists():
-            urllib.request.urlretrieve(f"{S3}/datasets/{dataset}/{NORM}/{f}.h5ad", data / f"{f}.h5ad")
+def download(data, dataset=DATASET, files=FILES, build=None):
+    """The task's files for one direction, where a step expects them. The training files are rebuilt from GEO
+    (openproblems_rebuild.ensure) when they are not already there; the test files do not exist in this data
+    version, so a step that needs them is Closed, never served from somewhere else."""
+    if not set(files) <= set(TRAIN_FILES):
+        raise Closed(f"{sorted(set(files) - set(TRAIN_FILES))} are not part of data version {DATA_VERSION}: the test "
+                     "split is not rebuilt, so reproduce, drift and final are closed on it (DECISIONS 2026-11-17)")
+    if all((data / f"{f}.h5ad").exists() for f in files):
+        return
+    if build is None:
+        import openproblems_rebuild
+        build = openproblems_rebuild.ensure
+    build(data, swap=dataset == SWAP)
+
+
+def check_data_version(ref):
+    """The reference this run computed is the one this data version was recorded with, or the run stops: a rebuild
+    that drifted (a library, the deposit, upstream's scripts) must never score a candidate under the same name."""
+    want = DATA_REF_FP[DATA_VERSION]
+    if ref.get("pred_fp") != want:
+        sys.exit(f"the reference's prediction digest is {str(ref.get('pred_fp'))[:12]}, not the {want[:12]} recorded for "
+                 f"data version {DATA_VERSION}: this is not that benchmark; nothing is scored (DECISIONS 2026-11-17)")
 
 
 def upstream_main():
@@ -1906,6 +1952,7 @@ def main():
         rows = {str(f.relative_to(ROOT)): [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
                 for f in sorted(led.glob("evolve-*.jsonl"))}
         receipts = [json.loads(f.read_text()) for f in led.glob("qualify-*.json")]
+        receipts = [r for r in receipts if row_version(r) == DATA_VERSION]     # an S3-era receipt settles nothing here
         pick = next_qualify(rows, receipts)
         print(json.dumps(pick) if pick else "none")
         return 0
@@ -1941,7 +1988,11 @@ def main():
     if a.cmd == "reproduce":
         return reproduce(work, a.out)
     if a.cmd == "drift":                    # --out: the ledger folder; exit 1 only when main fails the gate
-        download(work / "data")
+        try:
+            download(work / "data")
+        except Closed as e:
+            print(f"drift: not run: {e}", flush=True)
+            return 0
         rec = drift(work, a.out)
         print(json.dumps(rec) if rec else "drift: this upstream commit was already checked", flush=True)
         if rec and rec["status"] == "fails":
@@ -1954,9 +2005,10 @@ def main():
         return final(work, code, {"evolve_file": a.evolve_file, "round": a.round}, a.out)
     val, answers = work / "val", work / "answers"
     if a.cmd == "prepare":
-        download(work / "data")
+        download(work / "data", files=TRAIN_FILES)
         ref = prepare(work / "data", val, answers)
-        download(work / "data-swap", SWAP)
+        check_data_version(ref)
+        download(work / "data-swap", SWAP, files=TRAIN_FILES)
         ref["swap"] = prepare_swap(work / "data-swap", work / "val-swap", work / "answers-swap")
         print(json.dumps({"reference_on_validation": ref}))
         return 0
@@ -2045,7 +2097,7 @@ def main():
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     line = lambda r: json.dumps({"at": stamp, "task": REPO, "upstream": UPSTREAM_SHA, "dataset": DATASET,
-                                 "split": "validation: site 1 held out", "reference": {METHOD: ref}, **extra, **r}) + "\n"
+                                 "data_version": DATA_VERSION, "split": "validation: site 1 held out", "reference": {METHOD: ref}, **extra, **r}) + "\n"
     if a.experiment:                       # C2 R1, R4: no round cap; each row on disk as its round ends; a terminal row
         fh = open(a.out, "w")
         if rescored:
@@ -2073,4 +2125,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Closed as e:
+        sys.exit(f"closed: {e}")

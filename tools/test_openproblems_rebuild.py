@@ -1,6 +1,7 @@
 """The rebuild's own logic (kumori #477): which cells are training cells, and when a rebuild counts as the same
 benchmark. The heavy path (GEO, upstream's scripts, knnr_py) runs only in openproblems_rebuild.yml."""
 import json, tempfile, unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -72,6 +73,125 @@ class Recorded(unittest.TestCase):
     def test_the_ledgers_last_good_run_carries_the_digest_the_rule_names(self):
         f = Path(__file__).resolve().parent.parent / "ledger" / "openproblems" / "evolve-41869521760.jsonl"
         self.assertEqual(rb.recorded(f)["pred_fp"], FP)
+
+
+class Ensure(unittest.TestCase):
+    """openproblems.download's builder: both directions cut from one build, the as-written variant, the cell count held."""
+    def run_ensure(self, d, swap, n=rb.TRAIN_CELLS, fp="recorded"):
+        calls = {"source": 0, "written": []}
+        work = Path(d) / "rebuild"
+        def source(w):
+            calls["source"] += 1
+            for m in ("mod1.zarr", "mod2.zarr"):
+                (w / m).mkdir(parents=True)
+        rb.ensure(Path(d) / ("data-swap" if swap else "data"), swap=swap, source=source, fingerprint=lambda *a: fp,
+                  modalities=lambda w: ("GEX", "ADT", list(range(n))),
+                  write=lambda a1, a2, rows, out, variant: calls["written"].append((a1, a2, len(rows), out.name, variant)))
+        return calls
+
+    def test_normal_is_gex_in_protein_out_and_swap_the_other_way_round(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = self.run_ensure(d, swap=False)
+            b = self.run_ensure(d, swap=True)
+        self.assertEqual(a["written"], [("GEX", "ADT", rb.TRAIN_CELLS, "data", "as_written")])
+        self.assertEqual(b["written"], [("ADT", "GEX", rb.TRAIN_CELLS, "data-swap", "as_written")])
+        self.assertEqual((a["source"], b["source"]), (1, 0))       # the second direction reuses the first's build
+
+    def setUp(self):
+        self._fp = dict(rb.op.DATA_LAYERS_FP)
+        rb.op.DATA_LAYERS_FP[rb.op.DATA_VERSION] = "recorded"
+
+    def tearDown(self):
+        rb.op.DATA_LAYERS_FP.update(self._fp)
+
+    def test_layers_with_another_digest_write_nothing(self):
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit) as e:
+            self.run_ensure(d, swap=False, fp="drifted")
+        self.assertIn("nothing written", str(e.exception))
+
+    def test_no_recorded_digest_refuses_every_build(self):
+        rb.op.DATA_LAYERS_FP[rb.op.DATA_VERSION] = None
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit):
+            self.run_ensure(d, swap=False, fp="anything")
+
+    def test_a_rebuild_with_another_cell_count_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit) as e:
+            self.run_ensure(d, swap=False, n=rb.TRAIN_CELLS - 1)
+        self.assertIn("nothing written", str(e.exception))
+
+
+class LayersFp(unittest.TestCase):
+    class A:
+        def __init__(self, m): self.layers = {"normalized": m}
+
+    def fp(self, g, a, rows=(0, 1)):
+        return rb.layers_fp(self.A(g), self.A(a), list(rows))
+
+    def test_names_the_numbers_not_the_storage(self):
+        g = np.array([[0.5, 0, 2], [0, 1.5, 0], [9, 9, 9]], dtype=np.float32)
+        a = np.array([[1.0], [0], [3]], dtype=np.float32)
+        base = self.fp(sparse.csr_matrix(g), sparse.csc_matrix(a))
+        self.assertEqual(base, self.fp(sparse.csc_matrix(g), sparse.csr_matrix(a)))
+        self.assertEqual(base, self.fp(sparse.csr_matrix(g.astype(np.float64)), sparse.csc_matrix(a)))
+        g2 = g.copy(); g2[1, 1] = np.nextafter(np.float32(1.5), np.float32(2))
+        self.assertNotEqual(base, self.fp(sparse.csr_matrix(g2), sparse.csc_matrix(a)))        # one bit in one value
+        self.assertNotEqual(base, self.fp(sparse.csr_matrix(g), sparse.csc_matrix(a), rows=(1, 0)))   # cell order
+        self.assertNotEqual(base, self.fp(sparse.csr_matrix(g), sparse.csc_matrix(a), rows=(0, 2)))   # which cells
+
+
+class DataVersion(unittest.TestCase):
+    """openproblems.py's side (DECISIONS 2026-11-17): what a step may read on this data version, and under what name."""
+    op = rb.op
+
+    def test_training_files_are_built_when_missing_and_left_alone_when_there(self):
+        with tempfile.TemporaryDirectory() as d:
+            data, built = Path(d) / "data", []
+            build = lambda dd, swap: built.append((dd.name, swap))
+            self.op.download(data, files=self.op.TRAIN_FILES, build=build)
+            self.op.download(data, self.op.SWAP, files=self.op.TRAIN_FILES, build=build)
+            self.assertEqual(built, [("data", False), ("data", True)])
+            data.mkdir()
+            for f in self.op.TRAIN_FILES:
+                (data / f"{f}.h5ad").write_text("x")
+            self.op.download(data, files=self.op.TRAIN_FILES, build=build)
+            self.assertEqual(len(built), 2)
+
+    def test_a_step_that_needs_the_test_files_is_closed_and_builds_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            built = []
+            for files in (self.op.FILES, ("test_mod2",)):
+                with self.assertRaises(self.op.Closed):
+                    self.op.download(Path(d) / "data", files=files, build=lambda *a, **k: built.append(1))
+            self.assertEqual(built, [])
+
+    def test_a_reference_with_another_digest_scores_nothing(self):
+        self.op.check_data_version({"pred_fp": self.op.DATA_REF_FP[self.op.DATA_VERSION]})
+        for ref in ({"pred_fp": FP}, {"pred_fp": None}, {}):       # the S3 era's digest is refused like any other
+            with self.assertRaises(SystemExit):
+                self.op.check_data_version(ref)
+
+    def test_the_scheduled_qualify_picks_only_this_versions_rows(self):
+        ref = {"rmse": 1.0, "mae": 1.0, "mean_pearson_per_cell": 0.5}
+        row = lambda v: {"round": 1, "code": "def predict(*a): return 1", "reference": {"knnr_py": ref},
+                         "metrics": {"rmse": 0.9, "mae": 0.9, "mean_pearson_per_cell": 0.6}, **({"data_version": v} if v else {})}
+        with mock.patch.object(self.op, "passes_bar", lambda r, ref: True):
+            self.assertIsNone(self.op.next_qualify({"evolve-old.jsonl": [row(None)]}, []))
+            self.assertIsNone(self.op.next_qualify({"evolve-x.jsonl": [row("some-other-version")]}, []))
+            self.assertEqual(self.op.next_qualify({"evolve-old.jsonl": [row(None)], "evolve-new.jsonl": [row(self.op.DATA_VERSION)]}, []),
+                             {"evolve_file": "evolve-new.jsonl", "round": 1})
+
+    def test_rows_and_receipts_without_the_field_are_the_s3_era(self):
+        self.assertEqual(self.op.row_version({}), "s3-2026-10")
+        self.assertEqual(self.op.row_version({"data_version": "geo-rebuild-1"}), "geo-rebuild-1")
+
+    def test_an_s3_era_row_is_never_this_versions_row(self):
+        # same_reference is the gate every seed and prior row passes: metrics inside the tolerance are not enough
+        ref = {"rmse": 0.9691365957260132, "mae": 0.6671521663665771, "mean_pearson_per_cell": 0.7856988555775423,
+               "bootstrap": True, "pred_fp": self.op.DATA_REF_FP["geo-rebuild-1"],
+               "swap": {"rmse": 0.3229, "mae": 0.1554, "mean_pearson_per_cell": 0.5}}
+        old = {"reference": {"knnr_py": {**ref, "rmse": 0.9691516160964966, "pred_fp": FP}}}
+        self.assertFalse(self.op.same_reference(old, ref))
+        self.assertTrue(self.op.same_reference({"reference": {"knnr_py": dict(ref)}}, ref))
 
 
 if __name__ == "__main__":

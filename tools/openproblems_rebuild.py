@@ -84,6 +84,21 @@ def write_train(ad1, ad2, rows, out, variant):
                    ).write_h5ad(out / f"{name}.h5ad")
 
 
+def layers_fp(gex, adt, rows):
+    """sha256 of the two normalized training layers, in one canonical form (CSR, sorted, no duplicates, 32-bit
+    little-endian values), so it names the numbers and not how a library happened to store them."""
+    from scipy import sparse
+    h = hashlib.sha256()
+    for layer in (gex.layers["normalized"], adt.layers["normalized"]):
+        m = sparse.csr_matrix(layer[rows])
+        m.sum_duplicates()
+        m.sort_indices()
+        h.update(repr(m.shape).encode())
+        for part, kind in ((m.indptr, "<i8"), (m.indices, "<i8"), (m.data, "<f4")):
+            h.update(np.ascontiguousarray(part.astype(kind)).tobytes())
+    return h.hexdigest()
+
+
 def recorded(evolve_file):
     """The reference as the ledger last recorded it on the S3 files: the first row of an evolve file."""
     return json.loads(Path(evolve_file).read_text().splitlines()[0])["reference"]["knnr_py"]
@@ -112,25 +127,12 @@ def verdict(expected_fp, got, planned=VARIANTS):
     return "incomplete"
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--work", required=True)
-    ap.add_argument("--expect-from", required=True, help="an evolve-<run>.jsonl whose first row holds the reference")
-    ap.add_argument("--out", required=True, help="the receipt (JSON)")
-    a = ap.parse_args()
-    import anndata as ad
-    work = Path(a.work)
+def source(work, receipt=None):
+    """GEO to the two normalized modalities (work/mod1.zarr GEX, work/mod2.zarr ADT) through upstream's own scripts."""
     work.mkdir(parents=True, exist_ok=True)
-    want = recorded(a.expect_from)
-    receipt = {"source": GEO, "datasets_sha": DATASETS_SHA, "upstream": op.UPSTREAM_SHA, "expected": want,
-               "versions": versions(), "variants": {}}
-
-    def save():
-        receipt["verdict"] = verdict(want["pred_fp"], receipt["variants"])
-        Path(a.out).write_text(json.dumps(receipt, indent=1) + "\n")
-
-    save()                                               # a run that dies still leaves what it knew
-    receipt["source_sha256"] = download(GEO, work / "geo.h5ad.gz", work / "geo.h5ad")
+    sha = download(GEO, work / "geo.h5ad.gz", work / "geo.h5ad")
+    if receipt is not None:
+        receipt["source_sha256"] = sha
     (work / "geo.h5ad.gz").unlink()
     meta = lambda n: {"name": n, "resources_dir": str(work)}
     op.run_script(fetch(DATASETS_REPO, LOADER, DATASETS_SHA), "loader",
@@ -145,23 +147,68 @@ def main():
     op.run_script(fetch(DATASETS_REPO, PROT_CLR, DATASETS_SHA), "prot_clr",
                   {"input": str(work / "raw_mod2.zarr"), "output": str(work / "mod2.zarr"),
                    "layer_output": "normalized", "normalization_id": "prot_clr"}, meta("prot_clr"))
+
+
+def modalities(work):
+    import anndata as ad
     gex, adt = ad.read_zarr(work / "mod1.zarr"), ad.read_zarr(work / "mod2.zarr")
-    rows = train_rows(gex.layers["counts"], adt.layers["counts"], gex.obs["is_train"])
+    return gex, adt, train_rows(gex.layers["counts"], adt.layers["counts"], gex.obs["is_train"])
+
+
+def ensure(data, swap=False, source=source, modalities=modalities, write=write_train, fingerprint=layers_fp):
+    """One direction's training files in `data`, for openproblems.download: data version geo-rebuild-1 is the
+    as-written (32-bit) variant. The two modalities are built once, beside the first folder asked for, and both
+    directions are cut from them."""
+    work = Path(data).parent / "rebuild"
+    if not ((work / "mod1.zarr").exists() and (work / "mod2.zarr").exists()):
+        source(work)
+    gex, adt, rows = modalities(work)
+    if len(rows) != TRAIN_CELLS:
+        sys.exit(f"the rebuild has {len(rows)} training cells, not the {TRAIN_CELLS} of data version geo-rebuild-1; nothing written")
+    want, got = op.DATA_LAYERS_FP[op.DATA_VERSION], fingerprint(gex, adt, rows)
+    if got != want:
+        sys.exit(f"the rebuilt training layers' digest is {got[:12]}, not the {str(want)[:12]} recorded for data version "
+                 f"{op.DATA_VERSION}; nothing written")
+    write(*((adt, gex) if swap else (gex, adt)), rows, Path(data), "as_written")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", required=True)
+    ap.add_argument("--expect-from", required=True, help="an evolve-<run>.jsonl whose first row holds the reference")
+    ap.add_argument("--out", required=True, help="the receipt (JSON)")
+    a = ap.parse_args()
+    work = Path(a.work)
+    work.mkdir(parents=True, exist_ok=True)
+    want = recorded(a.expect_from)
+    receipt = {"source": GEO, "datasets_sha": DATASETS_SHA, "upstream": op.UPSTREAM_SHA, "expected": want,
+               "versions": versions(), "variants": {}}
+
+    def save():
+        receipt["verdict"] = verdict(want["pred_fp"], receipt["variants"])
+        Path(a.out).write_text(json.dumps(receipt, indent=1) + "\n")
+
+    save()                                               # a run that dies still leaves what it knew
+    source(work, receipt)
+    gex, adt, rows = modalities(work)
     receipt["shape"] = {"cells": int(gex.n_obs), "train_cells": int(len(rows)), "genes": int(gex.n_vars),
                         "proteins": int(adt.n_vars), "train_cells_expected": TRAIN_CELLS,
                         "layer_dtype": {"gex": str(gex.layers["normalized"].dtype), "adt": str(adt.layers["normalized"].dtype)},
                         "layer_format": {"gex": type(gex.layers["normalized"]).__name__, "adt": type(adt.layers["normalized"]).__name__}}
+    receipt["layers_fp"] = layers_fp(gex, adt, rows)
     save()
     print(json.dumps(receipt["shape"]), flush=True)
+    print(f"layers_fp {receipt['layers_fp']}", flush=True)
     for variant in VARIANTS:
         d = work / variant
         write_train(gex, adt, rows, d / "data", variant)
         ref = op.prepare(d / "data", d / "val", d / "answers")
-        receipt["variants"][variant] = {**ref, "same_digest": ref["pred_fp"] == want["pred_fp"]}
+        receipt["variants"][variant] = {**ref, "same_digest": ref["pred_fp"] == want["pred_fp"],
+                                        "is_geo_rebuild_1": ref["pred_fp"] == op.DATA_REF_FP["geo-rebuild-1"]}
         save()
-        print(f"{variant}: pred_fp {ref['pred_fp'][:12]} (recorded {want['pred_fp'][:12]}), rmse {ref['rmse']:.6f} "
-              f"(recorded {want['rmse']:.6f}), Pearson {ref['mean_pearson_per_cell']:.6f} "
-              f"(recorded {want['mean_pearson_per_cell']:.6f})", flush=True)
+        print(f"{variant}: pred_fp {ref['pred_fp'][:12]} (recorded on S3 {want['pred_fp'][:12]}, geo-rebuild-1 "
+              f"{op.DATA_REF_FP['geo-rebuild-1'][:12]}), rmse {ref['rmse']:.6f} (recorded {want['rmse']:.6f}), Pearson "
+              f"{ref['mean_pearson_per_cell']:.6f} (recorded {want['mean_pearson_per_cell']:.6f})", flush=True)
         if ref["pred_fp"] == want["pred_fp"]:           # the swap direction on the variant that is the benchmark
             write_train(adt, gex, rows, d / "data-swap", variant)
             receipt["variants"][variant]["swap"] = op.prepare_swap(d / "data-swap", d / "val-swap", d / "answers-swap")
