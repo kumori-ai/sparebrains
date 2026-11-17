@@ -94,6 +94,28 @@ def public(decision):
     return out
 
 
+UNMETERED = ("unknown_backend", "unsupported_budget")
+
+
+def router_admission(client=None):
+    """admission(lane, need) from Kumori's GET /api/v1/llm/admission (contract: kumori ma965666b533, 2026-11-17): a
+    snapshot of the recorded daily call budget, no reservation and no model call, so the router's own gate still
+    decides each ask. An answer about another lane, app or call count is refused, never read as room."""
+    if client is None:
+        from utilities import kumori_api_client as client
+    if not hasattr(client, "llm_admission"):
+        raise RuntimeError("canonical admission adapter is not yet installed")
+    client.init()
+
+    def admission(lane, need):
+        r = client.llm_admission(lane, need, app_name="sparebrains")
+        if (r.get("ok") is not True or r.get("backend") != lane or r.get("max_calls") != need
+                or r.get("app_name") != "sparebrains"):
+            raise ValueError("admission answer is not for this request")
+        return r
+    return admission
+
+
 def select(root, admission, now):
     """Admission adapter returns eligible_now, reason, and a Unix next_check_at. No model calls here."""
     requests = []
@@ -129,6 +151,11 @@ def select(root, admission, now):
             # Persist ownership before setup too: a setup crash must not cause repeated expensive rebuilds.
             append(path, {"event": "admitted", "at": now, "admission": decisions})
             return {**s, "path": str(path), "lanes": eligible, "admission": decisions}
+        if all(d.get("reason") in UNMETERED for d in decisions.values()):
+            # The router cannot answer for any of these lanes: rechecking would only spin (kumori ma965666b533).
+            append(path, {"event": "blocked", "at": now, "reason": "no requested lane has an admission meter; needs review",
+                          "admission": decisions})
+            continue
         due = []
         for decision in decisions.values():
             when = decision.get("next_check_at")
@@ -238,7 +265,8 @@ def main(argv=None, admission=None):
         return 0
     if a.command == "select":
         if admission is None:
-            raise RuntimeError("canonical admission adapter is not yet installed")
+            sys.path.insert(0, str(ROOT))
+            admission = router_admission()
         selected = select(QUEUE, admission, now)
         publish_events(f"Repair admission checks {os.environ['GITHUB_RUN_ID']}")
         if selected:

@@ -142,6 +142,31 @@ class Requests(unittest.TestCase):
         self.assertLessEqual(len(kept["reason"]), 200)
         self.assertEqual(self.state()["due"], 3000)
 
+    def test_lanes_the_router_cannot_meter_block_the_request_instead_of_rechecking(self):
+        reply = {"eligible_now": False, "reason": "unsupported_budget", "next_check_at": None}
+        self.assertIsNone(q.select(self.root, lambda *a: dict(reply), now=1100))
+        self.assertEqual((self.state()["status"], self.state()["remaining"]), ("blocked", 12))
+
+    def test_router_adapter_admits_only_an_answer_about_this_lane_and_this_many_calls(self):
+        class Client:
+            def __init__(self, **over):
+                self.over, self.seen = over, []
+            def init(self):
+                pass
+            def llm_admission(self, backend, max_calls, app_name=None):
+                self.seen.append((backend, max_calls, app_name))
+                return {"ok": True, "eligible_now": True, "reason": "guaranteed", "next_check_at": None,
+                        "backend": backend, "app_name": app_name, "max_calls": max_calls, "reservation": False,
+                        **self.over}
+        good = Client()
+        self.assertTrue(q.router_admission(good)("first", 12)["eligible_now"])
+        self.assertEqual(good.seen, [("first", 12, "sparebrains")])
+        for over in ({"ok": False}, {"backend": "other"}, {"max_calls": 5}, {"app_name": "evals"}):
+            with self.subTest(over=over), self.assertRaises(ValueError):
+                q.router_admission(Client(**over))("first", 12)
+        with self.assertRaises(RuntimeError):
+            q.router_admission(object())
+
     def test_unknown_meter_state_never_admits(self):
         for response in ({}, {"eligible_now": None}, {"eligible_now": "true"}):
             with self.subTest(response=response):
