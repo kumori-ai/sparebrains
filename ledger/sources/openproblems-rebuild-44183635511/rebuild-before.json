@@ -1,0 +1,63 @@
+{
+ "source": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE194nnn/GSE194122/suppl/GSE194122%5Fopenproblems%5Fneurips2021%5Fcite%5FBMMC%5Fprocessed%2Eh5ad%2Egz",
+ "datasets_sha": "ee5575cb14089f632c4acb54456152259e0f118f",
+ "upstream": "bc9313f98ac3d0f1b8e6915dbdf8926a95976d9d",
+ "expected": {
+  "rmse": 0.9691516160964966,
+  "mae": 0.6671711206436157,
+  "mean_pearson_per_cell": 0.7856813180442257,
+  "bootstrap": true,
+  "pred_fp": "e88684e2b6297fd11e9045d45f087680592b355908278e366ae4b0c48d66c430",
+  "swap": {
+   "rmse": 0.32299262285232544,
+   "mae": 0.15540167689323425,
+   "mean_pearson_per_cell": 0.749552966052017
+  }
+ },
+ "versions": {
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "sklearn": "1.9.1",
+  "anndata": "0.13.4",
+  "scanpy": "1.13.0",
+  "muon": "0.2.1",
+  "pandas": "3.1.1",
+  "h5py": "3.16.0",
+  "zarr": "3.4.2"
+ },
+ "variants": {
+  "float64": {
+   "rmse": 0.969137966632843,
+   "mae": 0.6671522855758667,
+   "mean_pearson_per_cell": 0.7856976851562926,
+   "bootstrap": true,
+   "pred_fp": "5b51084f6bfb82a76151bcd74c9aff9a3b83632d54f252a735e0d6011fa477bb",
+   "same_digest": false
+  },
+  "as_written": {
+   "rmse": 0.9691387414932251,
+   "mae": 0.6671530604362488,
+   "mean_pearson_per_cell": 0.7856980371821312,
+   "bootstrap": true,
+   "pred_fp": "a20097f616d8d6c7ddea12a38576f4e2df47cadaadb9abc80d45dc051efa667b",
+   "same_digest": false
+  }
+ },
+ "verdict": "not_reproduced",
+ "source_sha256": "b9b50fade9349719cba23c97c6515d3501a32ee3735fe95fe51221d2e8a5f361",
+ "shape": {
+  "cells": 90261,
+  "train_cells": 66175,
+  "genes": 13953,
+  "proteins": 134,
+  "train_cells_expected": 66175,
+  "layer_dtype": {
+   "gex": "float32",
+   "adt": "float32"
+  },
+  "layer_format": {
+   "gex": "csr_matrix",
+   "adt": "csc_matrix"
+  }
+ }
+}

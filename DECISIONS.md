@@ -5,6 +5,13 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-17
 
+- **Rebuild diagnostic 44183635511: all three fresh-process arms agree on one runner (#477).**
+  Current code, pre-refactor `8626fe5b`, and current code with early `anndata` import each produced
+  `as_written` prefix `a20097f6` and `float64` prefix `5b51084f`. Full receipts, package freeze and CPU
+  details: `ledger/sources/openproblems-rebuild-44183635511/`. On this runner neither the refactor nor
+  the import-order change explains the earlier `c65c66fa` result. Cross-runner numerical variation remains
+  a hypothesis, not a verified cause. Expected fingerprints and disabled production workflows stay unchanged.
+
 - **openproblems: the GEO rebuild has the same cells and features and scores within 2e-5 of the recorded reference,
   but not its bytes, so by the 11-05 rule it is a separately versioned benchmark (kumori #477).** The bucket still
   answers 403 (daily probe, 12 days), task_predict_modality#85 has no reply, the 11-12 checkpoint passed with no
