@@ -1,10 +1,14 @@
 # A free lane writes a repair pass (DECISIONS.md 2026-10-28, rules written before it runs; tools/lane_repair.py): one
 # Kumori router lane writes python for one failure class, its code runs only in the candidate container (gVisor, no
 # network), every repaired proof is judged by the kernel in the judge sandbox, selection on the tune half, one report-half
-# run per kept pass. Dispatch by hand, one job, $0 in model cost (free lanes).
+# run per kept pass. $0 in model cost (free lanes). A dispatch by hand only records the request (tools/lane_repair_queue.py,
+# ledger/lane-repair-requests/); the worker job, one at a time, checks admission before any Lean or sandbox setup, defers a
+# request the router has no room for, and a later scheduled run takes it up with the asks it has left of its original total.
 name: lane-repair
 
 on:
+  schedule:
+    - cron: '17,47 * * * *'     # checks persisted requests; no work when the queue is empty
   workflow_dispatch:
     inputs:
       failure_class:
@@ -22,14 +26,40 @@ on:
 permissions:
   contents: write        # publish the ledger rows
 
-concurrency:
-  group: lane-repair
-  cancel-in-progress: false
-
 jobs:
+  enqueue:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Outside worker concurrency: a newer pending job must not erase an older manual request.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: persist the original request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_CLASS: ${{ inputs.failure_class }}
+          INPUT_LANES: ${{ inputs.lanes }}
+          INPUT_ROUNDS: ${{ inputs.rounds }}
+        run: python3 tools/lane_repair_queue.py enqueue
+      - name: preserve an unpublished request
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repair-enqueue-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ledger/lane-repair-requests/${{ github.run_id }}.jsonl
+          retention-days: 90
+
   write-and-score:
+    needs: enqueue
+    if: always() && (github.event_name == 'schedule' || needs.enqueue.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 340
+    concurrency:
+      group: lane-repair
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,10 +69,18 @@ jobs:
       - name: python deps
         run: python3 -m pip install -q requests
 
+      - name: check due requests before any Lean or sandbox setup
+        id: admission
+        env:
+          KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/lane_repair_queue.py select
+
       # One shared cache of Mathlib's packages, keyed on the toolchain and manifest, restored here and saved right after
       # the build, before any untrusted Lean runs. lean-action's own cache is keyed on the commit (2.4 GB per commit); on
       # 2026-11-05 four of them filled the repo's 10 GB and evicted every other cache, openproblems' data included.
       - name: mathlib packages (restore)
+        if: steps.admission.outputs.ready == 'true'
         id: lakecache
         uses: actions/cache/restore@v5
         with:
@@ -50,41 +88,70 @@ jobs:
           key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
 
       - name: lean + mathlib cache + build
+        if: steps.admission.outputs.ready == 'true'
         uses: ./.github/actions/lean-build
 
       - name: mathlib packages (save, before untrusted Lean)
-        if: steps.lakecache.outputs.cache-hit != 'true'
+        if: steps.admission.outputs.ready == 'true' && steps.lakecache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: .lake/packages
           key: ${{ steps.lakecache.outputs.cache-primary-key }}
 
       - name: judge sandbox (untrusted Lean runs as another user)
+        if: steps.admission.outputs.ready == 'true'
         run: bash tools/judge_sandbox.sh
 
       - name: candidate sandbox (gVisor, no network; proven before any candidate runs)
+        if: steps.admission.outputs.ready == 'true'
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q -c tools/sandbox/requirements.txt numpy scipy
           PY="$RUNNER_TEMP/venv/bin/python" bash tools/sandbox/check.sh
 
+      - name: reserve the original remaining budget durably
+        if: steps.admission.outputs.ready == 'true'
+        id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/lane_repair_queue.py start
+
       - name: write and score
+        if: steps.admission.outputs.ready == 'true'
+        id: score
         env:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
         run: |
-          python3 tools/lane_repair.py --class "${{ inputs.failure_class }}" --lanes "${{ inputs.lanes }}" \
-            --rounds "${{ inputs.rounds }}" 2>&1 | tee "$RUNNER_TEMP/out.txt"
-          echo "SUMMARY=$(tail -1 "$RUNNER_TEMP/out.txt" | cut -c1-300)" >> "$GITHUB_ENV"
+          python3 tools/lane_repair_queue.py run
+
+      - name: account for completed asks or retain the uncertain reservation
+        if: always() && steps.reserve.outcome == 'success'
+        env:
+          SCORE_OUTCOME: ${{ steps.score.outcome }}
+        run: |
+          args=()
+          if [ "$SCORE_OUTCOME" = success ]; then args+=(--success); fi
+          python3 tools/lane_repair_queue.py finish "${args[@]}"
+
+      - name: stop automatic retries after a setup failure
+        if: always() && steps.admission.outputs.ready == 'true' && steps.reserve.outcome != 'success'
+        run: python3 tools/lane_repair_queue.py abort
+
+      - name: snapshot recovery outputs before publishing
+        if: always()
+        run: python3 tools/publish.py --snapshot "$RUNNER_TEMP/repair-recovery"
+
+      - name: retain recovery outputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repair-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/repair-recovery
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: publish the ledger
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ls ledger/lane-repair/*.jsonl >/dev/null 2>&1 || exit 0
-          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git config user.name "sparebrains-bot"
-          git config user.email "sparebrains-bot@users.noreply.github.com"
-          python3 tools/publish.py --message "lane repair $GITHUB_RUN_ID: $SUMMARY
-
-          Generated-by: a Kumori router lane among ${{ inputs.lanes }} wrote each pass (the row names it), cost \$0; scored by tools/lane_repair.py, verifier Lean v4.33.1 + mathlib (tools/check.py) in the judge sandbox"
+        run: python3 tools/lane_repair_queue.py publish

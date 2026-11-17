@@ -616,6 +616,17 @@ def llm_usage():
     return data.get('usage', {})
 
 
+def llm_admission(backend, max_calls, app_name='sparebrains'):
+    """Recorded-budget forecast, not a reservation. Recheck at next_check_at (Unix seconds).
+
+    Initially supports Requesty/sparebrains. Other budgets return eligible_now=False.
+    Transport/auth failures raise KumoriAPIError; callers must defer, never assume admission.
+    """
+    from urllib.parse import urlencode
+    query = urlencode({'backend': backend, 'max_calls': max_calls, 'app_name': app_name})
+    return _request('GET', '/api/v1/llm/admission?' + query)
+
+
 def llm_registry():
     """Full backend_registry snapshot. Returns dict with keys: backends, models,
     fallback_order, cloud_run_only, litellm_backends, cloud_run_worker_url,

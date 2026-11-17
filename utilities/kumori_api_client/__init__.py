@@ -15,6 +15,7 @@ from .client import (
     research_job,
     research_dossier,
     llm_usage,
+    llm_admission,
     llm_registry,
     llm_backoff_state,
     llm_lane_outcomes,
