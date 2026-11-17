@@ -9,6 +9,11 @@ name: openproblems-rebuild
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnose:
+        description: "Compare pre-refactor and restored import order on this same runner"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,6 +46,32 @@ jobs:
             --expect-from ledger/openproblems/evolve-41869521760.jsonl --out "$RUNNER_TEMP/rebuild-receipt.json"
           cat "$RUNNER_TEMP/rebuild-receipt.json"
 
+      - name: compare code and import order on the same machine
+        if: inputs.diagnose
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/tools
+        run: |
+          mkdir -p _oneoff
+          scratch=$(mktemp -d "$PWD/_oneoff/rebuild-compare.XXXXXX")
+          trap 'rm -rf "$scratch"' EXIT
+          lscpu > "$RUNNER_TEMP/rebuild-machine.txt"
+          gh api 'repos/kumori-ai/sparebrains/contents/tools/openproblems_rebuild.py?ref=8626fe5b' \
+            --jq .content | base64 --decode > "$scratch/before.py"
+          "$RUNNER_TEMP/venv/bin/python" "$scratch/before.py" --work "$scratch/before" \
+            --expect-from ledger/openproblems/evolve-41869521760.jsonl --out "$RUNNER_TEMP/rebuild-before.json"
+          "$RUNNER_TEMP/venv/bin/python" -c 'import openproblems_rebuild as rb; import anndata; raise SystemExit(rb.main())' \
+            --work "$scratch/import-order" --expect-from ledger/openproblems/evolve-41869521760.jsonl \
+            --out "$RUNNER_TEMP/rebuild-import-order.json"
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          for name in ("receipt", "before", "import-order"):
+              result = json.loads((root / f"rebuild-{name}.json").read_text())
+              print(name, {k: v["pred_fp"] for k, v in result["variants"].items()}, flush=True)
+          PY
+
       - name: keep the receipt
         if: always()
         uses: actions/upload-artifact@v7
@@ -48,6 +79,9 @@ jobs:
           name: openproblems-rebuild-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/rebuild-receipt.json
+            ${{ runner.temp }}/rebuild-before.json
+            ${{ runner.temp }}/rebuild-import-order.json
+            ${{ runner.temp }}/rebuild-machine.txt
             ${{ runner.temp }}/pip-freeze.txt
           retention-days: 90
           if-no-files-found: warn
