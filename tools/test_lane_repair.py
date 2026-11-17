@@ -92,6 +92,60 @@ class Loop(unittest.TestCase):
         self.assertIn("every writer refused", rows[0]["refused"])
         self.assertEqual(sorted(rows[0]["refused_by"]), ["a", "b"])
 
+    def test_quota_blocked_writer_is_not_requested_again_in_later_rounds(self):
+        calls = {"blocked": 0, "available": 0}
+        def blocked(prompt):
+            calls["blocked"] += 1
+            return {"error": "blocked is gated: held_for_others"}
+        def available(prompt):
+            calls["available"] += 1
+            return GOOD
+        rows = lr.run("unknown_name", [("blocked", blocked), ("available", available)], self.cohort,
+                      set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=3)
+        self.assertEqual(calls, {"blocked": 1, "available": 3})
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(r["kept"] for r in rows))
+        self.assertIn("held_for_others", rows[1]["skipped_prior_refusal"]["blocked"])
+        self.assertNotIn("refused_by", rows[1])
+
+    def test_repair_refusal_parks_that_writer_but_preserves_the_authorized_fallback(self):
+        calls = {"first": 0, "fallback": 0}
+        def first(prompt):
+            calls["first"] += 1
+            return CRASH if calls["first"] == 1 else {"error": "first is gated: held_for_others"}
+        def fallback(prompt):
+            calls["fallback"] += 1
+            return GOOD
+        rows = lr.run("unknown_name", [("first", first), ("fallback", fallback)], self.cohort,
+                      set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=3)
+        self.assertEqual(calls, {"first": 2, "fallback": 2})
+        self.assertIn("repair_refused", rows[0])
+        self.assertEqual([r["writer"] for r in rows], ["first", "fallback", "fallback"])
+        self.assertTrue(all(r["kept"] for r in rows[1:]))
+
+    def test_all_previously_blocked_writers_end_without_another_request(self):
+        calls = {"first": 0, "last": 0}
+        def first(prompt):
+            calls["first"] += 1
+            return {"error": "first is gated: held_for_others"}
+        def last(prompt):
+            calls["last"] += 1
+            return CRASH if calls["last"] == 1 else {"error": "last is benched: rate limited"}
+        rows = lr.run("unknown_name", [("first", first), ("last", last)], self.cohort,
+                      set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=12)
+        self.assertEqual(calls, {"first": 1, "last": 2})
+        self.assertEqual(len(rows), 2)
+        self.assertIn("every writer refused", rows[-1]["refused"])
+        self.assertIn("inconclusive", lr.verdict_line(rows))
+
+    def test_a_new_invocation_rechecks_a_previously_blocked_lane(self):
+        replies = iter([{"error": "writer is gated: held_for_others"}, GOOD])
+        def invoke():
+            return lr.run("unknown_name", [("writer", lambda prompt: next(replies))], self.cohort,
+                          set(range(1, 13)), self.half, in_process_runner, self.judge, self.prefix, rounds=1)
+        self.assertIn("refused", invoke()[0])
+        self.assertTrue(invoke()[0]["kept"])
+
     def test_rows_reach_the_sink_as_they_finish_and_a_report_crash_is_on_its_row(self):
         seen = []
         calls = {"n": 0}

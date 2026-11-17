@@ -226,20 +226,25 @@ def refused(reply):
 def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, rounds=MAX_ASKS, keep_at=KEEP_AT,
         repairs=REPAIRS, log=lambda s: None, max_minutes=None, sink=lambda row: None):
     """`writers`: [(lane, ask)] in preference order; a refused ask (the router benched or gated the lane) moves to the
-    next lane without spending a round, and a round where every writer refused is one row and the end of the run.
+    next lane without spending a round. A refused lane is not requested again in this invocation; a later run must
+    check admission anew. A round where every writer is blocked is one row and the end of the run.
     Every row goes to `sink` the moment it is complete (Codex f5: a later crash loses nothing earlier)."""
     deadline = time.time() + 60 * max_minutes if max_minutes else None
+    blocked = {}
 
     def ask_any(prompt):
-        """(lane, reply, {lane: why} for the writers that refused before it). Run 40990511371 (2026-10-30): every round
-        went to the second writer and nothing recorded what the first had answered."""
-        refusals = {}
+        """Return lane, reply, actual refusals and skipped prior refusals separately, so a skipped lane is not
+        counted as another router request."""
+        refusals, skipped = {}, {}
         for lane, ask in writers:
+            if lane in blocked:
+                skipped[lane] = blocked[lane]
+                continue
             reply = ask(prompt)
             if not refused(reply):
-                return lane, reply, refusals
-            refusals[lane] = str(reply.get("error"))[:200]
-        return None, reply, refusals
+                return lane, reply, refusals, skipped
+            blocked[lane] = refusals[lane] = str(reply.get("error"))[:200]
+        return None, {"error": "; ".join(blocked.values())}, refusals, skipped
     exs = examples(cohort, cls, half)
     tune, report = items(cohort, cls, still_rejected, half, "tune"), items(cohort, cls, still_rejected, half, "report")
     ours = our_pass_source(cls) if cls in OUR_PASS else "(no pass of ours targets this class yet)"
@@ -261,16 +266,18 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
                        else f"turned {last['tune_turned']} of {last['tune_n']} rejects on our side") + ". Do better.")
         t = time.time()
         stop = False
-        writer, reply, refusals = ask_any(prompt)
+        writer, reply, refusals, skipped = ask_any(prompt)
         if writer is None:
             emit({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": None,
-                  "round": len(rows), "refused": f"every writer refused: {reply.get('error')}"[:300], "refused_by": refusals})
+                  "round": len(rows), "refused": f"every writer refused: {reply.get('error')}"[:300], "refused_by": refusals,
+                  **({"skipped_prior_refusal": skipped} if skipped else {})})
             break
         ask = dict(writers)[writer]
         asks += 1
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "class": cls, "writer": writer,
                "round": len(rows), "ask_s": round(time.time() - t, 1), "repair_asks": 0, "screen_errors": [],
-               **({"refused_by": refusals} if refusals else {})}
+               **({"refused_by": refusals} if refusals else {}),
+               **({"skipped_prior_refusal": skipped} if skipped else {})}
         code = extract_code(reply) if isinstance(reply, str) else None
         if code is None:
             row["error"] = "no code in the reply" if isinstance(reply, str) else f"no reply: {reply.get('error')}"
@@ -284,6 +291,7 @@ def run(cls, writers, cohort, still_rejected, half, runner, judge, prefix_of, ro
                             "Reply with the fixed ```python block.")
                 if refused(reply):                       # the router refused the repair ask: the row says so, and a
                     row["repair_refused"] = str(reply.get("error"))[:200]      # lone writer ends the run (Codex f1, 2026-11-01)
+                    blocked[writer] = row["repair_refused"]
                     stop = len(writers) == 1
                     break
                 asks += 1
