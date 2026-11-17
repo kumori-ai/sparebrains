@@ -95,12 +95,15 @@ class DossierFetchTests(unittest.TestCase):
             def __init__(self, body): self.body = body
             def __enter__(self): return self
             def __exit__(self, *a): return False
-            def read(self): return self.body
+            def read(self):
+                if isinstance(self.body, Exception): raise self.body
+                return self.body
         script, waits = list(replies), []
         def fake_urlopen(req, timeout):
             r = script.pop(0)
             if isinstance(r, int): raise relay.urllib.error.HTTPError(req.full_url, r, "scripted", {}, None)
             if isinstance(r, Exception): raise r
+            if isinstance(r, tuple): return Reply(r[1])      # ("body", exception): the reply opens, its body fails
             return Reply(r)
         orig, orig_sleep = relay.urllib.request.urlopen, relay.time.sleep
         relay.urllib.request.urlopen, relay.time.sleep = fake_urlopen, waits.append
@@ -115,6 +118,20 @@ class DossierFetchTests(unittest.TestCase):
         got, waits = self._fetch_with([503, 502, relay.urllib.error.URLError("reset"), b'{"open": []}'])
         self.assertEqual(got, {"open": []})
         self.assertEqual(waits, list(relay.FETCH_WAITS[:3]))
+
+    def test_a_connection_dropped_mid_body_is_tried_again(self):
+        # 2026-11-17: slice 3 of retro run 44155732212 died on one ConnectionResetError raised by r.read(), after the
+        # reply had opened; urlopen wraps only the errors of opening it, so the retry never saw this one.
+        import http.client
+        got, waits = self._fetch_with([("body", ConnectionResetError(104, "Connection reset by peer")),
+                                       ("body", http.client.IncompleteRead(b"{")), b'{"open": []}'])
+        self.assertEqual(got, {"open": []})
+        self.assertEqual(waits, list(relay.FETCH_WAITS[:2]))
+
+    def test_a_body_that_keeps_dropping_still_fails(self):
+        got, waits = self._fetch_with([("body", ConnectionResetError(104, "reset"))] * (len(relay.FETCH_WAITS) + 1))
+        self.assertIsInstance(got, ConnectionResetError)
+        self.assertEqual(waits, list(relay.FETCH_WAITS))
 
     def test_a_site_that_stays_down_still_fails(self):
         got, waits = self._fetch_with([503] * (len(relay.FETCH_WAITS) + 1))

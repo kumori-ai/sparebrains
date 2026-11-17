@@ -423,7 +423,7 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
                        system=None, min_chars=1, debug=False, app_name=None,
                        min_quality_tier=None, require_capabilities=None,
                        budget_ms=None, allow_degrade=None, retry_on_5xx=True, max_attempts=None,
-                       task=None):
+                       task=None, include_metadata=False):
     """Server-side fallback chat. Returns (text, winning_backend,
     attempt_log_list, debug_info). The contract (how lanes are chosen, key tiers,
     every error_code and what to do) is kumori/shared/kumori_api_client/README.md
@@ -444,6 +444,9 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
             'summarize', 'translate', 'chat' exclude reasoning lanes (a tier is a floor, so without
             this 'low' still ranks groq's reasoning lane first); 'prove', 'math', 'plan', 'code',
             'analyze' require them. The server answers 400 with the list for an unknown task.
+
+    include_metadata: opt in to (text, backend, attempts, debug, {'quality_tier', 'degraded_to'}); the default
+    stays the historical four values.
 
     EXPLICIT MODE — pin the exact fallback order yourself:
         backends: list of backend names, tried in order.
@@ -485,7 +488,25 @@ def llm_chat_resilient(backends=None, messages=None, max_tokens=500, temperature
     read_s = 120 if budget_ms is None else min(120, int(budget_ms) / 1000 + 15)
     data = _request('POST', '/api/v1/llm/chat-resilient', body, timeout=(5, read_s),
                     retry_on_5xx=retry_on_5xx)
+    if include_metadata:     # opt in to a fifth value: which tier answered, and whether kumori dropped below the floor
+        return (data.get('text'), data.get('backend'), data.get('attempts', []), data.get('_debug'),
+                {'quality_tier': data.get('quality_tier'), 'degraded_to': data.get('degraded_to')})
     return data.get('text'), data.get('backend'), data.get('attempts', []), data.get('_debug')
+
+
+def llm_opinion(prompt, app_name=None, timeout=(5, 75)):
+    """A second opinion from Kumori's best free model: Kumori picks the model (Frontier tier only, providers that do
+    not train on what they are sent first). Returns (text, backend, {'quality_tier', 'data_policy', 'attempts'}).
+    data_policy is 'no_training' | 'unknown' | 'may_train' for the model that answered. Raises KumoriAPIError when
+    no Frontier model answered; asking again is the caller's choice. Needs a key with the llm.chat scope.
+    prompt: the whole text to judge (24,000 characters at most); nothing else is sent."""
+    body = {'prompt': prompt}
+    if app_name:
+        body['app_name'] = app_name
+    data = _request('POST', '/api/v1/llm/opinion', body, timeout=timeout, retry_on_5xx=False)
+    return data.get('text'), data.get('backend'), {'quality_tier': data.get('quality_tier'),
+                                                   'data_policy': data.get('data_policy'),
+                                                   'attempts': data.get('attempts', [])}
 
 
 def llm_chat_reserve(messages, system=None, max_tokens=300, temperature=0.7,
@@ -545,12 +566,16 @@ def lane_status(names):
     return data.get('lanes', {})
 
 
-def notify_owner(subject, text=''):
+def notify_owner(subject, text='', sender=None):
     """Mail Andy through kumori (scope notify.owner): for a device with no Gmail token of its own.
-    The recipient is fixed server-side. Raises KumoriAPIError (429) when mail_guard refuses a repeat
-    within 60 min or the key label's cap; the caller still keeps its own, lower cap."""
-    return _request('POST', '/api/v1/notify/owner', {'subject': subject, 'text': text},
-                    retry_on_5xx=False).get('sent', False)
+    The recipient is fixed server-side. sender (optional, 1-24 of letters, digits, space . _ -) names the From and
+    the [tag], e.g. 'Roborock'; caps and the footer stay on the key label. Raises KumoriAPIError (429) when
+    mail_guard refuses a repeat within 60 min or the key label's cap, (400) on a bad sender; the caller still keeps
+    its own, lower cap."""
+    body = {'subject': subject, 'text': text}
+    if sender is not None:
+        body['sender'] = sender
+    return _request('POST', '/api/v1/notify/owner', body, retry_on_5xx=False).get('sent', False)
 
 
 def brief_section(name, severity, headline, why='', todo='', detail='', link='', source_day=None):

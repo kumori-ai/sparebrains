@@ -10,7 +10,7 @@ never reach it), and this module refuses a solved one anyway.
 Try modes: `relay` (the dossier) and `relay+thread` (the dossier plus at least one comment), each
 recorded beside `cold` and `repair` so the clean numbers stay clean.
 """
-import hashlib, json, re, time, urllib.error, urllib.request
+import hashlib, http.client, json, re, time, urllib.error, urllib.request
 from collections import Counter
 
 SITE = "https://sparebrains.kumori.ai"
@@ -157,7 +157,9 @@ def fetch_json(path, timeout=30):
         except urllib.error.HTTPError as e:
             if e.code < 500 or wait is None: raise
             why = f"HTTP {e.code}"
-        except (urllib.error.URLError, TimeoutError) as e:
+        # ConnectionError and HTTPException: a reply that opened and then dropped mid-body (r.read()), which urlopen
+        # does not wrap in URLError (2026-11-17: one reset ended slice 3 of retro run 44155732212)
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as e:
             if wait is None: raise
             why = type(e).__name__
         print(f"  {SITE}{path} answered {why}; trying again in {wait}s", flush=True)
