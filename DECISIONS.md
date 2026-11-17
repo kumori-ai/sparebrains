@@ -60,6 +60,21 @@ Everything NOT here is open and lives in `PLAN.md` §6.
    Lean alone closed 3 of the 18 new holes. Manifest `pilot-guided-kaggle-split-2026-11-16` frozen: 15 holes x 8
    samples, about 4.7 free GPU h, three guide rounds (30 propositions), feasibility only. Codex
    20261116T193206464578Z AGREE.
+   **Read of the third batch, 2026-11-17** (batch `guided-pilot-guided-kaggle-split-2026-11-16-20261116T1935`,
+   judged by run 43986556758, started by hand 00:18Z; row
+   `ledger/stall/guided-pilot-guided-kaggle-split-2026-11-16-20261116T1935.jsonl`): not solved. The kernel ran 198
+   min on 2 x T4 and generated all 120 samples (767,103 tokens); nothing truncated, judging complete, one sample with
+   no complete proof (blueprint 3, hole 2). Every carried body was re-judged and accepted through the tree
+   (`carry_failed` empty at every level: parent holes 2, 4; holes 1, 4 of hole 1's blueprint). Of the 18 new holes
+   12 closed: 3 by Lean, 9 by the prover (7 as written, 1 after the free chain, 1 after the sum-binder rewrite, its
+   first use on a real sample). By blueprint, closed of holes, with what stays open: 1.2, 4 of 5 (hole 2); 1.3, 3
+   of 6 (holes 2, 3, 5); 1.5, 2 of 3 (hole 1); 3, 3 of 4 (hole 2). Each of the six open leaves took 8 samples and
+   failed (the three of 1.3 with 8 rejects each). No blueprint closed whole, so holes 2, 3, 5 of hole 1's blueprint
+   and parent holes 1 and 3 stay open and the top row is unchanged from the second batch. Held bodies: artifact
+   `prover-guided-43986556758-1-gpu` (expires 2027-02-15), holes file sha256 f2086781...877b01e. One problem, three
+   guide rounds, feasibility only, no claim. What the three rounds show so far, as counts and not a rate: open
+   leaves went 2 (after round 1) to 4 (round 2) to 6 (round 3) while closed holes went 4 to 7 to 19; splitting
+   closes most of what it makes and has not yet closed a parent.
 
 - **The 240 s rule for slow lanes stays, as a lab judgment; the 11-08 comparison it was to be decided by is
   inconclusive (kumori #658).** The frozen rule (2026-11-08 below) asked for whole-ladder accepts per run-hour not to
