@@ -33,8 +33,16 @@ def fit_chunk(chunk, per_sample, elapsed, budget):
     as many samples as fit (batch 20261103T1804: a 2 h budget, a 632 s load, a 2-problem chunk estimated at 8411 s,
     so it stopped with 0 answers after spending the load; 2026-11-03)."""
     left = budget - elapsed
+    paired = any(p.get("guided", {}).get("hint_arm") for p in chunk)
+    if paired:
+        identity = lambda p: (p["target_set"], p["target"], p["guided"].get("path"), p["guided"]["hole"], p["n"])
+        if (len(chunk) != 2 or {p.get("guided", {}).get("hint_arm") for p in chunk} != {"hinted", "unhinted"}
+                or identity(chunk[0]) != identity(chunk[1])):
+            raise ValueError("a hint comparison chunk must be one intact matched pair")
     if per_sample * sum(p["n"] for p in chunk) <= left:
         return chunk
+    if paired:
+        return None
     out = []
     for p in chunk:
         k = min(p["n"], int(left // per_sample)) if per_sample > 0 else 0
@@ -70,8 +78,16 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-q", "vllm"], check=Tru
 subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchaudio"], check=False)
 from vllm import LLM, SamplingParams
 
+paired = any(p.get("guided", {}).get("hint_arm") for p in PROBLEMS)
+revision = None
+if paired:
+    frozen = [p.get("guided", {}).get("generation") for p in PROBLEMS]
+    if (not frozen[0] or any(g != frozen[0] for g in frozen)
+            or frozen[0].get("model") != MODEL or not frozen[0].get("revision")):
+        raise RuntimeError("hint experiment requires one frozen model revision for every item")
+    revision = frozen[0]["revision"]
 llm = LLM(model=MODEL, dtype="half", tensor_parallel_size=2, max_model_len=MAX_TOKENS + 2048,
-          gpu_memory_utilization=0.92, trust_remote_code=True)
+          gpu_memory_utilization=0.92, trust_remote_code=True, **({"revision": revision} if paired else {}))
 tok = llm.get_tokenizer()
 print(json.dumps({"batch": BATCH, "problems": len(PROBLEMS), "load_s": round(time.time() - t0, 1)}), flush=True)
 stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
@@ -101,8 +117,9 @@ with open(OUT, "a") as out:
                                       **({"guided": p["guided"]} if p.get("guided") else {}),
                                       "text": o.text, "tokens": len(o.token_ids), "finish": o.finish_reason,
                                       "seconds": round(secs * len(o.token_ids) / max(n_tokens, 1), 1),
-                                      "config": {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,
-                                                 "top_p": TOP_P, "dtype": "half", "gpus": "T4 x2"}}) + "\n")
+                                       "config": {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,
+                                                  "top_p": TOP_P, "dtype": "half", "gpus": "T4 x2",
+                                                  **({"revision": revision, "vllm": __import__("vllm").__version__} if paired else {})}}) + "\n")
         out.flush()
         print(json.dumps({"chunk": i // CHUNK, "problems": [p["target"] for p in chunk], "seconds": round(secs, 1),
                           "tokens": n_tokens, "tok_per_s": round(n_tokens / secs, 1)}), flush=True)

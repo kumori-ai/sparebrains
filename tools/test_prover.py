@@ -321,6 +321,31 @@ class GuidedBatchTests(unittest.TestCase):
         self.judge(a)
         self.assertEqual(prover.guided_pending(a, self.stall), 0)
 
+    def test_hint_pair_pipeline_keeps_arms_separate_and_holds_proofs_outside_ledger(self):
+        import blueprint
+        self.man.update(blueprint={"path": str(self.bp), "sha256": hashlib.sha256(self.bp.read_bytes()).hexdigest()},
+                        target_sha256={f"minif2f/test/{NAME}": hashlib.sha256(TARGET.encode()).hexdigest()},
+                        generation={"model": "fixture", "revision": "a" * 40},
+                        hint_pairs={f"minif2f/test/{NAME}:{i}": ["Nat.prime_def"] for i in (1, 2)})
+        (self.stall / f"{self.MID}.json").write_text(json.dumps(self.man))
+        self.work = blueprint.kaggle_work(self.man, 2, read=lambda s, t: TARGET, find=lambda name: self.bp,
+                                          rel=lambda path: str(path))
+        answers = self.answers({1: [self.GOOD, self.GOOD], 2: [self.GOOD, self.GOOD]})
+        for a in answers:
+            a["config"].update(self.man["generation"])
+            if a["guided"]["hint_arm"] == "unhinted":
+                a["text"] = "no proof"
+        stats = self.judge(answers)
+        self.assertTrue(stats["complete"])
+        self.assertFalse(stats["whole_proof_checked"])
+        rows = self.rows()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(r["arms"]["hinted"]["pass_at_n"] for r in rows))
+        self.assertFalse(any(r["arms"]["unhinted"]["pass_at_n"] for r in rows))
+        self.assertNotIn("rfl", json.dumps(rows))
+        self.assertEqual(len(list((self.root / "held").glob("hint-proofs-*.json"))), 1)
+        self.assertIsNone(prover.guided_owed(self.stall))
+
     def test_a_blueprint_or_target_changed_since_export_judges_nothing(self):
         a = self.answers({1: [self.GOOD], 2: [self.GOOD]})
         self.bp.write_text(json.dumps({"ok": True, "statements": ["x = x", "True"]}))
@@ -667,6 +692,14 @@ class KernelFit(unittest.TestCase):
         self.assertIs(self.fit(chunk, 100, 0, 400), chunk)
         self.assertIsNone(self.fit(chunk, 100, 350, 400))
         self.assertEqual(self.fit([{"target": "a", "n": 1}], 100, 0, 50), None)
+
+    def test_hint_comparison_never_trims_away_one_arm(self):
+        chunk = [{"target_set": "test", "target": "a", "n": 8,
+                  "guided": {"hint_arm": arm, "path": [1, 3], "hole": 2}} for arm in ("unhinted", "hinted")]
+        self.assertIsNone(self.fit(chunk, 100, 0, 1200))
+        self.assertIs(self.fit(chunk, 100, 0, 1600), chunk)
+        with self.assertRaises(ValueError):
+            self.fit(chunk[:1], 100, 0, 1600)
 
 
 

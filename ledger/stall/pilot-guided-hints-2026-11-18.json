@@ -1,0 +1,86 @@
+{
+ "id": "pilot-guided-hints-2026-11-18",
+ "kind": "paired lemma-name feasibility comparison on six selected leaves of one problem",
+ "filler": "kaggle",
+ "question": "Do verified Mathlib declaration names change raw kernel acceptance within eight samples on these six leaves?",
+ "problems": ["minif2f/test/mathd_numbertheory_451"],
+ "target_sha256": {
+  "minif2f/test/mathd_numbertheory_451": "524404ad670f0e3dd0720cde8fc55da0ebfe8c17013d60fcf5626e29167bef2e"
+ },
+ "blueprint": {
+  "path": "ledger/stall/blueprints/mathd_numbertheory_451-20261109T211957Z.json",
+  "sha256": "9f517dc7ebc3439234694a04426aff7b0557cded71bf043d9bc195711ec5150a"
+ },
+ "holes": [],
+ "subs": {
+  "minif2f/test/mathd_numbertheory_451": [
+   {
+    "hole": 1,
+    "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1-20261116T055022Z.json",
+    "sha256": "365843c2c325608c449369ff9de89c064cf116a8f277c3cbb0c5e65324bbdaee",
+    "holes": [],
+    "subs": [
+     {
+      "hole": 2,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_2-20261116T182030Z.json",
+      "sha256": "2e3f7d401f057573925de629f6d1ed99dd5b3dac5d2392e0f2038f8242a5d1e3",
+      "holes": [2]
+     },
+     {
+      "hole": 3,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_3-20261116T182852Z.json",
+      "sha256": "c33818fc3fd2de4e4f20030ee151e58f0f88cd461a2e42d1e90808d45e70883d",
+      "holes": [2, 3, 5]
+     },
+     {
+      "hole": 5,
+      "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp1_5-20261116T183229Z.json",
+      "sha256": "69744fe785d4dd5799feb66927167edee7487308231e9017aae36a2bb6485336",
+      "holes": [1]
+     }
+    ]
+   },
+   {
+    "hole": 3,
+    "blueprint": "ledger/stall/blueprints/mathd_numbertheory_451.bp3-20261116T181649Z.json",
+    "sha256": "16dc1fa593b66a34bf106037d1b405f4814eb4964bb4f8c5a3f693c549064b68",
+    "holes": [2]
+   }
+  ]
+ },
+ "hint_pairs": {
+  "minif2f/test/mathd_numbertheory_451:1.2.2": ["Finset.eq_of_subset_of_card_le", "Nat.mem_divisors", "Nat.Prime.eq_one_or_self_of_dvd"],
+  "minif2f/test/mathd_numbertheory_451:1.3.2": ["Nat.Prime.coprime_iff_not_dvd", "Nat.mul_div_cancel'"],
+  "minif2f/test/mathd_numbertheory_451:1.3.3": ["Nat.Coprime.card_divisors_mul", "Nat.Prime.divisors"],
+  "minif2f/test/mathd_numbertheory_451:1.3.5": ["Nat.prime_def", "Nat.mem_divisors", "Finset.eq_of_subset_of_card_le"],
+  "minif2f/test/mathd_numbertheory_451:1.5.1": ["Nat.dvd_mul", "Nat.Prime.eq_one_or_self_of_dvd"],
+  "minif2f/test/mathd_numbertheory_451:3.2": ["Nat.prime_def", "Nat.Prime.eq_one_or_self_of_dvd"]
+ },
+ "hint_validation": {
+  "date": "2026-11-18",
+  "method": "Lean #check for all nine distinct names, importing Mathlib.NumberTheory.ArithmeticFunction.Misc",
+  "seconds": 18.0,
+  "lean": "4.33.1",
+  "scope": "Names exist with printed types. Does not prove these six goals or prove the hints are sufficient."
+ },
+ "samples_per_hole": 8,
+ "generation": {
+  "model": "Goedel-LM/Goedel-Prover-V2-8B",
+  "revision": "dfd02e6271a58375dfbf3ece0175277cf6b6a89a",
+  "snapshot": "Frozen from Hugging Face model metadata before dispatch; loaded by exact revision and checked in every judged answer.",
+  "settings": "max_tokens 16000, temperature 1.0, top_p 0.95, half precision, 2 x T4",
+  "ordering": "Each consecutive pair is one leaf. Unhinted first on pairs 1/3/5, hinted first on 2/4/6.",
+  "budget": "96 samples total. About four GPU hours estimated from 48 samples taking two hours; queue time unknown. Admission uses existing free Kaggle quota checks.",
+  "trimming": "Never trim a pair: stop before it if the estimated remaining budget cannot fit both arms."
+ },
+ "judging": {
+  "endpoint": "Per-leaf raw pass-at-8 and accept count, separately for each arm. All eight samples judged, not early-stopped.",
+  "authority": "Re-exported frozen leaf statement, never the model's claimed statement; earlier blueprint statements are identical hypotheses in both arms.",
+  "repair": "None, including no modern_binders normalization. Raw-only avoids confounding names with repair behavior. Acceptance rates cannot be compared with earlier repair-assisted guided batches.",
+  "incomplete": "Missing samples, missing arm or unfinished Lean checks leave that pair incomplete. Duplicate IDs or provenance/settings drift refuse judging.",
+  "isolation": "Leaf-only. No carry, no tree assembly, no newly accepted proof crosses arms. Accepted texts stay in the existing private run artifact; only hashes and counts reach ledger.",
+  "whole_proof": "Not checked. A later explicitly guided assembly is separate from this comparison."
+ },
+ "claim": "Descriptive comparison on six post-selected leaves of one problem, not a general rate, a full solution, or evidence that splitting beats whole-problem proving.",
+ "dispatch_gate": "Reviewed pipeline, 118 passing tests, real six-leaf export and frozen-revision round trip verified. Normal workflow checks current kernel status and free quota before dispatch; never force-push over a running kernel."
+}

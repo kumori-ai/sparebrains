@@ -330,10 +330,13 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
     numbers from the problem's blueprint down), each with the lemma's binders and the earlier statements as
     hypotheses. A hole with a blueprint is never also sampled whole, and a blueprint whose statements would be named
     like its lemma's hypotheses is refused (next_stem)."""
+    if "hint_pairs" in man:
+        from guided_hints import validate_manifest
+        validate_manifest(man, n)
     out, only = [], man.get("holes")
     for key in man["problems"]:
         tset, name = key.rsplit("/", 1)
-        bp = find(name)
+        bp = at(man["blueprint"]["path"]) if "hint_pairs" in man else find(name)
         if not bp:
             continue
         raw, text = bp.read_bytes(), read(tset, name)
@@ -345,6 +348,8 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
         stmts, prefix = json.loads(raw)["statements"], goal_closer.prefix_of(text)
         base = {"manifest": man["id"], "n": n, "blueprint": rel(bp), "blueprint_sha": got["blueprint"],
                 "target_sha": got["target"], **({"exported": sorted(only)} if only is not None else {})}
+        if "hint_pairs" in man:
+            base["generation"] = {k: man["generation"][k] for k in ("model", "revision")}
         for i in range(len(stmts)):
             if only is not None and i + 1 not in only:
                 continue
@@ -353,6 +358,9 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
                         "guided": {**base, "hole": i + 1, "holes": len(stmts)}})
         nodes = subs_of({"subs": (man.get("subs") or {}).get(key), "sub": (man.get("sub") or {}).get(key)})
         _export_subs(out, man, key, base, n, text, stmts, got["blueprint"], only, nodes, [], set(), STEM, at)
+    if "hint_pairs" in man:
+        from guided_hints import paired_work
+        return paired_work(out, man["hint_pairs"])
     return out
 
 

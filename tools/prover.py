@@ -396,6 +396,24 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
     batch, man = guided_manifest(answers, stall)
     mid, rows_file = man["id"], stall / f"{batch}.jsonl"
     held = Path(guided_out or os.environ.get("SB_GUIDED_OUT") or ROOT / ".lake" / "guided")
+    if "hint_pairs" in man:
+        import guided_hints
+        # Re-export the frozen goals, not the model's claimed goals. Judge leaves independently, without a tree
+        # assembly or any newly accepted proof crossing from one treatment to the other.
+        work = blueprint.kaggle_work(man, man["samples_per_hole"], read, at=blueprint_at,
+                                     find=lambda name: blueprint_at(man["blueprint"]["path"]),
+                                     rel=lambda path: man["blueprint"]["path"])
+        rows, proofs = guided_hints.judge(work, answers, judge_text, lambda text: final_proof(text, "sb_goal"))
+        again = rows_file.exists()
+        for row in rows:
+            row.update(manifest=mid, batch=batch, run_id=run_id)
+        if proofs:
+            held.mkdir(parents=True, exist_ok=True)
+            (held / f"hint-proofs-{batch}.json").write_text(json.dumps(proofs, indent=1, sort_keys=True))
+        if not again:
+            rows_file.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        return {"guided": mid, "hint_pairs": len(rows), "complete": all(r["complete"] for r in rows),
+                "rejudged": again, "whole_proof_checked": False}
     carry, carry_why = carried_holes(man, guided_in)
     kept = {}
     samples, meta = defaultdict(lambda: defaultdict(list)), {}
