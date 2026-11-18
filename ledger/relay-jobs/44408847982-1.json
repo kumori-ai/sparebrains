@@ -1,0 +1,1 @@
+{"run_id": "44408847982", "run_attempt": "1", "ts": "2026-11-18T22:35:28+00:00", "problem": "minif2f/test/imo_1985_p6", "calls": 42, "accepts": 0, "relay_rows": 25, "woken_by": {"kind": "model", "model": "gemma-4-26b-a4b-it-meromero:free"}, "backed_off": true}
