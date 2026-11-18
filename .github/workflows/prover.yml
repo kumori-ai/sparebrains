@@ -154,6 +154,17 @@ jobs:
           echo "answers still to judge: $pending"
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
 
+      - name: retain failed kernel diagnostics
+        if: always() && steps.kaggle.outputs.state == 'failed'
+        uses: actions/upload-artifact@v7
+        with:
+          name: prover-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.accel }}
+          path: |
+            ${{ runner.temp }}/kout/*.log
+            ${{ runner.temp }}/kout/timing.json
+          if-no-files-found: warn
+          retention-days: 90
+
       # Published here, before any Lean runs, and the push header is removed in the same step.
       # A failed batch's record (ledger/prover-beats/failed.jsonl) goes out here too, from either leg.
       - name: publish the heartbeats
