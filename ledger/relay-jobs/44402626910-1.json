@@ -1,0 +1,1 @@
+{"run_id": "44402626910", "run_attempt": "1", "ts": "2026-11-18T21:35:45+00:00", "problem": "minif2f/test/imo_1984_p6", "calls": 45, "accepts": 0, "relay_rows": 27, "woken_by": {"kind": "model", "model": "novita/ling-3.1-flash"}, "backed_off": true}
