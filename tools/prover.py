@@ -175,7 +175,7 @@ def quota(tpu=False):
     return h(q.total_time_allowed), h(q.time_used), h(getattr(q, "time_reserved", None))
 
 
-def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=None, model=None):
+def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=None, model=None, smoke=False):
     """A Kaggle script kernel: prover_kernel.py with PROBLEMS and BATCH filled in, and its metadata. Public, like
     everything here: its code, log and answers are the generation half of the record (Andy, 2026-10-17).
     `problems` passes ready entries (a plan batch's) instead of `work`."""
@@ -189,7 +189,11 @@ def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=
         for t, owed in work]
     src = (ROOT / "tools" / ("prover_kernel_tpu.py" if tpu else "prover_kernel.py")).read_text()
     fills = [("PROBLEMS = []", "PROBLEMS = " + json.dumps(problems, ensure_ascii=False)),
-             ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
+              ('BATCH = ""', f"BATCH = {json.dumps(batch)}")]
+    if smoke:
+        if tpu:
+            raise ValueError("GPU runtime canary cannot use the TPU kernel")
+        fills.append(("SMOKE_ONLY = False", "SMOKE_ONLY = True"))
     if model and model != MODEL:
         fills.append((f'MODEL = "{MODEL}"', f"MODEL = {json.dumps(model)}"))
     if tpu:                                       # public with the kernel's source, so random: no collisions, no secret
@@ -892,6 +896,7 @@ def main():
     ap.add_argument("--max-problems", type=int, help="next --tpu: at most this many problems (a smoke batch)")
     ap.add_argument("--rejudge", action="store_true", help="pending: a judged guided batch counts as owed (holes file only)")
     ap.add_argument("--smoke", action="store_true", help="next --tpu: name the batch smoke-..., a startup check only")
+    ap.add_argument("--gpu-smoke", action="store_true", help="next: one startup sample using the owed guided batch, no experiment answers")
     args = ap.parse_args()
     if args.tpu32 and not args.tpu:
         ap.error("--tpu32 needs --tpu")
@@ -968,11 +973,15 @@ def main():
             work = blueprint.kaggle_work(man, man.get("samples_per_hole", GOAL_SAMPLES),
                                          read=lambda s, t: (ROOT / "targets" / s / f"{t}.lean").read_text())
             if work:
-                batch = guided_batch_name(man["id"], datetime.now(timezone.utc))
-                build(args.out, None, batch, budget_h=args.hours, problems=work)
+                batch = ("smoke-gpu-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M") if args.gpu_smoke
+                         else guided_batch_name(man["id"], datetime.now(timezone.utc)))
+                build(args.out, None, batch, budget_h=args.hours, problems=work, smoke=args.gpu_smoke)
                 print(batch)
-                print(f"guided batch {batch}: {len(work)} holes x {work[0]['n']} samples", file=sys.stderr)
+                print(f"GPU startup canary {batch}: one sample, no experiment answers" if args.gpu_smoke else
+                      f"guided batch {batch}: {len(work)} holes x {work[0]['n']} samples", file=sys.stderr)
                 return 0
+        if args.gpu_smoke:
+            raise SystemExit("GPU startup canary requires an owed guided manifest")
     if args.cmd == "next":                        # a plan batch (task #433) goes before the rest
         open_keys = {(t["target_set"], t["target"]) for t in relay.fetch_json("/targets.json")["open"]}
         doc = plan_owed(open_keys=open_keys)

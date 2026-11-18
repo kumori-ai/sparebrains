@@ -321,6 +321,20 @@ class GuidedBatchTests(unittest.TestCase):
         self.judge(a)
         self.assertEqual(prover.guided_pending(a, self.stall), 0)
 
+    def test_gpu_smoke_cli_builds_only_a_canary_and_keeps_manifest_unchanged(self):
+        from unittest.mock import patch
+        before = json.dumps(self.man, sort_keys=True)
+        out = self.root / "kernel"
+        with patch.object(sys, "argv", ["prover.py", "next", "--gpu-smoke", "--out", str(out)]), \
+                patch.object(prover, "guided_owed", return_value=self.man), \
+                patch("blueprint.kaggle_work", return_value=self.work):
+            self.assertEqual(prover.main(), 0)
+        src = (out / "prover_kernel.py").read_text()
+        self.assertIn("SMOKE_ONLY = True", src)
+        self.assertIn('BATCH = "smoke-gpu-', src)
+        self.assertEqual(json.dumps(self.man, sort_keys=True), before)
+        self.assertFalse(list(self.stall.glob("*.jsonl")))
+
     def test_hint_pair_pipeline_keeps_arms_separate_and_holds_proofs_outside_ledger(self):
         import blueprint
         self.man.update(blueprint={"path": str(self.bp), "sha256": hashlib.sha256(self.bp.read_bytes()).hexdigest()},
@@ -681,6 +695,61 @@ class KernelFit(unittest.TestCase):
         ns = {}
         exec(compile(ast.Module(body=[fn], type_ignores=[]), "prover_kernel.py", "exec"), ns)
         self.fit = ns["fit_chunk"]
+
+    def test_runtime_refreshes_new_pth_paths_before_vllm_import(self):
+        import ast
+        import site
+        import types
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel.py").read_text()
+        tree = ast.parse(src)
+        refresh = next(n for n in tree.body if isinstance(n, ast.For) and isinstance(n.target, ast.Name)
+                       and n.target.id == "package_dir")
+        self.assertLess(tree.body.index(refresh), next(i for i, n in enumerate(tree.body)
+                        if isinstance(n, ast.ImportFrom) and n.module == "vllm"))
+        original = sys.path[:]
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                package = Path(d) / "dsl_packages"
+                package.mkdir()
+                (Path(d) / "cutlass-fixture.pth").write_text("dsl_packages\n")
+                self.assertNotIn(str(package), sys.path)
+                fake_site = types.SimpleNamespace(getsitepackages=lambda: [d], addsitedir=site.addsitedir)
+                exec(compile(ast.Module(body=[refresh], type_ignores=[]), "runtime", "exec"), {"site": fake_site})
+                self.assertIn(str(package), sys.path)
+        finally:
+            sys.path[:] = original
+
+    def test_gpu_canary_generates_once_and_exits_before_experiment(self):
+        import ast
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        tree = ast.parse((Path(prover.ROOT) / "tools" / "prover_kernel.py").read_text())
+        block = next(n for n in tree.body if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+                     and n.test.id == "SMOKE_ONLY")
+        llm = Mock()
+        llm.generate.return_value = [SimpleNamespace(outputs=[SimpleNamespace(token_ids=[1, 2])])]
+        with tempfile.TemporaryDirectory() as d:
+            ns = {"SMOKE_ONLY": True, "tok": Mock(), "llm": llm, "SamplingParams": lambda **kw: kw,
+                  "TEMPERATURE": 1, "TOP_P": .95, "PROMPT": "{}", "PROBLEMS": [{"statement": "goal"}],
+                  "Path": lambda p: Path(d) / Path(p).name, "json": json, "BATCH": "smoke-gpu-test",
+                  "MODEL": "fixture", "revision": "a" * 40, "time": __import__("time"), "t0": 0, "sys": sys}
+            with patch.dict(sys.modules, {"vllm": SimpleNamespace(__version__="0.34.0")}), self.assertRaises(SystemExit) as stopped:
+                exec(compile(ast.Module(body=[block], type_ignores=[]), "canary", "exec"), ns)
+            self.assertEqual(stopped.exception.code, 0)
+            self.assertEqual(llm.generate.call_count, 1)
+            self.assertEqual(llm.generate.call_args.args[1]["n"], 1)
+            self.assertEqual([p.name for p in Path(d).iterdir()], ["startup-canary.json"])
+            self.assertEqual(json.loads((Path(d) / "startup-canary.json").read_text())["samples"], 1)
+
+    def test_gpu_canary_build_preserves_plan_and_normal_build_is_not_smoke(self):
+        item = {"target_set": "test", "target": "demo", "n": 8, "statement": "theorem sb_goal : True := by sorry"}
+        with tempfile.TemporaryDirectory() as d:
+            for smoke in (False, True):
+                prover.build(d, None, "smoke-gpu-test" if smoke else "ordinary", problems=[item], smoke=smoke)
+                src = (Path(d) / "prover_kernel.py").read_text()
+                compile(src, "generated-kernel", "exec")
+                self.assertIn(f"SMOKE_ONLY = {smoke}", src)
+                self.assertEqual(item["n"], 8)
 
     def test_batch_20261103T1804_runs_its_first_problem_instead_of_nothing(self):
         chunk = [{"target": "a", "n": 28}, {"target": "b", "n": 28}]         # 56 samples at 150.2 s: 8411 s

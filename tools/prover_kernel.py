@@ -8,10 +8,13 @@ CUDA 12.8, vLLM's PyTorch for 13.0, and transformers imports it); the model load
 samples of an easy problem came back in 67 s, 108 tokens/s together.
 """
 import json, os, subprocess, sys, time
+import site
+from pathlib import Path
 from datetime import datetime, timezone
 
 PROBLEMS = []          # filled by tools/prover.py: [{"target_set", "target", "statement", "n"}], plus "goal" for a goal batch, "guided" for a blueprint's holes
 BATCH = ""             # filled by tools/prover.py
+SMOKE_ONLY = False     # one generated sample, recorded separately; never experiment answers
 MODEL = "Goedel-LM/Goedel-Prover-V2-8B"
 MAX_TOKENS, TEMPERATURE, TOP_P = 16000, 1.0, 0.95
 # Filled by tools/prover.py from Kaggle's own quota (Andy 2026-10-19: use the week's GPU hours exactly): the
@@ -74,8 +77,13 @@ def machine():
 timing = {"batch": BATCH, "chunks": [], "machine": machine()}
 stamp(started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))   # the first line run: the queue is over
 t0 = time.time()
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "vllm"], check=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "vllm==0.34.0"], check=True)
 subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchaudio"], check=False)
+# CUTLASS 4.8.0 installs dsl_packages through a .pth file. pip ran after interpreter startup;
+# process that file now, before vLLM forks workers with this process's import path.
+for package_dir in site.getsitepackages():
+    site.addsitedir(package_dir)
+import cutlass
 from vllm import LLM, SamplingParams
 
 paired = any(p.get("guided", {}).get("hint_arm") for p in PROBLEMS)
@@ -91,6 +99,19 @@ llm = LLM(model=MODEL, dtype="half", tensor_parallel_size=2, max_model_len=MAX_T
 tok = llm.get_tokenizer()
 print(json.dumps({"batch": BATCH, "problems": len(PROBLEMS), "load_s": round(time.time() - t0, 1)}), flush=True)
 stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
+
+if SMOKE_ONLY:
+    prompt = tok.apply_chat_template([{"role": "user", "content": PROMPT.format(PROBLEMS[0]["statement"])}],
+                                     tokenize=False, add_generation_prompt=True)
+    result = llm.generate([prompt], SamplingParams(n=1, temperature=TEMPERATURE, top_p=TOP_P, max_tokens=32))
+    outputs = [o for r in result for o in r.outputs]
+    if len(outputs) != 1 or not outputs[0].token_ids:
+        raise RuntimeError("startup canary did not generate exactly one nonempty sample")
+    Path("/kaggle/working/startup-canary.json").write_text(json.dumps({
+        "batch": BATCH, "model": MODEL, "revision": revision, "vllm": __import__("vllm").__version__,
+        "samples": 1, "tokens": len(outputs[0].token_ids), "seconds": round(time.time() - t0, 1),
+        "scope": "load, warmup and generation only; no proof or experiment result"}))
+    sys.exit(0)
 
 per_sample = SEC_PER_SAMPLE                       # the slowest rate seen so far, never below the measured prior
 with open(OUT, "a") as out:

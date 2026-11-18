@@ -28,6 +28,10 @@ on:
       smoke:
         description: "with push: a TPU-only smoke batch of this many problems (startup check); the GPU leg pushes nothing"
         default: ""
+      gpu_smoke:
+        description: "with push: GPU load, warmup and one-sample canary only; no experiment answers"
+        type: boolean
+        default: false
 
 permissions:
   contents: write        # publish the ledger rows and verified proofs
@@ -92,15 +96,22 @@ jobs:
             kaggle kernels pull ${{ matrix.kernel }} -p "$RUNNER_TEMP/kpull" >/dev/null 2>&1 || true
             python3 tools/prover.py beats --dir "$RUNNER_TEMP/kpull" || true
           fi
-          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ] && [ -z "${{ inputs.smoke }}" ]; then echo "state=push" >> "$GITHUB_OUTPUT"; exit 0; fi
           # The command's own exit code too: an error message from a failed call is not a batch's status (Codex
           # 20261024T135544122224Z: "ERROR: transient service unavailable" read as a failed batch).
           out=$(kaggle kernels status ${{ matrix.kernel }} 2>&1) && status_rc=0 || status_rc=$?
           status=$(printf '%s\n' "$out" | tail -1)
           echo "kaggle: $status"
           echo "status=$(printf '%s' "$status" | tr -d '\r' | cut -c1-200)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "gpu" ] && [ -z "${{ inputs.smoke }}" ]; then
+            case "$status_rc:$status" in
+              0:*RUNNING*|0:*QUEUED*) echo "state=running" >> "$GITHUB_OUTPUT" ;;
+              0:*) echo "state=push" >> "$GITHUB_OUTPUT" ;;
+              *) echo "::error::cannot establish GPU status; nothing pushed"; exit 1 ;;
+            esac
+            exit 0
+          fi
           # A TPU batch waits in one queue slot per user: a hand push goes only when no batch holds it.
-          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "tpu" ]; then
+          if [ "${{ inputs.push }}" = "true" ] && [ "${{ matrix.accel }}" = "tpu" ] && [ "${{ inputs.gpu_smoke }}" != "true" ]; then
             case "$status_rc:$status" in
               0:*RUNNING*|0:*QUEUED*) echo "a TPU batch holds the queue slot ($status); nothing pushed"; echo "state=running" >> "$GITHUB_OUTPUT" ;;
               0:*) echo "state=push" >> "$GITHUB_OUTPUT" ;;
@@ -147,6 +158,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/kout"
           kaggle kernels output ${{ matrix.kernel }} -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
           tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+          if [ -s "$RUNNER_TEMP/kout/startup-canary.json" ]; then
+            cat "$RUNNER_TEMP/kout/startup-canary.json"
+            echo "state=smoke-complete" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ ! -s "$RUNNER_TEMP/kout/answers.jsonl" ]; then
             echo "::error::the batch completed with no answers; read its log on Kaggle before pushing again"; exit 1
           fi
@@ -155,13 +171,14 @@ jobs:
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
 
       - name: retain failed kernel diagnostics
-        if: always() && steps.kaggle.outputs.state == 'failed'
+        if: always() && (steps.kaggle.outputs.state == 'failed' || steps.kaggle.outputs.state == 'smoke-complete')
         uses: actions/upload-artifact@v7
         with:
           name: prover-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.accel }}
           path: |
             ${{ runner.temp }}/kout/*.log
             ${{ runner.temp }}/kout/timing.json
+            ${{ runner.temp }}/kout/startup-canary.json
           if-no-files-found: warn
           retention-days: 90
 
@@ -276,7 +293,7 @@ jobs:
       - name: push the next batch
         id: push
         # a smoke dispatch is TPU-only: the GPU leg pushes nothing, whatever its own status says
-        if: (steps.kaggle.outputs.state == 'push' || (steps.kaggle.outputs.replace == '1' && steps.beats.outputs.published == '1')) && !(matrix.accel == 'gpu' && inputs.smoke != '')
+        if: (steps.kaggle.outputs.state == 'push' || (steps.kaggle.outputs.replace == '1' && steps.beats.outputs.published == '1')) && !(matrix.accel == 'gpu' && inputs.smoke != '') && !(matrix.accel == 'tpu' && inputs.gpu_smoke)
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           GH_TOKEN: ${{ github.token }}
@@ -290,7 +307,7 @@ jobs:
           [ "${{ steps.kaggle.outputs.replace }}" = "1" ] && echo "after the failed 32B batch ${{ steps.kaggle.outputs.failed_batch }}: the 8B"
           hours=$(python3 tools/prover.py hours ${{ matrix.flag }})
           if [ "$hours" = "0.0" ]; then echo "no ${{ matrix.accel }} batch this run: the 'holding:' line above says what holds it"; exit 0; fi
-          batch=$(python3 tools/prover.py next ${{ matrix.flag }} ${{ matrix.accel == 'tpu' && inputs.push && inputs.tpu32 && steps.kaggle.outputs.replace != '1' && '--tpu32' || '' }} ${{ matrix.accel == 'tpu' && inputs.push && inputs.smoke != '' && steps.kaggle.outputs.replace != '1' && format('--smoke --max-problems {0}', inputs.smoke) || '' }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
+          batch=$(python3 tools/prover.py next ${{ matrix.flag }} ${{ matrix.accel == 'gpu' && inputs.gpu_smoke && '--gpu-smoke' || '' }} ${{ matrix.accel == 'tpu' && inputs.push && inputs.tpu32 && steps.kaggle.outputs.replace != '1' && '--tpu32' || '' }} ${{ matrix.accel == 'tpu' && inputs.push && inputs.smoke != '' && steps.kaggle.outputs.replace != '1' && format('--smoke --max-problems {0}', inputs.smoke) || '' }} --out "$RUNNER_TEMP/kernel" --hours "$hours" $( [ "${{ matrix.accel }}" = "gpu" ] && [ "${{ vars.PROVER_MODE }}" = "goals" ] && echo --goals ))
           if [ -z "$batch" ]; then echo "every problem has its samples; nothing to push"; exit 0; fi
           # The replacement's reservation, on main before the push (2026-10-24). No Lean runs in this step.
           if [ "${{ steps.kaggle.outputs.replace }}" = "1" ]; then
@@ -339,6 +356,8 @@ jobs:
         run: |
           if [ "$STATE" = "running" ]; then
             what="the batch is still on the free GPUs: $KSTATUS"
+          elif [ "$STATE" = "smoke-complete" ]; then
+            what="GPU startup canary completed load, warmup and one sample; awaiting review before experiment dispatch"
           elif [ "$STATE" = "judge" ]; then
             what="the batch finished; this run judged its answers with the Lean kernel: ${SUMMARY:-see the run log}"
           elif [ "$STATE" = "push" ] && [ -n "$PUSHED" ]; then

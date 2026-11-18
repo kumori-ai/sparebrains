@@ -69,7 +69,7 @@ jobs:
       - name: python deps
         run: python3 -m pip install -q requests
 
-      - name: check due requests before any Lean or sandbox setup
+      - name: admit due requests before expensive setup
         id: admission
         env:
           KUMORI_API_KEY: ${{ secrets.KUMORI_API_KEY }}
@@ -92,7 +92,7 @@ jobs:
         uses: ./.github/actions/lean-build
 
       - name: mathlib packages (save, before untrusted Lean)
-        if: steps.admission.outputs.ready == 'true' && steps.lakecache.outputs.cache-hit != 'true'
+        if: (steps.admission.outputs.ready == 'true') && steps.lakecache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: .lake/packages
