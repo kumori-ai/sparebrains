@@ -1,0 +1,969 @@
+{
+ "brief": {
+  "fixes": [
+   "Kaggle prover batch smoke-tpu32-20261117T2047 failed.",
+   "Lost before the kernel: 218 of 361 (60%), 86 upstream timeout, 48 empty answer, 48 router 5xx, 20 reasoning cut at max_tokens, 9 provider busy, 7 upstream error; at least 8 days running at 20% or more.",
+   "prover idle 11.9 days: restart it or retire it from the report.",
+   "openproblems.bio's data source is down since 2026-11-05 (AllAccessDisabled); its two scheduled workflows stay disabled (DECISIONS 2026-11-05).",
+   "openproblems.bio: 138 crashed beside 144 scored (49% of rounds)."
+  ],
+  "headline": "0 new solves \u00b7 accept rate 3% off baseline \u00b7 1 Kaggle failed",
+  "ideas": [],
+  "losses": [
+   "Lower accept rate off the no-model baseline 3% (5/143) against a 10% median over the last 7 reports.",
+   "Down: tool lift agnes-agnes-2-5-flash: 40% (14/35) this week against 50% (16/32) the week before."
+  ],
+  "preheader": "5/143 accepted on all targets \u00b7 362 solved ever, 16 open \u00b7 most accepts requesty-gemma-4-31b-it 3/22",
+  "wins": [
+   "Most accepts: requesty-gemma-4-31b-it, 3/22 (14%).",
+   "Up: tool lift mistral-ministral-8b-2512: 49% (17/35) this week against 34% (15/44) the week before."
+  ]
+ },
+ "day": "2026-11-20",
+ "first_solves": [],
+ "grades": [
+  {
+   "accepts": 0,
+   "answered": 0,
+   "first_solves": [],
+   "grade": "kindergarten",
+   "lanes": [],
+   "open": 0,
+   "solved": 74
+  },
+  {
+   "accepts": 2,
+   "answered": 10,
+   "first_solves": [],
+   "grade": "middle school",
+   "lanes": [
+    {
+     "accepts": 1,
+     "answered": 6,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "openrouter-ling-3-2-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "tiny"
+    }
+   ],
+   "open": 0,
+   "solved": 60
+  },
+  {
+   "accepts": 3,
+   "answered": 133,
+   "first_solves": [],
+   "grade": "high school",
+   "lanes": [
+    {
+     "accepts": 2,
+     "answered": 16,
+     "lane": "requesty-gemma-4-31b-it",
+     "tier": "high"
+    },
+    {
+     "accepts": 1,
+     "answered": 1,
+     "lane": "openrouter-ling-3-2-flash",
+     "tier": "unknown"
+    },
+    {
+     "accepts": 0,
+     "answered": 18,
+     "lane": "routeway-gemma-4-26b-a4b-it-darksoul",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 14,
+     "lane": "sealion-qwen-sea-lion-v4-5-27b-it",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 13,
+     "lane": "routeway-gemma-4-26b-a4b-it-luminous",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 11,
+     "lane": "routeway-gemma-4-26b-a4b-it-chimerax",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 9,
+     "lane": "routeway-gemma-4-26b-a4b-it-meromero",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 9,
+     "lane": "routeway-gemma-4-26b-a4b-it-moonlight",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 9,
+     "lane": "routeway-gemma-4-26b-a4b-it-musica",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 5,
+     "lane": "meganova-manta-flash-1-0",
+     "tier": "tiny"
+    },
+    {
+     "accepts": 0,
+     "answered": 4,
+     "lane": "kaggle-goedel-prover-v2-8b",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "agnes-agnes-2-5-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "agnes-agnes-3-0-flash",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "mistral-codestral-2508",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 3,
+     "lane": "mistral-codestral-latest",
+     "tier": "medium"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "meganova-l3-3-ms-nevoria-70b",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "meganova-manta-mini-1-0",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "meganova-sapphira-l3-3-70b-0-1",
+     "tier": "high"
+    },
+    {
+     "accepts": 0,
+     "answered": 2,
+     "lane": "mistral-leanstral-1-5",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-l3-8b-stheno-v3-2",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-mistral-small-3-2-24b-instruct-2506",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "meganova-mn-violet-lotus-12b",
+     "tier": "?"
+    },
+    {
+     "accepts": 0,
+     "answered": 1,
+     "lane": "requesty-ling-3-1-flash",
+     "tier": "unknown"
+    }
+   ],
+   "open": 16,
+   "solved": 228
+  },
+  {
+   "accepts": 0,
+   "answered": 0,
+   "first_solves": [],
+   "grade": "college",
+   "lanes": [],
+   "open": 0,
+   "solved": 0
+  }
+ ],
+ "hours": 24,
+ "kaggle": {
+  "failed": [
+   {
+    "batch": "smoke-tpu32-20261117T2047",
+    "first_seen_at": "2026-11-19T06:19:50+00:00",
+    "status": "kumoriai/sparebrains-prover-tpu has status \"KernelWorkerStatus.ERROR\""
+   }
+  ],
+  "finished": []
+ },
+ "off_baseline": {
+  "accepted_off": 5,
+  "answered_off": 143,
+  "baseline": "baseline-2-2026-11-09",
+  "in_baseline": 214,
+  "lanes": [
+   {
+    "accepts": 3,
+    "accepts_off": 3,
+    "calls": 46,
+    "calls_off": 46,
+    "distinct_targets_accepted_off": 3,
+    "lane": "requesty-gemma-4-31b-it"
+   },
+   {
+    "accepts": 2,
+    "accepts_off": 2,
+    "calls": 19,
+    "calls_off": 19,
+    "distinct_targets_accepted_off": 2,
+    "lane": "openrouter-ling-3-2-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "agnes-agnes-2-5-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "agnes-agnes-3-0-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 1,
+    "calls_off": 1,
+    "distinct_targets_accepted_off": 0,
+    "lane": "groq-qwen3-8-27b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 34,
+    "calls_off": 34,
+    "distinct_targets_accepted_off": 0,
+    "lane": "iteracompute-qwen3-8-27b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 4,
+    "calls_off": 4,
+    "distinct_targets_accepted_off": 0,
+    "lane": "kaggle-goedel-prover-v2-8b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-l3-3-ms-nevoria-70b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 14,
+    "calls_off": 14,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-l3-8b-stheno-v3-2"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 5,
+    "calls_off": 5,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-manta-flash-1-0"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 2,
+    "calls_off": 2,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-manta-mini-1-0"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 1,
+    "calls_off": 1,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-mistral-small-3-2-24b-instruct-2506"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 1,
+    "calls_off": 1,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-mn-violet-lotus-12b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 2,
+    "calls_off": 2,
+    "distinct_targets_accepted_off": 0,
+    "lane": "meganova-sapphira-l3-3-70b-0-1"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "mistral-codestral-2508"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "mistral-codestral-latest"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 2,
+    "calls_off": 2,
+    "distinct_targets_accepted_off": 0,
+    "lane": "mistral-leanstral-1-5"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "openrouter-ernie-5-5-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 3,
+    "calls_off": 3,
+    "distinct_targets_accepted_off": 0,
+    "lane": "requesty-leanstral-1-5"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 14,
+    "calls_off": 14,
+    "distinct_targets_accepted_off": 0,
+    "lane": "requesty-ling-3-1-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 11,
+    "calls_off": 11,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-chimerax"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 18,
+    "calls_off": 18,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-darksoul"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 13,
+    "calls_off": 13,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-luminous"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 10,
+    "calls_off": 10,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-meromero"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 11,
+    "calls_off": 11,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-moonlight"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 9,
+    "calls_off": 9,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-gemma-4-26b-a4b-it-musica"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 12,
+    "calls_off": 12,
+    "distinct_targets_accepted_off": 0,
+    "lane": "routeway-muse-glimmer-30b"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 63,
+    "calls_off": 63,
+    "distinct_targets_accepted_off": 0,
+    "lane": "sealion-qwen-sea-lion-v4-5-27b-it"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 12,
+    "calls_off": 12,
+    "distinct_targets_accepted_off": 0,
+    "lane": "tokenharbor-deepseek-v4-1-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 12,
+    "calls_off": 12,
+    "distinct_targets_accepted_off": 0,
+    "lane": "tokenharbor-deepseek-v4-flash"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 12,
+    "calls_off": 12,
+    "distinct_targets_accepted_off": 0,
+    "lane": "tokenharbor-mimo-v2-5"
+   },
+   {
+    "accepts": 0,
+    "accepts_off": 0,
+    "calls": 12,
+    "calls_off": 12,
+    "distinct_targets_accepted_off": 0,
+    "lane": "tokenharbor-mimo-v2-6-flash"
+   }
+  ],
+  "unknown": 0,
+  "untested": 0
+ },
+ "relay": {
+  "backed_off": true,
+  "last": "2026-11-20T00:35:23+00:00"
+ },
+ "rungs": [
+  {
+   "idle_days": 0.1,
+   "last": "2026-11-20T00:28:58+00:00",
+   "rung": "competition math (ladder)"
+  },
+  {
+   "idle_days": 0.1,
+   "last": "2026-11-20T01:24:45+00:00",
+   "rung": "relay"
+  },
+  {
+   "idle_days": 11.9,
+   "last": "2026-11-08T06:59:18+00:00",
+   "rung": "prover"
+  },
+  {
+   "idle_days": 4.0,
+   "last": "2026-11-16T04:09:00+00:00",
+   "rung": "decompose"
+  },
+  {
+   "idle_days": 11.1,
+   "last": "2026-11-09T02:20:02+00:00",
+   "rung": "goal batches (GPU)"
+  },
+  {
+   "accepts_ever": 0,
+   "idle_days": 4.0,
+   "last": "2026-11-16T04:45:53+00:00",
+   "rung": "formal-conjectures",
+   "tries_24h": 0
+  },
+  {
+   "crashed": 138,
+   "drift": null,
+   "idle_days": 15.4,
+   "last": "2026-11-04T17:09:23+00:00",
+   "qualify": {
+    "at": "2026-11-04T21:28:23+00:00",
+    "mean_pearson_delta": null,
+    "passed": false,
+    "sites": 1
+   },
+   "qualify_runs": 11,
+   "rounds_24h": 0,
+   "rung": "openproblems.bio",
+   "scored": 144,
+   "source": {
+    "at": "2026-11-20T03:41:47+00:00",
+    "code": "AllAccessDisabled",
+    "down_since": "2026-11-05T17:34:56+00:00",
+    "ok": false
+   }
+  }
+ ],
+ "speed": [
+  {
+   "accepted": 11,
+   "accepted_off": 0,
+   "lane": "mistral-ministral-3b-2512",
+   "prev_accepted": 13,
+   "prev_targets": 44,
+   "prev_week": "2026-11-09",
+   "refused": 66,
+   "size_b": 3,
+   "targets": 35,
+   "targets_off": 13,
+   "week": "2026-11-16"
+  },
+  {
+   "accepted": 17,
+   "accepted_off": 0,
+   "lane": "mistral-ministral-8b-2512",
+   "prev_accepted": 15,
+   "prev_targets": 44,
+   "prev_week": "2026-11-09",
+   "refused": 71,
+   "size_b": 8,
+   "targets": 35,
+   "targets_off": 12,
+   "week": "2026-11-16"
+  },
+  {
+   "accepted": 10,
+   "accepted_off": 0,
+   "lane": "mistral-ministral-14b-2512",
+   "prev_accepted": 18,
+   "prev_targets": 44,
+   "prev_week": "2026-11-09",
+   "refused": 59,
+   "size_b": 14,
+   "targets": 30,
+   "targets_off": 10,
+   "week": "2026-11-16"
+  },
+  {
+   "accepted": 14,
+   "accepted_off": 5,
+   "lane": "agnes-agnes-2-5-flash",
+   "prev_accepted": 16,
+   "prev_targets": 32,
+   "prev_week": "2026-11-09",
+   "refused": 13,
+   "size_b": null,
+   "targets": 35,
+   "targets_off": 26,
+   "week": "2026-11-16"
+  }
+ ],
+ "stalled": [
+  {
+   "idle_days": 78,
+   "lanes": 76,
+   "last_progress": null,
+   "paths": {
+    "cold": 134,
+    "fixer+loop": 150,
+    "goal-closer": 16,
+    "leanstral": 24,
+    "lemma-queue": 2,
+    "prover": 25,
+    "relay": 98,
+    "repair": 92
+   },
+   "rung": "imo",
+   "target": "imoshortlist_2007_algebra_p6",
+   "target_set": "minif2f/test",
+   "tries": 541
+  },
+  {
+   "idle_days": 78,
+   "lanes": 101,
+   "last_progress": null,
+   "paths": {
+    "cold": 161,
+    "fixer+loop": 165,
+    "goal-closer": 32,
+    "leanstral": 24,
+    "lemma-queue": 2,
+    "prover": 32,
+    "relay": 92,
+    "repair": 96
+   },
+   "rung": "imo",
+   "target": "imo_2001_p6",
+   "target_set": "minif2f/test",
+   "tries": 604
+  },
+  {
+   "idle_days": 78,
+   "lanes": 72,
+   "last_progress": null,
+   "paths": {
+    "cold": 108,
+    "fixer+loop": 75,
+    "goal-closer": 16,
+    "leanstral": 16,
+    "lemma-queue": 2,
+    "prover": 22,
+    "relay": 81,
+    "repair": 97
+   },
+   "rung": "imo",
+   "target": "imo_1997_p5",
+   "target_set": "minif2f/test",
+   "tries": 417
+  },
+  {
+   "idle_days": 78,
+   "lanes": 73,
+   "last_progress": null,
+   "paths": {
+    "cold": 125,
+    "fixer+loop": 120,
+    "goal-closer": 24,
+    "leanstral": 15,
+    "lemma-queue": 2,
+    "prover": 20,
+    "relay": 80,
+    "repair": 95
+   },
+   "rung": "imo",
+   "target": "imo_1992_p1",
+   "target_set": "minif2f/test",
+   "tries": 481
+  },
+  {
+   "idle_days": 78,
+   "lanes": 76,
+   "last_progress": null,
+   "paths": {
+    "cold": 150,
+    "fixer": 1,
+    "fixer+loop": 74,
+    "leanstral": 15,
+    "lemma-queue": 3,
+    "prover": 23,
+    "relay": 80,
+    "repair": 98
+   },
+   "rung": "custom",
+   "target": "algebra_apbmpcneq0_aeq0anbeq0anceq0",
+   "target_set": "minif2f/test",
+   "tries": 444
+  },
+  {
+   "idle_days": 78,
+   "lanes": 75,
+   "last_progress": null,
+   "paths": {
+    "cold": 124,
+    "fixer+loop": 75,
+    "goal-closer": 16,
+    "leanstral": 20,
+    "lemma-queue": 2,
+    "prover": 31,
+    "relay": 94,
+    "repair": 116
+   },
+   "rung": "imo",
+   "target": "imo_1984_p6",
+   "target_set": "minif2f/test",
+   "tries": 478
+  },
+  {
+   "idle_days": 78,
+   "lanes": 71,
+   "last_progress": null,
+   "paths": {
+    "cold": 129,
+    "fixer": 1,
+    "fixer+loop": 399,
+    "leanstral": 9,
+    "lemma-queue": 2,
+    "prover": 25,
+    "prover+plan": 1,
+    "relay": 81,
+    "repair": 99
+   },
+   "rung": "amc12",
+   "target": "amc12b_2021_p13",
+   "target_set": "minif2f/test",
+   "tries": 746
+  },
+  {
+   "idle_days": 78,
+   "lanes": 72,
+   "last_progress": null,
+   "paths": {
+    "cold": 145,
+    "fixer": 2,
+    "fixer+loop": 112,
+    "goal-closer": 16,
+    "leanstral": 23,
+    "lemma-queue": 3,
+    "prover": 21,
+    "prover+plan": 2,
+    "relay": 88,
+    "repair": 106
+   },
+   "rung": "amc12",
+   "target": "amc12a_2021_p25",
+   "target_set": "minif2f/test",
+   "tries": 518
+  },
+  {
+   "idle_days": 78,
+   "lanes": 75,
+   "last_progress": null,
+   "paths": {
+    "cold": 148,
+    "fixer": 3,
+    "fixer+loop": 192,
+    "goal-closer": 8,
+    "leanstral": 8,
+    "lemma-queue": 3,
+    "prover": 27,
+    "prover+plan": 2,
+    "relay": 102,
+    "repair": 95
+   },
+   "rung": "amc12",
+   "target": "amc12a_2020_p25",
+   "target_set": "minif2f/test",
+   "tries": 588
+  },
+  {
+   "idle_days": 78,
+   "lanes": 77,
+   "last_progress": null,
+   "paths": {
+    "cold": 140,
+    "fixer": 5,
+    "fixer+loop": 88,
+    "goal-closer": 8,
+    "leanstral": 19,
+    "lemma-queue": 3,
+    "prover": 26,
+    "relay": 101,
+    "repair": 114
+   },
+   "rung": "custom",
+   "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1",
+   "target_set": "minif2f/test",
+   "tries": 504
+  },
+  {
+   "idle_days": 78,
+   "lanes": 76,
+   "last_progress": null,
+   "paths": {
+    "cold": 126,
+    "fixer+loop": 103,
+    "goal-closer": 40,
+    "leanstral": 15,
+    "lemma-queue": 2,
+    "prover": 27,
+    "relay": 83,
+    "repair": 90
+   },
+   "rung": "imo",
+   "target": "imo_1977_p6",
+   "target_set": "minif2f/test",
+   "tries": 486
+  },
+  {
+   "idle_days": 78,
+   "lanes": 71,
+   "last_progress": null,
+   "paths": {
+    "cold": 143,
+    "fixer": 7,
+    "fixer+loop": 153,
+    "goal-closer": 8,
+    "leanstral": 10,
+    "lemma-queue": 3,
+    "prover": 19,
+    "prover+plan": 1,
+    "relay": 108,
+    "repair": 101
+   },
+   "rung": "amc12",
+   "target": "amc12a_2020_p9",
+   "target_set": "minif2f/test",
+   "tries": 553
+  },
+  {
+   "idle_days": 78,
+   "lanes": 73,
+   "last_progress": null,
+   "paths": {
+    "cold": 149,
+    "fixer": 5,
+    "fixer+loop": 207,
+    "leanstral": 8,
+    "lemma-queue": 3,
+    "prover": 22,
+    "prover+plan": 3,
+    "relay": 98,
+    "repair": 98
+   },
+   "rung": "math-L5",
+   "target": "mathd_numbertheory_451",
+   "target_set": "minif2f/test",
+   "tries": 593
+  },
+  {
+   "idle_days": 78,
+   "lanes": 98,
+   "last_progress": null,
+   "paths": {
+    "cold": 165,
+    "fixer": 3,
+    "fixer+loop": 101,
+    "leanstral": 8,
+    "lemma-queue": 3,
+    "prover": 29,
+    "prover+plan": 3,
+    "relay": 94,
+    "repair": 102
+   },
+   "rung": "amc12",
+   "target": "amc12a_2008_p25",
+   "target_set": "minif2f/test",
+   "tries": 508
+  },
+  {
+   "idle_days": 78,
+   "lanes": 103,
+   "last_progress": null,
+   "paths": {
+    "cold": 147,
+    "fixer+loop": 135,
+    "leanstral": 22,
+    "lemma-queue": 2,
+    "prover": 26,
+    "relay": 97,
+    "repair": 123
+   },
+   "rung": "imo",
+   "target": "imo_1985_p6",
+   "target_set": "minif2f/test",
+   "tries": 552
+  },
+  {
+   "idle_days": 78,
+   "lanes": 99,
+   "last_progress": null,
+   "paths": {
+    "cold": 180,
+    "fixer": 2,
+    "fixer+loop": 163,
+    "goal-closer": 16,
+    "leanstral": 18,
+    "lemma-queue": 3,
+    "prover": 25,
+    "prover+plan": 3,
+    "relay": 81,
+    "repair": 95
+   },
+   "rung": "amc12",
+   "target": "amc12a_2021_p12",
+   "target_set": "minif2f/test",
+   "tries": 586
+  }
+ ],
+ "to": "2026-11-20T03:41:47.873057+00:00",
+ "totals": {
+  "accepted": 5,
+  "answered": 143,
+  "errors": {
+   "empty answer": 48,
+   "provider busy": 9,
+   "reasoning cut at max_tokens": 20,
+   "router 5xx": 48,
+   "upstream error": 7,
+   "upstream timeout": 86
+  },
+  "judged": 361,
+  "lanes": 32,
+  "open": 16,
+  "problems": 119,
+  "recovered": {
+   "accepted": 3,
+   "answers": 35,
+   "attempted": 118,
+   "by_original": {
+    "524": 117,
+    "clock>125s": 1
+   },
+   "estimated": 1,
+   "failed": 83
+  },
+  "solved_ever": 362
+ },
+ "window": {
+  "built_from": "0fa8cd4bdb71dc9ca23320b52d8bce45edbaeaab",
+  "from": "31b06e83eb337c45a6aa3fef0efe5cb6307cbb80",
+  "from_report": "2026-11-19",
+  "kind": "arrived"
+ }
+}
