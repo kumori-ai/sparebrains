@@ -1,0 +1,1 @@
+{"run_id": "44824215474", "run_attempt": "1", "ts": "2026-11-20T21:55:25+00:00", "problem": "minif2f/test/algebra_apbmpcneq0_aeq0anbeq0anceq0", "calls": 45, "accepts": 0, "relay_rows": 30, "woken_by": {"kind": "model", "model": "muse-glimmer-30b:free"}, "backed_off": true}
