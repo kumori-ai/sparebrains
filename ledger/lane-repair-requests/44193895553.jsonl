@@ -4,3 +4,4 @@
 {"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1795046400, "reason": "lane_daily_cap"}}, "at": 1794976197, "due": 1795046400, "event": "deferred"}
 {"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1795132800, "reason": "lane_daily_cap"}}, "at": 1795056652, "due": 1795132800, "event": "deferred"}
 {"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1795143307, "reason": "paced"}}, "at": 1795139706, "due": 1795143307, "event": "deferred"}
+{"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1795219200, "reason": "lane_daily_cap"}}, "at": 1795169290, "due": 1795219200, "event": "deferred"}
