@@ -39,6 +39,7 @@ jobs:
           persist-credentials: false
 
       - name: mathlib packages (restore)
+        id: lakecache
         uses: actions/cache/restore@v5
         with:
           path: .lake/packages
@@ -46,6 +47,13 @@ jobs:
 
       - name: lean + mathlib cache + build
         uses: ./.github/actions/lean-build
+
+      - name: mathlib packages (save, before untrusted Lean)
+        if: steps.lakecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .lake/packages
+          key: ${{ steps.lakecache.outputs.cache-primary-key }}
 
       - name: judge sandbox (untrusted Lean runs as another user)
         run: bash tools/judge_sandbox.sh
