@@ -475,12 +475,14 @@ class AuditInLean(unittest.TestCase):
     def test_proof_terms_fail_hypotheses_and_plain_propositions_pass(self):
         import lean_tools
         prefix = "import Mathlib\n\ntheorem demo (P Q : Prop) (hp : P) (hq : Q) (n : ℕ) (h : 0 < n) : n + 0 = n := by"
-        stmts = ["n ≠ 0", "∀ y : ℝ, 0 < y → y ^ 2 > 0", "hp = hp",
+        # 2026-11-21 (blueprint-gate run 44956124692): a real numeral of 2 or more carries the `Nat.AtLeastTwo` instance
+        # proof elaboration inserts; it passes, and a proof term written next to such a numeral still fails
+        stmts = ["n ≠ 0", "∀ y : ℝ, 0 < y → y ^ 2 > 0", "hp = hp", "(8 : ℝ) * 4096 = 32768",
                  "(show P → P from id) = id", "(And.intro hp hq : P ∧ Q) = And.intro hp hq",
-                 "(Nat.add_zero n : n + 0 = n) = Nat.add_zero n"]
+                 "(Nat.add_zero n : n + 0 = n) = Nat.add_zero n", "(show (8 : ℝ) = 8 from rfl) = rfl"]
         a = blueprint.audit(prefix, stmts, lean_tools.run_lean)
-        self.assertEqual([x["ok"] for x in a], [True, True, True, False, False, False], a)
-        for x in a[3:]:
+        self.assertEqual([x["ok"] for x in a], [True, True, True, True, False, False, False, False], a)
+        for x in a[4:]:
             self.assertIn("proof term in statement", x["why"])
 
 

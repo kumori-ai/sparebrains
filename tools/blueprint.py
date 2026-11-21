@@ -43,6 +43,8 @@ elab "audit_prop " t:term : tactic => do
   forEachExpr' e fun sub => do
     if sub.isFVar then return false
     if sub.hasLooseBVars then return true
+    -- a numeral of 2 or more in ℝ, ℤ, ... carries the instance proof `Nat.AtLeastTwo n` that elaboration inserts itself
+    if (← isProof sub) && (← inferType sub).isAppOf ``Nat.AtLeastTwo then return false
     if ← isProof sub then throwError "AUDIT_FAIL proof term in statement: {sub}"
     return true
   logInfo m!"AUDIT_OK"
