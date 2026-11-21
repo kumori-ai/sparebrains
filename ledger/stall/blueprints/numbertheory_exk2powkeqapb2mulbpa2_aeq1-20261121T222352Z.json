@@ -1,0 +1,45 @@
+{
+ "ts": "20261121T222352Z",
+ "target_set": "minif2f/test",
+ "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1",
+ "guide": "claude",
+ "statements": [
+  "∃ i j : ℕ, a + b ^ 2 = 2 ^ i ∧ b + a ^ 2 = 2 ^ j",
+  "b + a ^ 2 ≤ a + b ^ 2 → a = 1",
+  "a + b ^ 2 ≤ b + a ^ 2 → b = 1",
+  "b = 1 → a = 1",
+  "b + a ^ 2 ≤ a + b ^ 2 ∨ a + b ^ 2 ≤ b + a ^ 2"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\ntheorem numbertheory_exk2powkeqapb2mulbpa2_aeq1 (a b : ℕ) (h₀ : 0 < a ∧ 0 < b)\n    (h₁ : ∃ k > 0, 2 ^ k = (a + b ^ 2) * (b + a ^ 2)) : a = 1 := by\n  have bp_1 : ∃ i j : ℕ, a + b ^ 2 = 2 ^ i ∧ b + a ^ 2 = 2 ^ j := by\n    sorry\n  have bp_2 : b + a ^ 2 ≤ a + b ^ 2 → a = 1 := by\n    sorry\n  have bp_3 : a + b ^ 2 ≤ b + a ^ 2 → b = 1 := by\n    sorry\n  have bp_4 : b = 1 → a = 1 := by\n    sorry\n  have bp_5 : b + a ^ 2 ≤ a + b ^ 2 ∨ a + b ^ 2 ≤ b + a ^ 2 := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 5,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}

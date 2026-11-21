@@ -1,0 +1,51 @@
+{
+ "ts": "20261121T223055Z",
+ "target_set": "minif2f/test",
+ "target": "amc12a_2008_p25",
+ "guide": "claude",
+ "statements": [
+  "∀ n : ℕ, a (n + 3) = -8 * b n ∧ b (n + 3) = 8 * a n",
+  "∀ n : ℕ, a (n + 12) = 4096 * a n ∧ b (n + 12) = 4096 * b n",
+  "∀ k : ℕ, a (1 + 12 * k) = 4096 ^ k * a 1 ∧ b (1 + 12 * k) = 4096 ^ k * b 1",
+  "a 100 = -8 * 4096 ^ 8 * b 1 ∧ b 100 = 8 * 4096 ^ 8 * a 1",
+  "a 1 = 1 / 2 ^ 97",
+  "b 1 = -1 / 2 ^ 98"
+ ],
+ "ok": true,
+ "why": [],
+ "sketch": "import Mathlib\n\nopen scoped Nat\nopen scoped Real\n\n/--\nA sequence $ (a_1,b_1)$, $ (a_2,b_2)$, $ (a_3,b_3)$, $ \\ldots$ of points in the coordinate plane satisfies \\[ (a_{n +{} 1}, b_{n +{} 1}) ={} (\\sqrt {3}a_n -{} b_n, \\sqrt {3}b_n +{} a_n)\\hspace{3ex}\\text{for}\\hspace{3ex}  n ={} 1,2,3,\\ldots.\\] Suppose that $ (a_{100},b_{100}) ={} (2,4)$.  What is $ a_1 +{} b_1$?\n\n$ \\textbf{(A)}\\-{} \\frac {1}{2^{97}}  \\qquad\n\\textbf{(B)}\\-{} \\frac {1}{2^{99}} \\qquad\n\\textbf{(C)}\\ 0 \\qquad\n\\textbf{(D)}\\ \\frac {1}{2^{98}}  \\qquad\n\\textbf{(E)}\\ \\frac {1}{2^{96}}$ -/\ntheorem amc12a_2008_p25 (a b : ℕ → ℝ) (h₀ : ∀ n, a (n + 1) = Real.sqrt 3 * a n - b n)\n    (h₁ : ∀ n, b (n + 1) = Real.sqrt 3 * b n + a n) (h₂ : a 100 = 2) (h₃ : b 100 = 4) :\n    a 1 + b 1 = 1 / 2 ^ 98 := by\n  have bp_1 : ∀ n : ℕ, a (n + 3) = -8 * b n ∧ b (n + 3) = 8 * a n := by\n    sorry\n  have bp_2 : ∀ n : ℕ, a (n + 12) = 4096 * a n ∧ b (n + 12) = 4096 * b n := by\n    sorry\n  have bp_3 : ∀ k : ℕ, a (1 + 12 * k) = 4096 ^ k * a 1 ∧ b (1 + 12 * k) = 4096 ^ k * b 1 := by\n    sorry\n  have bp_4 : a 100 = -8 * 4096 ^ 8 * b 1 ∧ b 100 = 8 * 4096 ^ 8 * a 1 := by\n    sorry\n  have bp_5 : a 1 = 1 / 2 ^ 97 := by\n    sorry\n  have bp_6 : b 1 = -1 / 2 ^ 98 := by\n    sorry\n  first | assumption | omega | linarith | nlinarith | positivity | decide | (norm_num; done) | (simp; done) | (aesop; done) | grind | exact?\n",
+ "audit": [
+  {
+   "i": 1,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 2,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 3,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 4,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 5,
+   "ok": true,
+   "why": null
+  },
+  {
+   "i": 6,
+   "ok": true,
+   "why": null
+  }
+ ],
+ "duplicates": [],
+ "judge": "wellformed"
+}

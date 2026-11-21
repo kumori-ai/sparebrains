@@ -1,0 +1,50 @@
+{
+  "id": "pilot-guided-kaggle-held-2026-11-21b",
+  "kind": "feasibility pilot (1 problem): a frontier session's held whole proof, reduced to its lemma statements, filled by the Kaggle prover; no claim",
+  "filler": "kaggle",
+  "question": "given only the statements of a blueprint whose holes a frontier session is known to have proved, do Goedel-Prover-V2-8B's samples (plus Lean's recipes and the free chain) close every hole, so that the whole proof is assembled and checked by the kernel? Nothing else is read from this run",
+  "problems": [
+    "minif2f/test/amc12a_2008_p25"
+  ],
+  "target_sha256": {
+    "minif2f/test/amc12a_2008_p25": "164371980139c029ba7ee2da0f7911622cb08b369f0450f9f07d48a56d60454b"
+  },
+  "guide": "claude (opencode director session 2026-11-21): the statements of its own held proof (DECISIONS 2026-11-21), propositions only",
+  "blueprint": {
+    "path": "ledger/stall/blueprints/amc12a_2008_p25-20261121T223055Z.json",
+    "sha256": "9b44118fc69ace1cbcd5019d49c246de648b29c779590dfab7428d0f276af156",
+    "holes_in_order": 6,
+    "note": "gate PASS on GitHub's runner, blueprint-gate run 44956927448 (after the numeral fix 232339f2; run 44956124692 had rejected the same statements on Nat.AtLeastTwo), sketch wellformed under the default closing line"
+  },
+  "held_proof": {
+    "where": "the maintainer's checkout, .lake/guided/amc12a_2008_p25/Candidate.lean (untracked); exact-target Lean 4.33.1 pass on TUF 2026-11-21, judged file sha256 ef062da860b384873f3b3b326dc506cf1e424d56955e61057f48aa2c37dc8c1b",
+    "why_held": "posting it closes the problem and takes it out of every later free try; it stays unposted until this batch is judged",
+    "hole_difficulty": "hole 1 (the three-step rule, needs sqrt 3 ^ 2 = 3 and six rewrites) carries most of the work; hole 3 is an induction; holes 2, 4, 5, 6 are rewriting and linear arithmetic"
+  },
+  "lanes": [],
+  "holes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "samples_per_hole": 8,
+  "export": "all 6 holes, each its own file with the earlier statements as hypotheses bp_1.. (blueprint.kaggle_work); 48 samples planned; holes Lean closes at judge time are sampled too and those samples count as generated and unread",
+  "generation": {
+    "model": "Goedel-LM/Goedel-Prover-V2-8B",
+    "revision_note": "no revision pinned: only hint_pairs batches load a frozen revision (tools/prover_kernel.py:90-98), and `model` stays the bare id because prover.canary_refusal compares it exactly",
+    "settings": "max_tokens 16000, temperature 1.0, top_p 0.95, half precision, 2 x T4 (tools/prover_kernel.py at the commit that carries this manifest)",
+    "prompt": "the kernel's PROMPT, unchanged: the hole's file with `sorry`, then the proof-plan instruction",
+    "expected": "about 2 h of the week's free GPU hours by the 2026-11-16 rate (48 samples in 112 min); queue time unknown; $0"
+  },
+  "judging": {
+    "lean": "leanprover/lean4:v4.33.1, mathlib v4.33.1 (lake-manifest.json), the judge of tools/check.py",
+    "order": "Lean's baseline recipes on every hole first; then each sample of an open hole in sample order (a fenced `theorem sb_goal` block); a rejected proof goes through the free chain before it counts; the first accept closes the hole; with all holes closed the whole proof is judged",
+    "attribution": "closed_by is lean or kaggle-goedel-prover-v2-8b; a try the free chain rescued carries repaired=true and is reported as prover plus chain"
+  },
+  "credit": "a solve here is guided, and its guide is a frontier model that had already proved the problem: never 'free models plus tools', and never read as the prover solving the problem alone. Rows committed; accepted TEXT held in the prover run's artifact, not in verified/ or the site",
+  "claim": "none. One problem, one blueprint, 8 samples a hole: whether a small prover can fill holes of a known-good decomposition, not a rate and not tool lift",
+  "before_any_comparative_claim": "REQUIRED: the same prover cold on the whole problem with the same sample budget, and more than one problem (the sister manifest pilot-guided-kaggle-held-2026-11-21a on numbertheory_exk2powkeqapb2mulbpa2_aeq1 is the first)"
+}
