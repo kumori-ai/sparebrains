@@ -175,6 +175,26 @@ class DailyReport(unittest.TestCase):
         self.assertEqual((ob["answered_off"], ob["accepted_off"]), (t["answered"], t["accepted"]))
         self.assertLess(t["answered"], t["judged"], "the fixture has an error row, or this proves nothing")
 
+    def test_a_failed_leg_stays_held_until_a_batch_finishes_on_it(self):
+        since = lambda b, k: False
+        k = lambda: daily_report.kaggle(self.ledger, since, NOW)["held"]
+        self.assertEqual([(h["leg"], h["batch"], h["days"]) for h in k()], [("TPU", "tpu32-1", 0.6)],
+                         "the GPU batch that finished later does not clear the TPU")
+        write(self.ledger / "prover-beats" / "failed.jsonl", [
+            {"batch": "tpu32-1", "first_seen_at": "2026-10-27T21:03:11+00:00"},
+            {"batch": "guided-x", "first_seen_at": "2026-10-24T12:00:00+00:00"},      # GPU, before goals-1 finished
+            {"batch": "guided-y", "first_seen_at": "2026-10-28T06:00:00+00:00"}])     # GPU, after it
+        self.assertEqual([(h["leg"], h["batch"]) for h in k()], [("GPU", "guided-y"), ("TPU", "tpu32-1")])
+        write(self.ledger / "prover-batches.jsonl", [
+            {"batch": "goals-1", "answers": 16, "finished_at": "2026-10-28T03:07:20+00:00"},
+            {"batch": "guided-z", "answers": 96, "finished_at": "2026-10-28T09:00:00+00:00"},
+            {"batch": "tpu-8b-1", "answers": 8, "finished_at": "2026-10-28T10:00:00+00:00"}])
+        self.assertEqual(k(), [])
+        import prover                                   # the real writer's reservation line is not a failure
+        prover.reserve_replacement("tpu32-1", NOW, path=self.ledger / "prover-beats" / "failed.jsonl")
+        self.assertEqual(k(), [])
+        self.assertEqual(len(daily_report.kaggle(self.ledger, lambda b, key: True, NOW)["failed"]), 3)
+
     def test_kaggle_batches_and_failures_in_the_window(self):
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["finished"]], ["goals-1"])
         self.assertEqual([b["batch"] for b in self.report["kaggle"]["failed"]], ["tpu32-1"])

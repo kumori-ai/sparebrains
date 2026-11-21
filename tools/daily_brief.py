@@ -14,6 +14,7 @@ MIN_ANSWERED = 100       # a day with fewer answered tries reads too noisy to co
 LOST_FIX = 0.20          # share of judged tries lost before the kernel that earns a fix line
 RESCUE_FLOOR = 0.10      # edge-cut rescues saving under this share, over at least RESCUE_MIN tries, is a fix
 RESCUE_MIN = 20
+HELD_FIX_DAYS = 1        # a Kaggle leg with a failed batch and nothing finished after it, this long, leads the fixes
 IDLE_FIX_DAYS = 7        # a side rung idle this long is a fix; the ladder itself gets LADDER_IDLE_DAYS
 LADDER_IDLE_DAYS = 1
 CRASH_FIX = 0.40         # openproblems rounds crashing at this share of all rounds
@@ -107,6 +108,12 @@ def brief(d, history):
         fixes.append(f"Kaggle prover batch {b['batch']} failed.")
     if (d.get("kaggle") or {}).get("failed"):
         problems.append((0, f"{len(d['kaggle']['failed'])} Kaggle failed"))
+    for h in (d.get("kaggle") or {}).get("held") or []:    # every day it lasts: only a session can end it
+        if h["days"] >= HELD_FIX_DAYS:
+            fixes.append(f"Kaggle {h['leg']} held {h['days']} days: {h['batch']} failed and no batch has finished since. "
+                         "A session reads its log, ships the fix and pushes (prover.yml, push with gpu_smoke or smoke); "
+                         "a canary that passes releases the batch itself.")
+            problems.append((0, f"Kaggle {h['leg']} held {h['days']}d"))
 
     lost = _lost(t)
     if t.get("judged") and lost / t["judged"] >= LOST_FIX:

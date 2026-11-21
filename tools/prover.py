@@ -335,6 +335,54 @@ def guided_owed(stall=STALL):
     return None
 
 
+RELEASED = Path(__file__).resolve().parent.parent / "ledger" / "prover-beats" / "released.jsonl"
+
+
+def release_reserved(canary_batch, path=None):
+    """The line that says this canary already released its batch, None when it has not."""
+    path = Path(path or RELEASED)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()] if path.exists() else []
+    return next((r for r in rows if r.get("canary") == canary_batch), None)
+
+
+def reserve_release(canary_batch, manifest_id, now, run_url="", path=None):
+    """One canary releases one push (Codex 20261121T152957633979Z f1: Kaggle reading the same finished canary back
+    after the push would release it again). The line is published and confirmed on main before the push, as the 8B
+    replacement's is; False when the canary already has one, and then nothing is pushed."""
+    if not canary_batch or release_reserved(canary_batch, path):
+        return False
+    path = Path(path or RELEASED)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fh.write(json.dumps({"canary": canary_batch, "manifest": manifest_id, "released_at": now.isoformat(timespec="seconds"),
+                             "run": run_url}) + "\n")
+    return True
+
+
+def canary_refusal(canary, man, kernel_src, released=None):
+    """Why a finished GPU startup canary may NOT release the owed guided batch, None when it may (2026-11-21: a passed
+    canary sat four days at a review gate no session came back to). It must be one nonempty sample on the model and
+    revision the owed manifest froze and on the vllm the kernel pins; anything else stays held and fails the run."""
+    if released:
+        return (f"it already released its batch at {released.get('released_at')} ({released.get('run') or 'no run url'}) and "
+                "Kaggle still reads the canary: that push failed or the readback is stale; a person reads the run and pushes")
+    if not canary.get("batch"):
+        return "the canary names no batch"
+    if not man:
+        return "no guided manifest is owed"
+    gen = man.get("generation") or {}
+    pin = re.search(r"vllm==([0-9][0-9A-Za-z.]*)", kernel_src)
+    if canary.get("samples") != 1 or not isinstance(canary.get("tokens"), int) or canary["tokens"] < 1:
+        return "not exactly one nonempty sample"
+    if gen.get("model") and canary.get("model") != gen["model"]:
+        return f"model {canary.get('model')} is not the manifest's {gen['model']}"
+    if canary.get("revision") != gen.get("revision"):
+        return f"revision {canary.get('revision')} is not the manifest's {gen.get('revision')}"
+    if not pin or canary.get("vllm") != pin.group(1):
+        return f"vllm {canary.get('vllm')} is not the kernel's pin {pin.group(1) if pin else 'none'}"
+    return None
+
+
 def guided_batch_name(manifest_id, now):
     return f"guided-{manifest_id}-" + now.strftime("%Y%m%dT%H%M")
 
@@ -880,9 +928,10 @@ def read_answers(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["next", "pending", "judge", "batch-record", "hours", "beats", "failed", "reserve",
-                                    "reserved", "carry"])
+                                    "reserved", "carry", "canary-ok", "canary-reserve"])
     ap.add_argument("--batch", help="reserve/reserved: the failed batch")
     ap.add_argument("--status", help="failed: Kaggle's status line for the batch")
+    ap.add_argument("--released", default=None, help="canary-ok/canary-reserve: where releases are recorded")
     ap.add_argument("--ledger", default=str(FAILED), help="failed: where failures are recorded")
     ap.add_argument("--log-fetch-failed", action="store_true", help="failed: `kaggle kernels output` did not succeed")
     ap.add_argument("--tpu", action="store_true", help="next/hours: the TPU kernel, on the open problems outside the bar")
@@ -942,6 +991,20 @@ def main():
             with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
                 fh.write(f"failed_batch={rec['batch']}\nfailure={'new' if new else 'known'}\n")
         return FAILED_NEW if new else 0
+    if args.cmd == "canary-ok":                   # exit 0: the finished startup canary releases the owed batch; 1: held
+        canary = json.loads(Path(args.answers).read_text())
+        why = canary_refusal(canary, guided_owed(), (Path(__file__).parent / "prover_kernel.py").read_text(),
+                             release_reserved(canary.get("batch"), args.released))
+        print(f"startup canary held: {why}" if why else "startup canary passed: the owed guided batch is released")
+        return 1 if why else 0
+    if args.cmd == "canary-reserve":              # the release's line, written before its push; 4 = it already has one
+        canary, man = json.loads(Path(args.answers).read_text()), guided_owed()
+        if not man or not reserve_release(canary.get("batch"), man["id"], datetime.now(timezone.utc),
+                                          os.environ.get("RUN_URL", ""), args.released):
+            print(f"::notice::canary {canary.get('batch')} has no batch to release or already released one; nothing pushed")
+            return RESERVED_ALREADY
+        print(canary["batch"])
+        return 0
     if args.cmd == "hours":                       # the next batch's hours, from Kaggle's own quota; 0 = wait
         total, used, reserved = quota(args.tpu)
         h = batch_hours(total, used, reserved, tpu=args.tpu)

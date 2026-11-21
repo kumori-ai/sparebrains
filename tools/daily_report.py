@@ -232,11 +232,26 @@ def speed(ledger):
     return sorted(out, key=lambda s: (s["size_b"] if s["size_b"] is not None else 1e9, s["lane"]))
 
 
-def kaggle(ledger, since):
-    fin = [b for b in _load_jsonl(Path(ledger) / "prover-batches.jsonl") if since(b, "finished_at")]
-    failed = [b for b in _load_jsonl(Path(ledger) / "prover-beats" / "failed.jsonl") if since(b, "first_seen_at")]
+def kaggle(ledger, since, now=None):
+    batches = _load_jsonl(Path(ledger) / "prover-batches.jsonl")
+    # failed.jsonl also holds a replacement's reservation line, which is not a failure and has no first_seen_at
+    # (Codex 20261121T152957633979Z f2)
+    fails = [b for b in _load_jsonl(Path(ledger) / "prover-beats" / "failed.jsonl") if b.get("first_seen_at")]
+    fin = [b for b in batches if since(b, "finished_at")]
+    failed = [b for b in fails if since(b, "first_seen_at")]
+    # A leg whose newest failure has no finished batch after it is held: nothing runs there until a session ships a
+    # fix and pushes. Reported every day it lasts, not only the day it failed (2026-11-21: the 11-18 failure left the
+    # report after a day and the GPU sat unused four days). A batch still generating is not in the ledger yet, so a
+    # hold can read a few hours long after the push that ended it.
+    leg = lambda b: "TPU" if "tpu" in b["batch"] else "GPU"
+    held = []
+    for name in ("GPU", "TPU"):
+        f = max((b for b in fails if leg(b) == name), key=lambda b: b["first_seen_at"], default=None)
+        if f and now and not any(leg(b) == name and (b.get("finished_at") or "") > f["first_seen_at"] for b in batches):
+            held.append({"leg": name, "batch": f["batch"], "since": f["first_seen_at"], "days": _days(now, f["first_seen_at"])})
     return {"finished": [{"batch": b["batch"], "answers": b.get("answers"), "finished_at": b["finished_at"]} for b in fin],
-            "failed": [{"batch": b["batch"], "status": b.get("status"), "first_seen_at": b["first_seen_at"]} for b in failed]}
+            "failed": [{"batch": b["batch"], "status": b.get("status"), "first_seen_at": b["first_seen_at"]} for b in failed],
+            "held": held}
 
 
 def relay_state(ledger):
@@ -340,7 +355,7 @@ def build(ledger, now, hours=24, daily=None):
                        "lanes": len({r.get("backend") for r in judged}), "problems": len({(r.get("target_set"), r["target"]) for r in judged}),
                        "solved_ever": sum(x["solved"] for x in g), "open": sum(x["open"] for x in g)},
             "first_solves": sorted(firsts, key=lambda f: f["ts"]), "grades": g, "speed": speed(ledger), "off_baseline": offb,
-            "kaggle": kaggle(ledger, since), "relay": relay_state(ledger), "rungs": rungs(ledger, rows, now, since)}
+            "kaggle": kaggle(ledger, since, now), "relay": relay_state(ledger), "rungs": rungs(ledger, rows, now, since)}
 
 
 EDGE_CUT_S = 125       # kumori.ai's Cloudflare zone's proxy_read_timeout as read on 2026-11-01 (one raw 504 at 121.6 s); an estimate's line

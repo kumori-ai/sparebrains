@@ -3,6 +3,25 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-21
+
+- **A passed GPU startup canary releases its batch itself, and a held Kaggle leg is reported every day it lasts
+  (kumori #712).** As of 2026-11-21 the last first-time solves were 11-10 (24 on 11-08 to 11-10; 362 of 378, 16 open,
+  each with 419 to 747 tries). The one route aimed at the open set, the guided hint batch, failed on 11-18 (a vllm
+  warmup import), was fixed the same day (830ca750), and its one-sample canary `smoke-gpu-20261118T0225` passed, then
+  sat at `smoke-complete` until 11-21 because the release needed a session and none came back; the daily report named
+  the failed batch only on the day it failed. Released by hand 11-21 15:22Z (run 44918863321, Kaggle version 38, batch
+  `guided-pilot-guided-hints-2026-11-18-20261121T1522`, 96 samples). Now: `tools/prover.py canary-ok` is the review
+  (exactly one nonempty sample, the owed manifest's model and revision, the vllm `prover_kernel.py` pins); a match
+  sets the run to push, a mismatch fails every run until read. One canary releases one push: a line in
+  `ledger/prover-beats/released.jsonl`, published and confirmed on main before the push, as the 8B replacement's is
+  (Codex 20261121T152957633979Z DISAGREE f1: the same COMPLETE canary read back twice pushed twice; fixed, AGREE
+  20261121T153328087452Z after running the push step's shell both ways). `daily_report.kaggle` adds `held` (per leg,
+  the newest failed batch with no batch finished after it) and the brief leads with it from one day on; a batch still
+  generating is not in the ledger, so a hold can read a few hours long after the push that ended it. A hand dispatch
+  with `push` still bypasses the canary review, on purpose. What this does not do: fix a failed batch. That still
+  takes a session; the report now says so daily instead of once. Tests fail first on 8 mutants; 137 pass.
+
 ## 2026-11-17
 
 - **Rebuild diagnostic 44183635511: all three fresh-process arms agree on one runner (#477).**

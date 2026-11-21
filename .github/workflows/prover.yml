@@ -158,10 +158,18 @@ jobs:
           mkdir -p "$RUNNER_TEMP/kout"
           kaggle kernels output ${{ matrix.kernel }} -p "$RUNNER_TEMP/kout" >/dev/null 2>&1 || true
           tail -5 "$RUNNER_TEMP/kout/"*.log 2>/dev/null || true
+          # A finished startup canary releases the owed batch itself (2026-11-21: one that passed on 11-18 sat four days
+          # at a review gate no session came back to). tools/prover.py canary-ok is the review: one nonempty sample on
+          # the owed manifest's model and revision and the kernel's pinned vllm. Anything else stays held and fails
+          # this run, every run, until a person reads it.
           if [ -s "$RUNNER_TEMP/kout/startup-canary.json" ]; then
-            cat "$RUNNER_TEMP/kout/startup-canary.json"
+            cat "$RUNNER_TEMP/kout/startup-canary.json"; echo
+            echo "canary=1" >> "$GITHUB_OUTPUT"
+            if python3 tools/prover.py canary-ok --answers "$RUNNER_TEMP/kout/startup-canary.json"; then
+              echo "state=push" >> "$GITHUB_OUTPUT"; exit 0
+            fi
             echo "state=smoke-complete" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::the GPU startup canary did not match the owed batch; nothing pushed until it is read"; exit 1
           fi
           if [ ! -s "$RUNNER_TEMP/kout/answers.jsonl" ]; then
             echo "::error::the batch completed with no answers; read its log on Kaggle before pushing again"; exit 1
@@ -171,7 +179,7 @@ jobs:
           if [ "$pending" != "0" ]; then echo "state=judge" >> "$GITHUB_OUTPUT"; else echo "state=push" >> "$GITHUB_OUTPUT"; fi
 
       - name: retain failed kernel diagnostics
-        if: always() && (steps.kaggle.outputs.state == 'failed' || steps.kaggle.outputs.state == 'smoke-complete')
+        if: always() && (steps.kaggle.outputs.state == 'failed' || steps.kaggle.outputs.canary == '1')
         uses: actions/upload-artifact@v7
         with:
           name: prover-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.accel }}
@@ -329,6 +337,25 @@ jobs:
             # replacement is spent with no push, and a person dispatches the 8B with push; if not, the next run reserves again.
             [ "${n:-0}" -gt 0 ] || { echo "::error::could not confirm the reservation for $b on main; nothing pushed. If it reached main the replacement is spent: a person dispatches the 8B with push. If not, the next run reserves again."; exit 1; }
           fi
+          # A canary's release, on main before the push, like the replacement's (Codex 20261121T152957633979Z f1): one
+          # canary releases one push, whatever Kaggle reads back afterwards. Fails closed: a line that reached main
+          # with no push makes the next run fail on the canary until a person pushes.
+          if [ "${{ steps.kaggle.outputs.canary }}" = "1" ]; then
+            c=$(python3 tools/prover.py canary-reserve --answers "$RUNNER_TEMP/kout/startup-canary.json") && rc=0 || rc=$?
+            [ "$rc" = 4 ] && exit 0
+            [ "$rc" = 0 ] || exit "$rc"
+            git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            git config user.name "sparebrains-bot"
+            git config user.email "sparebrains-bot@users.noreply.github.com"
+            n=0
+            python3 tools/publish.py --message "prover: canary $c releases batch $batch, recorded before its push
+
+          Generated-by: no model; tools/prover.py canary-reserve, cost \$0" \
+              && n=$(git fetch -q origin main && git show origin/main:ledger/prover-beats/released.jsonl | grep -cF "\"canary\": \"$c\"" || true)
+            git config --unset-all http.https://github.com/.extraheader
+            ! git config --get-regexp '^http\..*extraheader'
+            [ "${n:-0}" -gt 0 ] || { echo "::error::could not confirm the release of $c on main; nothing pushed. If it reached main the next run fails on the canary and a person pushes; if not, the next run releases again."; exit 1; }
+          fi
           kaggle kernels push -p "$RUNNER_TEMP/kernel"
           echo "pushed batch $batch"
           echo "batch=$batch" >> "$GITHUB_OUTPUT"
@@ -357,7 +384,7 @@ jobs:
           if [ "$STATE" = "running" ]; then
             what="the batch is still on the free GPUs: $KSTATUS"
           elif [ "$STATE" = "smoke-complete" ]; then
-            what="GPU startup canary completed load, warmup and one sample; awaiting review before experiment dispatch"
+            what="GPU startup canary finished but does not match the owed batch (model, revision, vllm or sample count); held until a person reads it"
           elif [ "$STATE" = "judge" ]; then
             what="the batch finished; this run judged its answers with the Lean kernel: ${SUMMARY:-see the run log}"
           elif [ "$STATE" = "push" ] && [ -n "$PUSHED" ]; then

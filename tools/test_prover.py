@@ -856,6 +856,65 @@ class RecorderOrder(unittest.TestCase):
             self.assertFalse((Path(d) / "verified").exists())
 
 
+class CanaryRelease(unittest.TestCase):
+    """2026-11-21: a passed startup canary releases the owed batch on its own; a wrong one stays held."""
+    MAN = {"id": "m", "filler": "kaggle", "generation": {"model": "Goedel-LM/Goedel-Prover-V2-8B", "revision": "abc"}}
+    SRC = 'pip install -q "vllm==0.34.0"'
+    GOOD = {"batch": "smoke-gpu-x", "model": "Goedel-LM/Goedel-Prover-V2-8B", "revision": "abc", "vllm": "0.34.0",
+            "samples": 1, "tokens": 32}
+
+    def test_a_matching_canary_releases(self):
+        self.assertIsNone(prover.canary_refusal(self.GOOD, self.MAN, self.SRC))
+
+    def test_each_mismatch_holds(self):
+        for change in ({"revision": "other"}, {"model": "x"}, {"vllm": "0.33.0"}, {"tokens": 0}, {"samples": 2},
+                       {"revision": None}):
+            self.assertIsNotNone(prover.canary_refusal({**self.GOOD, **change}, self.MAN, self.SRC), change)
+        self.assertIsNotNone(prover.canary_refusal(self.GOOD, None, self.SRC), "nothing owed")
+        self.assertIsNotNone(prover.canary_refusal(self.GOOD, self.MAN, "pip install vllm"), "no pin")
+
+    def test_the_real_kernel_pins_vllm_and_an_unrevisioned_manifest_wants_no_revision(self):
+        src = (Path(prover.__file__).parent / "prover_kernel.py").read_text()
+        pin = re.search(r"vllm==([0-9.]+)", src).group(1)
+        man = {"id": "m", "filler": "kaggle"}
+        self.assertIsNone(prover.canary_refusal({**self.GOOD, "vllm": pin, "revision": None}, man, src))
+
+    def test_one_canary_releases_one_push_whatever_kaggle_reads_back(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            f, rel = Path(d) / "startup-canary.json", Path(d) / "beats" / "released.jsonl"
+            src = (Path(prover.__file__).parent / "prover_kernel.py").read_text()
+            f.write_text(json.dumps({**self.GOOD, "vllm": re.search(r"vllm==([0-9.]+)", src).group(1)}))
+            run = lambda cmd: prover.main()
+            codes = []
+            for cmd in ("canary-ok", "canary-reserve", "canary-ok", "canary-reserve"):   # the same COMPLETE canary, read twice
+                with patch.object(sys, "argv", ["prover.py", cmd, "--answers", str(f), "--released", str(rel)]), \
+                        patch.object(prover, "guided_owed", return_value=self.MAN):
+                    codes.append(prover.main())
+            self.assertEqual(codes, [0, 0, 1, prover.RESERVED_ALREADY])
+            self.assertEqual(len(rel.read_text().splitlines()), 1)
+            self.assertEqual(json.loads(rel.read_text())["manifest"], "m")
+
+    def test_a_canary_with_no_batch_name_or_nothing_owed_never_reserves(self):
+        with tempfile.TemporaryDirectory() as d:
+            rel = Path(d) / "released.jsonl"
+            self.assertFalse(prover.reserve_release(None, "m", datetime.now(timezone.utc), path=rel))
+            self.assertIsNotNone(prover.canary_refusal({**self.GOOD, "batch": ""}, self.MAN, self.SRC))
+            self.assertFalse(rel.exists())
+
+    def test_cli_exit_codes(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "startup-canary.json"
+            src = (Path(prover.__file__).parent / "prover_kernel.py").read_text()
+            pin = re.search(r"vllm==([0-9.]+)", src).group(1)
+            for canary, want in (({**self.GOOD, "vllm": pin}, 0), ({**self.GOOD, "vllm": pin, "revision": "zzz"}, 1)):
+                f.write_text(json.dumps(canary))
+                with patch.object(sys, "argv", ["prover.py", "canary-ok", "--answers", str(f), "--released", str(Path(d) / "r.jsonl")]), \
+                        patch.object(prover, "guided_owed", return_value=self.MAN):
+                    self.assertEqual(prover.main(), want)
+
+
 if __name__ == "__main__":
     unittest.main()
 

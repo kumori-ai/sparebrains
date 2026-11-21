@@ -152,6 +152,15 @@ class Brief(unittest.TestCase):
         self.assertIn("Kaggle", b["headline"])
         self.assertTrue(any("b2" in f for f in b["fixes"]))
 
+    def test_a_held_kaggle_leg_leads_every_day_it_lasts_and_not_before_a_day(self):
+        t = copy.deepcopy(TODAY)
+        t["kaggle"]["held"] = [{"leg": "GPU", "batch": "guided-y", "since": "x", "days": 3.5},
+                               {"leg": "TPU", "batch": "tpu32-1", "since": "x", "days": 0.6}]
+        b = brief(t)
+        self.assertIn("Kaggle GPU held 3.5d", b["headline"])
+        self.assertTrue(any("guided-y" in f and "3.5 days" in f for f in b["fixes"]))
+        self.assertFalse(any("tpu32-1" in f for f in b["fixes"]))
+
     def test_preheader_carries_the_steady_numbers(self):
         p = brief()["preheader"]
         for s in ("213/774", "338 solved ever", "40 open"):
