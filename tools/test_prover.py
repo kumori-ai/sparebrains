@@ -133,6 +133,9 @@ class ProverTests(unittest.TestCase):
             # failure after the download retried once the download's page cache is evicted
             self.assertLess(text.index('beat("probe", when="before download"'), text.index('phase = "downloading"'))
             self.assertIn('os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)', text)
+            # 2026-11-21: the probe runs the child's own import and a failure before the download ends the batch there
+            self.assertIn("from vllm import LLM, SamplingParams; ", text[text.index("def probe():"):text.index("first = probe()")])
+            self.assertLess(text.index('sys.exit("vllm import failed before the download'), text.index('phase = "downloading"'))
             self.assertIn('beat("probe", when="after advising the page cache away", evicted=evicted', text)
             compile(text, "prover_kernel.py", "exec")
             self.assertIn('if phase == "loading" or waited >= BEAT_S', text, "one beat a minute while vLLM loads, stepped by the minute")

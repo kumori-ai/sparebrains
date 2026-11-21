@@ -206,15 +206,31 @@ def limits():
     return out
 
 
+PROBE_S = 1500
+
+
 def probe():
-    r = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; print(json.dumps({'huggingface_hub': "
-                        "huggingface_hub.__version__, 'vllm': vllm.__version__}))"], capture_output=True, text=True)
-    return r.stdout.strip()[:300] if r.returncode == 0 else \
+    # The child's own import, not `import vllm` (2026-11-21, #534): vllm's top level is lazy, so the old probe passed
+    # twice on smoke-tpu32-20261117T2047 and `from vllm import LLM` then died on a missing vllm.config.scheduler after
+    # a 42 min download. The versions are the last stdout line: a startup log line ahead of them used to fill the cut.
+    try:
+        r = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; from vllm import LLM, SamplingParams; "
+                            "print(json.dumps({'huggingface_hub': huggingface_hub.__version__, 'vllm': vllm.__version__}))"],
+                           capture_output=True, text=True, timeout=PROBE_S)
+    except subprocess.TimeoutExpired:
+        return f"probe timed out after {PROBE_S} s"           # not a verdict: the run goes on
+    return (r.stdout.strip().splitlines() or [""])[-1][:300] if r.returncode == 0 else \
         f"import failed (exit {r.returncode}): " + (r.stderr.strip() or r.stdout.strip())[-1200:]
 
 
-# Before the download: if vLLM's import already fails here, the download is not the cause (#534)
-beat("probe", when="before download", versions=probe(), limits=limits())
+# Before the download: if vLLM's import already fails here, the download is not the cause (#534), and nothing is
+# downloaded: the batch ends in about two minutes of TPU time instead of an hour (2026-11-21)
+first = probe()
+beat("probe", when="before download", versions=first, limits=limits())
+if first.startswith("import failed"):
+    stamp(failed="vllm import before the download")
+    beat("failed", reason="vllm import before the download", detail=first[-1200:])
+    sys.exit("vllm import failed before the download: nothing downloaded")
 
 # The weights, fetched before vLLM so a stalled download and a hung initialization are told apart (2026-10-24: both
 # 32B batches died at ~80 min inside one "loading" phase). Pinned revision, HTTP, its own restartable process; every
