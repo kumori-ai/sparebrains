@@ -128,7 +128,7 @@ class ProverTests(unittest.TestCase):
             prover.build(d, [(t, 32)], "tpu32-20261023T0000", tpu=True, budget_h=8.5, model=prover.PROVER_32B["model"])
             text = (Path(d) / "prover_kernel.py").read_text()
             self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', text)
-            self.assertIn('if r.returncode == 0 else', text, "a failed import probe keeps the tail of its traceback by exit code, not by stream")
+            self.assertIn('if r.returncode:', text, "a failed import probe keeps the tail of its traceback by exit code, not by stream")
             # #534, 2026-11-04: the import is probed before the download as well, limits read on both sides, and a
             # failure after the download retried once the download's page cache is evicted
             self.assertLess(text.index('beat("probe", when="before download"'), text.index('phase = "downloading"'))
@@ -773,6 +773,66 @@ class KernelFit(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.fit(chunk[:1], 100, 0, 1600)
 
+
+
+class TpuStartupProbe(unittest.TestCase):
+    def probe(self, result=None, error=None):
+        import ast, subprocess
+        from unittest.mock import Mock
+        src = (Path(prover.ROOT) / "tools/prover_kernel_tpu.py").read_text()
+        fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "probe")
+        runner = Mock(return_value=result, side_effect=error)
+        ns = {"subprocess": type("Subprocess", (), {"run": runner, "TimeoutExpired": subprocess.TimeoutExpired}),
+              "PY": "python", "PROBE_S": 1500, "json": json}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "kernel.py", "exec"), ns)
+        return ns["probe"]()
+
+    def test_timeout_cannot_pass_the_download_gate(self):
+        import subprocess
+        got = self.probe(error=subprocess.TimeoutExpired("probe", 1500))
+        self.assertTrue(got.startswith("import failed"), got)
+
+    def test_exit_zero_without_versions_cannot_pass(self):
+        from types import SimpleNamespace
+        for stdout in ("", "INFO initializing", "{}", '{"vllm": "0.28.0"}',
+                       '{"vllm": "", "huggingface_hub": "1.0"}'):
+            with self.subTest(stdout=stdout):
+                got = self.probe(SimpleNamespace(returncode=0, stdout=stdout, stderr=""))
+                self.assertTrue(got.startswith("import failed"), got)
+
+    def test_real_versions_after_startup_noise_pass(self):
+        from types import SimpleNamespace
+        versions = {"vllm": "0.28.0", "huggingface_hub": "1.28.0"}
+        got = self.probe(SimpleNamespace(returncode=0, stdout="INFO startup\n" + json.dumps(versions)
+                                        + "\nINFO shutdown\n{}", stderr=""))
+        self.assertEqual(json.loads(got), versions)
+
+    def test_nonzero_exit_keeps_error_even_with_valid_stdout(self):
+        from types import SimpleNamespace
+        got = self.probe(SimpleNamespace(returncode=1, stdout='{"vllm":"x","huggingface_hub":"y"}',
+                                        stderr="ModuleNotFoundError: vllm.config.scheduler"))
+        self.assertTrue(got.startswith("import failed"))
+        self.assertIn("vllm.config.scheduler", got)
+
+    def test_failed_retry_after_download_stops_before_generation(self):
+        import ast
+        from unittest.mock import Mock
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel_tpu.py").read_text()
+        block = next(n for n in ast.parse(src).body if isinstance(n, ast.If)
+                     and ast.unparse(n.test) == "versions.startswith('import failed')")
+        for answer, stops in (("import failed: timeout", True),
+                              ('{"vllm":"x","huggingface_hub":"y"}', False)):
+            ns = {"versions": "import failed: initial", "man": [], "probe": lambda: answer,
+                  "beat": Mock(), "stamp": Mock(), "limits": lambda: {}, "sys": sys}
+            code = compile(ast.Module(body=[block], type_ignores=[]), "kernel.py", "exec")
+            if stops:
+                with self.assertRaises(SystemExit):
+                    exec(code, ns)
+            else:
+                exec(code, ns)
+                ns["stamp"].assert_not_called()
+                ns["beat"].assert_called_once()
+                self.assertEqual(ns["beat"].call_args.kwargs["when"], "after advising the page cache away")
 
 
 class TpuLimits(unittest.TestCase):

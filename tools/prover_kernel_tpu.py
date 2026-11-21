@@ -212,15 +212,24 @@ PROBE_S = 1500
 def probe():
     # The child's own import, not `import vllm` (2026-11-21, #534): vllm's top level is lazy, so the old probe passed
     # twice on smoke-tpu32-20261117T2047 and `from vllm import LLM` then died on a missing vllm.config.scheduler after
-    # a 42 min download. The versions are the last stdout line: a startup log line ahead of them used to fill the cut.
+    # a 42 min download. Find the version receipt among stdout logs, including runtime shutdown noise.
     try:
         r = subprocess.run([PY, "-c", "import json, huggingface_hub, vllm; from vllm import LLM, SamplingParams; "
                             "print(json.dumps({'huggingface_hub': huggingface_hub.__version__, 'vllm': vllm.__version__}))"],
                            capture_output=True, text=True, timeout=PROBE_S)
     except subprocess.TimeoutExpired:
-        return f"probe timed out after {PROBE_S} s"           # not a verdict: the run goes on
-    return (r.stdout.strip().splitlines() or [""])[-1][:300] if r.returncode == 0 else \
-        f"import failed (exit {r.returncode}): " + (r.stderr.strip() or r.stdout.strip())[-1200:]
+        return f"import failed: probe timed out after {PROBE_S} s"
+    if r.returncode:
+        return f"import failed (exit {r.returncode}): " + (r.stderr.strip() or r.stdout.strip())[-1200:]
+    for line in reversed(r.stdout.splitlines()):
+        try:
+            versions = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(versions, dict) and all(
+                isinstance(versions.get(k), str) and versions[k].strip() for k in ("vllm", "huggingface_hub")):
+            return json.dumps(versions)
+    return "import failed: probe returned no complete version receipt"
 
 
 # Before the download: if vLLM's import already fails here, the download is not the cause (#534), and nothing is
@@ -255,8 +264,8 @@ beat("downloaded", download_s=timing["download_s"], files=len(man), bytes=sum(ma
      revision=PINS[MODEL], versions=versions)
 beat("probe", when="after download", limits=limits())
 if versions.startswith("import failed"):
-    # The download's page cache advised away file by file (no root needed), then the import again; generation goes on
-    # from here either way, and a load after this is an observation about the cache, not proof it was the cause (#534)
+    # Advise the download's page cache away file by file (no root needed), then retry the import once.
+    # Generation requires a successful retry; recovery is not proof that the cache caused the failure (#534).
     # An observation, not proof of cause: DONTNEED is advice the kernel may not take (Codex f3)
     evicted = {"ok": 0, "failed": 0}
     for name in man:
@@ -272,6 +281,10 @@ if versions.startswith("import failed"):
                 os.close(fd)
     versions = probe()
     beat("probe", when="after advising the page cache away", evicted=evicted, versions=versions, limits=limits())
+    if versions.startswith("import failed"):
+        stamp(failed="vllm import after the download")
+        beat("failed", reason="vllm import after the download", detail=versions[-1200:])
+        sys.exit("vllm import still failed: generation not started")
 # the probe's traceback used to be cut to its first 300 chars, the useless head, and a startup line on stdout hid it
 # (smoke-tpu32-20261024T2034, task #534; Codex f2 2026-11-01: the exit code decides, not which stream spoke)
 for p in parts(man):

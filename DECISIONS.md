@@ -5,6 +5,23 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-21
 
+- **Deploy cleanup incident receipt, observed in this window.** The retry that published `a8f937d6`
+  (`deploy "prover: canary auto-release and held-leg report (retry of the push after rebasing on a bot ledger commit)"`)
+  printed the following after its push:
+  ```
+  pid  39957  up     08:33:19  dos_bros                                  Python -m tests.preview
+  stopped 1 of 1
+  ```
+  This is the deploy tool's reported action, not independent verification of the process's history.
+  Kumori owns the shared cleanup fix (reply `ma43b935073f` confirmed the selector lacks project/live-window
+  ownership checks). Deployment was held until kumori changed the canonical end-of-deploy call to
+  `cleanup(dry_run=True)` (message `mea66c38d36e`); this window independently read the applied call and
+  tested the actual cleanup function with synthetic leftovers: report-only makes zero stop calls,
+  while the non-dry-run control calls stop. No real process was signaled by this check.
+  The pending TPU probe follow-up stops on timeout or absent version receipts and after a failed post-download
+  retry; 86 prover tests pass. Review `20261121T171112708198Z_claude` agreed; its shutdown-log and stale-comment
+  follow-ups were addressed and the suite rerun.
+
 - **A passed GPU startup canary releases its batch itself, and a held Kaggle leg is reported every day it lasts
   (kumori #712).** As of 2026-11-21 the last first-time solves were 11-10 (24 on 11-08 to 11-10; 362 of 378, 16 open,
   each with 419 to 747 tries). The one route aimed at the open set, the guided hint batch, failed on 11-18 (a vllm
