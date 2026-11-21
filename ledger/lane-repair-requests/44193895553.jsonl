@@ -8,3 +8,4 @@
 {"admission": {"requesty-leanstral-1-5": {"eligible_now": true, "next_check_at": 1795220392, "reason": "guaranteed"}}, "at": 1795220391, "event": "admitted"}
 {"at": 1795220525, "attempt": "44843069562-1", "event": "started", "lanes": ["requesty-leanstral-1-5"], "reserved": 12}
 {"at": 1795220872, "attempt": "44843069562-1", "due": 1795221772, "event": "finished", "status": "deferred", "used": 5}
+{"admission": {"requesty-leanstral-1-5": {"eligible_now": false, "next_check_at": 1795305600, "reason": "lane_daily_cap"}}, "at": 1795247120, "due": 1795305600, "event": "deferred"}
