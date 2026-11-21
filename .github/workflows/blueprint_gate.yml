@@ -1,0 +1,77 @@
+# The blueprint gate (tools/blueprint.py --gate, DECISIONS.md 2026-11-09) on GitHub's runner. The gate runs Lean three
+# times (elaboration audit, duplicate filter, the sketch's judge), and since 2026-11-19 no compute runs on the
+# maintainer's Mac; tools/check.py needs POSIX (resource, os.wait4), so the Windows side boxes cannot run it either.
+# By hand only. The guide's statements come in as a JSON list (propositions only, never proof text); the gated
+# blueprint comes back as this run's artifact, and is committed by the maintainer's session through deploy.
+# No secrets: no model call, nothing published. Lean runs as the sandbox user, as in check.yml.
+name: blueprint-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "set/target, e.g. minif2f/test/amc12a_2008_p25"
+        required: true
+      statements:
+        description: "the guide's reply: one JSON list of 2 to 6 Lean propositions"
+        required: true
+      guide:
+        description: "who wrote the statements (recorded in the blueprint)"
+        default: "claude"
+      hole:
+        description: "blank for the whole problem, or a hole path like 1 or 1.2 of the latest gated blueprint"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blueprint-gate
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: mathlib packages (restore)
+        uses: actions/cache/restore@v5
+        with:
+          path: .lake/packages
+          key: lake-packages-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
+      - name: lean + mathlib cache + build
+        uses: ./.github/actions/lean-build
+
+      - name: judge sandbox (untrusted Lean runs as another user)
+        run: bash tools/judge_sandbox.sh
+
+      - name: gate
+        env:
+          TARGET: ${{ inputs.target }}
+          STATEMENTS: ${{ inputs.statements }}
+          GUIDE: ${{ inputs.guide }}
+          HOLE: ${{ inputs.hole }}
+        run: |
+          printf '%s' "$STATEMENTS" > "$RUNNER_TEMP/reply.json"
+          set +e
+          python3 tools/blueprint.py --gate "$TARGET" --reply "$RUNNER_TEMP/reply.json" --guide "$GUIDE" \
+            $( [ -n "$HOLE" ] && echo --hole "$HOLE" ) | tee "$RUNNER_TEMP/gate.txt"
+          rc=${PIPESTATUS[0]}
+          mkdir -p "$RUNNER_TEMP/out"
+          git ls-files --others --exclude-standard ledger/stall/blueprints | xargs -r -I{} cp {} "$RUNNER_TEMP/out/"
+          echo "### blueprint gate: $(head -1 "$RUNNER_TEMP/gate.txt")" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: keep the gated blueprint
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: blueprint-${{ github.run_id }}
+          path: ${{ runner.temp }}/out/
+          retention-days: 30
+          if-no-files-found: warn

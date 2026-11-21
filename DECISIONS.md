@@ -5,6 +5,19 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-21
 
+- **A frontier session's whole proof is a blueprint source first, a hand-off second.** As of 2026-11-21 this window
+  (Claude, directing) wrote whole proofs of three stalled problems, each passing Lean 4.33.1 against the exact target
+  on TUF: `mathd_numbertheory_451` (posted as Andy's hand-off on #32, judged and recorded as `volunteer-7069658418`),
+  `amc12a_2008_p25` (judged file sha256 `ef062da8…8c1b`) and `numbertheory_exk2powkeqapb2mulbpa2_aeq1` (`93a10057…23f5`).
+  The last two are held, not posted (Andy, "do it", on this reasoning): the project measures whether free and small
+  models compete with better tools, and a director's solve says nothing about that while closing the problem takes
+  it out of every later free try. Each held proof becomes a blueprint instead: its lemma statements (propositions
+  only, the 2026-11-09 gate rule) go through `tools/blueprint.py --gate`, and the free Kaggle prover fills the holes,
+  paired as in `pilot-guided-hints-2026-11-18`. The held proofs stay in the maintainer's checkout (`.lake/guided/`,
+  untracked) until a filler run is judged; posting them stays possible. Not a claim about any lift yet.
+  The gate now runs in `.github/workflows/blueprint_gate.yml` (by hand, no secrets, artifact out): it needs Lean and
+  POSIX, and no compute runs on the Mac since 2026-11-19.
+
 - **Deploy cleanup incident receipt, observed in this window.** The retry that published `a8f937d6`
   (`deploy "prover: canary auto-release and held-leg report (retry of the push after rebasing on a bot ledger commit)"`)
   printed the following after its push:
