@@ -136,6 +136,21 @@ def runner_memory(meminfo="/proc/meminfo"):
         return ""
 
 
+def pacing_park(payload, retry_after):
+    """(this lane's seconds, its provider siblings' seconds or None) for kumori's rpm_spacing 503, else None. Pacing
+    is a clock, not a failure: wait what the router says plus up to 2 s of jitter, never a doubling streak (Codex
+    20261123T151424101911Z); siblings wait only the provider's clock (Codex 20261123T154157816570Z f1)."""
+    body = payload if isinstance(payload, dict) else {}
+    if body.get("error_code") != "rpm_spacing":
+        return None
+    p = body.get("pacing") if isinstance(body.get("pacing"), dict) else {}
+    jitter = random.uniform(0, 2)
+    own = max(1, retry_after or body.get("retry_after_s") or 5) + jitter
+    if p.get("scope") != "provider":
+        return own, None
+    return own, max(1, p.get("provider_retry_after_s") or 0) + jitter
+
+
 def bench_delay(retry_after, consecutive):
     """Repeated refusals park a lane longer, never less than the router asks."""
     minimum = max(5, retry_after or 60)
@@ -688,6 +703,22 @@ def main():
                         with lock:                        # the router's fair-share or pool gate: done for today
                             exhausted[lane["provider"]] = msg.split(" : ", 1)[-1][:120]
                         return "exhausted"
+                    pacing = pacing_park(e.payload, e.retry_after)
+                    if pacing:
+                        # kumori's RPM pacing: the stated wait is exact, so no growing streak, plus jitter so parked
+                        # workers do not return together; scope 'provider' holds every lane of it (kumori #316, 2026-11-23:
+                        # one routeway lane parked 5 s while its 8 siblings were held 12 s, 145 refusals in 8 h)
+                        wait, siblings = pacing
+                        with lock:
+                            now = time.monotonic()
+                            for other in (order if siblings else []):
+                                if other["provider"] == lane["provider"]:
+                                    bench["told"][other["backend"]] = max(bench["told"].get(other["backend"], 0),
+                                                                          now + siblings)
+                            bench["told"][lane["backend"]] = max(bench["told"].get(lane["backend"], 0), now + wait)
+                        print(f"{lane['backend']}: RPM pacing; parked for {wait:.0f}s"
+                              + (f", every {lane['provider']} lane for {siblings:.0f}s" if siblings else ""), flush=True)
+                        return "defer"
                     if "is benched" in msg or "is pacing to the provider limit" in msg:
                         # the router's gate refused, or its pacing holds the lane to a provider budget (a daily token
                         # budget can run to the UTC reset; 106 lost tries on 2026-11-01 before this): wait as long as it says

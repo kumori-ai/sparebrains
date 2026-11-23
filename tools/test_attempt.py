@@ -114,6 +114,44 @@ class RetryPacingTests(unittest.TestCase):
             self.assertEqual(env['bench']['told']['test-lane'], 1000 + 5400, "parked exactly as long as the router says")
         self.assertEqual((env['state']['calls'], env['bench']['streak'].get('test-lane')), (0, 1), "no try spent, one refusal counted")
 
+    def pacing_error(self, scope):
+        return attempt.KumoriAPIError(
+            'kumori /api/v1/llm/chat HTTP 503 : test-lane is benched: provider-wide RPM spacing', status_code=503,
+            retry_after=12, payload={'error_code': 'rpm_spacing', 'retry_after_s': 12,
+                                     'pacing': {'scope': scope, 'provider': 'test', 'provider_retry_after_s': 12}})
+
+    def test_provider_pacing_parks_every_lane_of_it_without_a_streak(self):
+        """kumori #316, 2026-11-23: routeway's 5 RPM grant held all 9 lanes 12 s, but one refusal parked one lane and
+        the next worker asked a sibling into the same refusal (145 of 247 chat 503s in 8 h)."""
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = self.pacing_error('provider')
+        with patch.object(attempt.time, 'monotonic', return_value=1000), \
+             patch.object(attempt.random, 'uniform', return_value=1.0):
+            for _ in range(3):                                   # repeats wait the stated 12 s, never 24, 48
+                self.assertEqual(env['run_one']('demo', lane, 1), 'defer')
+        told = env['bench']['told']
+        self.assertEqual((told['test-lane'], told['test-sibling'], 'other-lane' in told), (1013, 1013, False))
+        self.assertEqual((env['state']['calls'], env['bench']['streak'].get('test-lane')), (0, None))
+
+    def test_lane_pacing_parks_only_that_lane(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = self.pacing_error('lane')
+        with patch.object(attempt.time, 'monotonic', return_value=1000), \
+             patch.object(attempt.random, 'uniform', return_value=0.5):
+            self.assertEqual(env['run_one']('demo', lane, 1), 'defer')
+        self.assertEqual(env['bench']['told'], {'test-lane': 1012.5})
+
+    def test_siblings_wait_only_the_provider_clock(self):
+        env, lane = self.runner()
+        env['llm_chat'].side_effect = attempt.KumoriAPIError(
+            'test-lane is benched: per-lane RPM spacing', status_code=503, retry_after=60,
+            payload={'error_code': 'rpm_spacing', 'retry_after_s': 60,
+                     'pacing': {'scope': 'provider', 'provider': 'test', 'lane_retry_after_s': 60, 'provider_retry_after_s': 2}})
+        with patch.object(attempt.time, 'monotonic', return_value=1000), \
+             patch.object(attempt.random, 'uniform', return_value=1.0):
+            self.assertEqual(env['run_one']('demo', lane, 1), 'defer')
+        self.assertEqual(env['bench']['told'], {'test-lane': 1061, 'test-sibling': 1003})
+
     def test_real_response_resets_refusal_streak_before_verification(self):
         env,lane = self.runner();env['bench']['streak']['test-lane'] = 5
         env['llm_chat'].return_value = ('answer','test-lane',{})
