@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+import hf_prefetch
 import ledger_files
 from ladder import failure_kind, rung_of
 from proof_text import FENCE, PROOF_SEP, extract_proof
@@ -218,7 +219,9 @@ def build(out_dir, work, batch, goals=False, tpu=False, budget_h=None, problems=
     (out / "kernel-metadata.json").write_text(json.dumps({
         "id": KERNEL_ID_TPU if tpu else KERNEL_ID, "title": "sparebrains-prover-tpu" if tpu else "sparebrains-prover",
         "code_file": "prover_kernel.py", "language": "python", "kernel_type": "script", "is_private": "false",
-        "enable_internet": "true", **accel, "dataset_sources": [], "model_sources": [], "competition_sources": [],
+        "enable_internet": "true", **accel, "dataset_sources": [],
+        # a mirrored model is mounted, never downloaded to the VM's disk (hf_prefetch.MIRRORS, 2026-11-25, #534)
+        "model_sources": [hf_prefetch.MIRRORS[model]] if tpu and model in hf_prefetch.MIRRORS else [], "competition_sources": [],
         "kernel_sources": []}, indent=1))
     return len(problems)
 

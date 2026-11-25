@@ -82,6 +82,67 @@ class Manifest(unittest.TestCase):
         self.assertEqual([p["part"] for p in parts], list(range(1, len(parts) + 1)))
 
 
+class Mounted(unittest.TestCase):
+    """The 32B loads a mounted Kaggle mirror, hash-checked against the pinned hub revision (2026-11-25, #534): four of
+    four 32B batches died reading the venv in /tmp after the 65 GB download landed beside it."""
+    API = {"siblings": [
+        {"rfilename": "model-00001-of-00001.safetensors", "size": 5,
+         "lfs": {"sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}},   # sha256(b"hello")
+        {"rfilename": "config.json", "size": 2, "blobId": "9e26dfeeb6e641a33dae4961196235bdb965b21b"},   # git blob of b"{}"
+        {"rfilename": "README.md", "size": 1, "blobId": "x"}]}
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.root = Path(self.d.name)
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def mirror(self, at, weights=b"hello"):
+        p = self.root / at
+        p.mkdir(parents=True)
+        (p / "model-00001-of-00001.safetensors").write_bytes(weights)
+        (p / "config.json").write_bytes(b"{}")
+        return p
+
+    def test_hashes_are_the_pinned_revisions_lfs_sha256_or_git_blob_sha1_for_what_vllm_loads(self):
+        asked = []
+        h = hf_prefetch.hashes("o/m", "abc", fetch=lambda url: asked.append(url) or json.dumps(self.API))
+        self.assertIn("/revision/abc?blobs=true", asked[0])
+        self.assertEqual(h, {"model-00001-of-00001.safetensors": ("sha256", self.API["siblings"][0]["lfs"]["sha256"]),
+                             "config.json": ("gitsha1", "9e26dfeeb6e641a33dae4961196235bdb965b21b")})
+
+    def test_a_matching_mirror_passes_and_one_changed_byte_fails(self):
+        h = hf_prefetch.hashes("o/m", "abc", fetch=lambda url: json.dumps(self.API))
+        good = self.mirror("good")
+        self.assertEqual(hf_prefetch.verify_hashes(good, h, expect=h), [])
+        bad = self.mirror("bad", weights=b"hellp")              # same size, one byte off: a size check would pass it
+        self.assertEqual(hf_prefetch.verify_hashes(bad, h, expect=h), ["model-00001-of-00001.safetensors: sha256 differs"])
+        (good / "config.json").unlink()
+        self.assertEqual(hf_prefetch.verify_hashes(good, h, expect=h), ["config.json: missing"])
+
+    def test_the_mounted_copy_is_found_by_its_manifest_wherever_kaggle_mounts_it(self):
+        man = {"model-00001-of-00001.safetensors": 5, "config.json": 2}
+        self.mirror("other-model/transformers/8b/1", weights=b"hi")              # a config.json, wrong sizes
+        want = self.mirror("goedel-prover-v2/transformers/32b/1")
+        self.assertEqual(hf_prefetch.find_mounted(man, roots=(self.root,)), str(want))
+        self.assertIsNone(hf_prefetch.find_mounted(man, roots=(self.root / "nowhere",)))
+
+    def test_empty_or_partial_metadata_never_passes(self):
+        # Codex 20261125T182811031376Z f1: {} from the hub gave manifest {}, hashes {}, found, bad [] (fail open)
+        self.mirror("m")
+        self.assertIsNone(hf_prefetch.find_mounted({}, roots=(self.root,)))
+        self.assertTrue(hf_prefetch.verify_hashes(self.root / "m", {}, expect={"config.json": 2}))
+        h = hf_prefetch.hashes("o/m", "abc", fetch=lambda url: json.dumps(self.API))
+        h.pop("config.json")
+        self.assertTrue(hf_prefetch.verify_hashes(self.root / "m", h,
+                                                  expect={"config.json": 2, "model-00001-of-00001.safetensors": 5}))
+
+    def test_only_the_32b_has_a_mirror_and_it_names_a_kaggle_model_source(self):
+        self.assertEqual(set(hf_prefetch.MIRRORS), {"Goedel-LM/Goedel-Prover-V2-32B"})
+        self.assertEqual(len(hf_prefetch.MIRRORS["Goedel-LM/Goedel-Prover-V2-32B"].split("/")), 5)   # owner/model/framework/instance/version
+
+
 class Robustness(unittest.TestCase):
     """Codex 20261024T195435827483Z f3: a partial file renamed mid-scan must not crash the watchdog, and a watchdog
     that fails for any reason leaves no download child running."""

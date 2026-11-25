@@ -3,6 +3,25 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-25
+
+- **The 32B loads a mounted Kaggle mirror, hash-checked, and never downloads onto the TPU VM's disk (#534).** As of
+  2026-11-25 every 32B batch with an error on record died reading the vllm-tpu venv in /tmp after the 65 GB download
+  landed on the same overlay disk: 20261101T1916 `libstdc++.so.6: failed to map segment`, 20261117T2047 `No module
+  named vllm.config.scheduler`, 20261121T1549 `No module named vllm.utils.ompmultiprocessing` and then `OSError [Errno
+  5] Input/output error` on `/tmp/vllm-tpu/.../ray/dag/__init__.py`, 53 min into loading, after both import probes had
+  passed (ledger/prover-beats). 20261024T2034 failed in the probe's torch import after the download, and
+  20261023T1659 died with no error kept. The 8B (16 GB) runs on the same path. That storage is the cause is a
+  hypothesis these records support but do not prove (Codex). Changed: for the 32B, prover.py sets kernel-metadata
+  `model_sources` to `mykhailynabondarenko/goedel-prover-v2/transformers/32b/1`, a public Apache-2.0 Kaggle Model whose
+  23 loaded files match pinned revision 851bf85d at exact sizes (Kaggle API, read 2026-11-25). The kernel finds it
+  under /kaggle/input and checks every file's LFS sha256 or git blob sha1 against the pinned revision. It stops if the
+  mirror is absent or differs, with no fallback to the download. The 8B still downloads. This follows kaggle-tpu-lab,
+  which loads Qwen3.8-27B's 55 GB from a mounted dataset in 3 min. The next smoke settles the hypothesis: a clean
+  load supports it, and the same death reading a mount clears the disk. Tests fail first (3 red without the kernel
+  change); all tools/test_*.py green. Codex AGREE 20261125T182811031376Z; its f1 (empty hub metadata passed
+  verification) fixed in this change.
+
 ## 2026-11-21
 
 - **A frontier session's whole proof is a blueprint source first, a hand-off second.** As of 2026-11-21 this window

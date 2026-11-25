@@ -139,6 +139,59 @@ class ProverTests(unittest.TestCase):
             self.assertIn('beat("probe", when="after advising the page cache away", evicted=evicted', text)
             compile(text, "prover_kernel.py", "exec")
             self.assertIn('if phase == "loading" or waited >= BEAT_S', text, "one beat a minute while vLLM loads, stepped by the minute")
+            # 2026-11-25: four of four 32B batches died reading the venv in /tmp after the 65 GB download landed
+            # beside it; the 32B loads the mounted Kaggle mirror, hash-checked, and never downloads to the VM's disk
+            meta = json.loads((Path(d) / "kernel-metadata.json").read_text())
+            self.assertEqual(meta["model_sources"], [prover.hf_prefetch.MIRRORS[prover.PROVER_32B["model"]]])
+
+    def test_an_8b_tpu_kernel_mounts_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = {"target_set": "minif2f/test", "target": NAME, "rung": "imo", "order": 1}
+            prover.build(d, [(t, 32)], "tpu-20261125T0000", tpu=True, budget_h=8.5)
+            self.assertEqual(json.loads((Path(d) / "kernel-metadata.json").read_text())["model_sources"], [])
+
+
+class TpuWeights(unittest.TestCase):
+    """The kernel's weights block, run out of its source: a mirrored model loads only a mounted, hash-checked copy and
+    never starts the hub download; an unmirrored one downloads as before (2026-11-25, #534)."""
+
+    def run_block(self, model, mounted, bad=()):
+        import ast
+        from unittest.mock import Mock
+        src = (Path(prover.ROOT) / "tools" / "prover_kernel_tpu.py").read_text()
+        tree = ast.parse(src).body
+        start = next(i for i, n in enumerate(tree) if ast.unparse(n) == "phase = 'downloading'")
+        end = next(i for i, n in enumerate(tree) if i > start and ast.unparse(n).startswith("versions = probe()"))
+        prefetch = Mock(return_value=(True, 0, ""))
+        ns = {"MODEL": model, "PINS": {model: "rev"}, "MIRRORS": prover.hf_prefetch.MIRRORS, "best": "/tmp",
+              "time": __import__("time"), "manifest": lambda m, r: {"config.json": 2}, "hashes": lambda m, r: {},
+              "find_mounted": lambda man: mounted, "verify_hashes": lambda local, h, expect: list(bad), "verify": lambda l, m: [],
+              "prefetch": prefetch, "child_cmd": Mock(), "PY": "python", "beat": Mock(), "stamp": Mock(), "sys": sys}
+        code = compile(ast.Module(body=tree[start:end], type_ignores=[]), "kernel.py", "exec")
+        try:
+            exec(code, ns)
+            return ns, prefetch, None
+        except SystemExit as e:
+            return ns, prefetch, str(e)
+
+    def test_a_mounted_mirror_that_hashes_clean_is_loaded_and_nothing_is_downloaded(self):
+        ns, prefetch, exit_ = self.run_block("Goedel-LM/Goedel-Prover-V2-32B", "/kaggle/input/goedel-prover-v2/transformers/32b/1")
+        self.assertIsNone(exit_)
+        prefetch.assert_not_called()
+        self.assertEqual(ns["local"], "/kaggle/input/goedel-prover-v2/transformers/32b/1")
+
+    def test_a_missing_or_tampered_mirror_stops_before_vllm_and_never_falls_back_to_the_download(self):
+        for mounted, bad in ((None, ()), ("/kaggle/input/m", ["model-00001.safetensors: sha256 differs"])):
+            with self.subTest(mounted=mounted):
+                ns, prefetch, exit_ = self.run_block("Goedel-LM/Goedel-Prover-V2-32B", mounted, bad)
+                self.assertIsNotNone(exit_)
+                prefetch.assert_not_called()
+
+    def test_the_8b_still_downloads_to_the_roomiest_disk(self):
+        ns, prefetch, exit_ = self.run_block("Goedel-LM/Goedel-Prover-V2-8B", None)
+        self.assertIsNone(exit_)
+        prefetch.assert_called_once()
+        self.assertTrue(ns["local"].startswith("/tmp/models/"))
 
     def test_a_tpu_kernel_gets_its_budget_less_the_load_and_one_chunk(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1178,7 +1231,7 @@ class PrefetchedKernel(unittest.TestCase):
         src = self.built()
         tail = src[src.rindex('beat("failed", exit=code'):]
         self.assertIn("sys.exit(", tail)
-        self.assertIn('beat("failed", reason="download"', src)
+        self.assertIn('beat("failed", reason="weights"', src)        # the download or the mounted mirror (2026-11-25)
 
     def test_a_smoke_batch_is_named_so_it_never_triggers_the_replacement(self):
         self.assertEqual(prover.tpu_batch_name("tpu32-", True, "20261024T2000"), "smoke-tpu32-20261024T2000")

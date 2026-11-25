@@ -158,7 +158,7 @@ beat("started", machine=timing["machine"])
 # Disk before anything is downloaded (task #534): the 32B is 65.6 GB in bf16 and the TPU VM's disk was never measured.
 # The model goes to the mount with the most room, never /kaggle/working, whose files become the kernel's output.
 MODEL_GB = {"Goedel-LM/Goedel-Prover-V2-8B": 16.4, "Goedel-LM/Goedel-Prover-V2-32B": 65.6}
-need_gb = MODEL_GB.get(MODEL, 70) * 1.15 + 8          # weights, headroom, and the vllm-tpu venv
+need_gb = (0 if MODEL in MIRRORS else MODEL_GB.get(MODEL, 70) * 1.15) + 8    # weights unless mounted, headroom, the venv
 free = {d: round(shutil.disk_usage(d).free / 1e9, 1) for d in ("/tmp", os.path.expanduser("~"), "/kaggle/temp", "/mnt")
         if os.path.isdir(d)}
 stamp(disk={"free_gb": free, "need_gb": round(need_gb, 1)})
@@ -247,17 +247,30 @@ if first.startswith("import failed"):
 phase = "downloading"
 local = f"{best}/models/{MODEL.replace('/', '--')}"
 t_dl = time.time()
+restarts, reason, bad = 0, "", []
 try:
     man = manifest(MODEL, PINS[MODEL])
-    ok, restarts, reason = prefetch(child_cmd(PY, MODEL, PINS[MODEL], local), local,
-                                    beat=lambda event, **kw: beat(event, **kw))
-    bad = verify(local, man) if ok else []
+    if MODEL in MIRRORS:
+        # 2026-11-25 (#534): never the 65 GB download onto the venv's disk (four of four 32B batches died reading the
+        # venv after it), and never a fallback to it: the mounted mirror, every file hashed against the pinned revision
+        local = find_mounted(man)
+        if local:
+            beat("mounted", path=local, source=MIRRORS[MODEL])
+            bad = verify_hashes(local, hashes(MODEL, PINS[MODEL]), expect=man)
+        else:
+            reason = f"{MIRRORS[MODEL]} not mounted under /kaggle/input (kernel-metadata model_sources)"
+        ok = bool(local)
+    else:
+        ok, restarts, reason = prefetch(child_cmd(PY, MODEL, PINS[MODEL], local), local,
+                                        beat=lambda event, **kw: beat(event, **kw))
+        bad = verify(local, man) if ok else []
 except Exception as e:
     ok, restarts, reason, bad, man = False, 0, f"{type(e).__name__}: {e}"[:300], [], {}
 if not ok or bad:
-    stamp(failed=f"download: {reason or '; '.join(bad[:5])}")
-    beat("failed", reason="download", detail=reason, bad=bad[:20], restarts=restarts)
-    sys.exit(f"download failed: {reason or bad[:5]}")
+    stamp(failed=f"weights: {reason or '; '.join(bad[:5])}")
+    beat("failed", reason="weights", detail=reason, bad=bad[:20], restarts=restarts)
+    sys.exit(f"weights failed: {reason or bad[:5]}")
+stamp(weights_from="mount" if MODEL in MIRRORS else "hub", weights_path=local)
 versions = probe()
 stamp(download_s=round(time.time() - t_dl, 1), model_revision=PINS[MODEL])
 beat("downloaded", download_s=timing["download_s"], files=len(man), bytes=sum(man.values()), restarts=restarts,
