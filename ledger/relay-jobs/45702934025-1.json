@@ -1,0 +1,1 @@
+{"run_id": "45702934025", "run_attempt": "1", "ts": "2026-11-25T21:20:01+00:00", "problem": "minif2f/test/imo_1977_p6", "calls": 45, "accepts": 0, "relay_rows": 29, "woken_by": {"kind": "model", "model": "liquid/lfm-3-1.7b:free"}, "backed_off": true}
