@@ -470,6 +470,7 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
         return {"guided": mid, "hint_pairs": len(rows), "complete": all(r["complete"] for r in rows),
                 "rejudged": again, "whole_proof_checked": False}
     carry, carry_why = carried_holes(man, guided_in)
+    cold = man.get("control") == "cold"            # the cold control: the whole theorem as one hole (blueprint.cold_doc)
     kept = {}
     samples, meta = defaultdict(lambda: defaultdict(list)), {}
     for a in sorted(answers, key=lambda a: (a["target_set"], a["target"], a["guided"]["hole"], a["sample"])):
@@ -488,17 +489,23 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
         key = tuple(problem.rsplit("/", 1))
         g = meta.get(key)
         row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, "batch": batch,
-               "manifest": mid, "target_set": key[0], "target": key[1], "arm": "K", "try_mode": "guided", "lane": BACKEND,
+               "manifest": mid, "target_set": key[0], "target": key[1], "arm": "cold" if cold else "K",
+               "try_mode": "guided-cold-control" if cold else "guided", "lane": BACKEND,
                "config": answers[0].get("config")}
         rows.append(row)
         if not g:
             row.update(note="no answers came back for this problem", truncated=True)
             stats["no_answers"] += 1
             continue
-        bp, text = blueprint_at(g["blueprint"]), read(*key)
-        if (not bp.exists() or hashlib.sha256(bp.read_bytes()).hexdigest() != g["blueprint_sha"]
-                or hashlib.sha256(text.encode()).hexdigest() != g["target_sha"]):
+        bp, text = (None if cold else blueprint_at(g["blueprint"])), read(*key)
+        if (hashlib.sha256(text.encode()).hexdigest() != g["target_sha"]
+                or not cold and (not bp.exists() or hashlib.sha256(bp.read_bytes()).hexdigest() != g["blueprint_sha"])):
             row.update(note="blueprint or target changed since export: nothing judged")
+            stats["changed_since_export"] += 1
+            continue
+        loaded = {(x.get("config") or {}).get("revision") for x in answers if (x["target_set"], x["target"]) == key}
+        if cold and loaded != {(g.get("generation") or {}).get("revision")}:
+            row.update(note=f"answers were generated on revision {sorted(map(str, loaded))}, not the manifest's: nothing judged")
             stats["changed_since_export"] += 1
             continue
         was = carry.get(problem) or {}
@@ -554,10 +561,12 @@ def judge_guided(answers, *, judge_text, read, run_id, stall=STALL, guided_out=N
 
         specs = blueprint.subs_of({"subs": (man.get("subs") or {}).get(problem), "sub": (man.get("sub") or {}).get(problem)})
         row["guide_rounds"] = 1 + depth(specs)       # the guide chose propositions again for a hole, and for a hole of that
-        f, show, keep = node(text, json.loads(bp.read_text()), (), g.get("exported"), was, specs)
+        doc = blueprint.cold_doc(goal_closer.prefix_of(text)) if cold else json.loads(bp.read_text())
+        f, show, keep = node(text, doc, (), g.get("exported"), was, specs)
         how = f["how"]
-        kept[problem] = {"blueprint": g["blueprint"], "blueprint_sha": g["blueprint_sha"], "target_sha": g["target_sha"], **keep}
-        row.update(blueprint=g["blueprint"], blueprint_sha=g["blueprint_sha"], carry_missing=carry_why, **show,
+        kept[problem] = {"blueprint": g.get("blueprint"), "blueprint_sha": g.get("blueprint_sha"), "target_sha": g["target_sha"], **keep}
+        row.update(blueprint=g.get("blueprint"), blueprint_sha=g.get("blueprint_sha"), carry_missing=carry_why, **show,
+                   **({"generation": g.get("generation")} if cold else {}),
                    **({"subs": reads} if reads else {}))
         stats["holes"] += f["holes"]
         stats["closed_by_lean"] += sum(1 for v in f["closed_by"].values() if v == "lean")

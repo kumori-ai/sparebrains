@@ -658,6 +658,96 @@ class GuidedBatchTests(unittest.TestCase):
         self.assertIn('"guided": {"manifest": "' + self.MID, built)
 
 
+class ColdControlTests(unittest.TestCase):
+    """The cold control of the guided pilots (#712, Codex 20261126T031314924868Z AGREE): the whole theorem as hole 1 of
+    1, judged by the guided arm's own fill_samples, so only the decomposition differs; the model frozen by revision."""
+    MID = "pilot-cold-kaggle-x"
+    KEY = f"minif2f/test/{NAME}"
+    REV = "d" * 40
+
+    def setUp(self):
+        import blueprint
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.stall = self.root / "stall"
+        self.stall.mkdir()
+        self.man = {"id": self.MID, "filler": "kaggle", "control": "cold", "problems": [self.KEY],
+                    "target_sha256": {self.KEY: hashlib.sha256(TARGET.encode()).hexdigest()}, "samples": {self.KEY: 3},
+                    "generation": {"model": prover.MODEL, "revision": self.REV}}
+        (self.stall / f"{self.MID}.json").write_text(json.dumps(self.man))
+        self.work = blueprint.kaggle_work(self.man, 99, read=lambda s, t: TARGET)
+        self.batch = f"guided-{self.MID}-20261125T0000"
+
+    def answers(self, texts, rev=None):
+        return [{"batch": self.batch, "target_set": w["target_set"], "target": w["target"], "sample": k, "guided": w["guided"],
+                 "text": t, "tokens": 10, "finish": "stop", "seconds": 1.0,
+                 "config": {"model": prover.MODEL, "revision": rev or self.REV}} for w in self.work for k, t in enumerate(texts)]
+
+    def judge(self, answers, judge_text):
+        prover.judge_guided(answers, judge_text=judge_text, read=lambda s, t: TARGET, run_id="t1", stall=self.stall,
+                            guided_out=self.root / "held", closer=lambda lp: None, blueprint_at=lambda rel: Path(rel))
+        return [json.loads(l) for l in (self.stall / f"{self.batch}.jsonl").read_text().splitlines()]
+
+    def test_export_is_the_whole_theorem_as_one_hole_at_the_manifests_budget_and_revision(self):
+        (w,) = self.work
+        self.assertEqual(w["n"], 3, "samples[key], not samples_per_hole")
+        self.assertIn("theorem sb_goal (x : ℝ) : x = x := by\n  sorry", w["statement"])
+        self.assertIn("What is x?", w["statement"], "the docstring stays, as in a guided hole's file")
+        self.assertEqual((w["guided"]["control"], w["guided"]["hole"], w["guided"]["holes"]), ("cold", 1, 1))
+        self.assertEqual(w["guided"]["generation"], {"model": prover.MODEL, "revision": self.REV})
+        self.assertEqual(prover.guided_owed(self.stall)["id"], self.MID)
+
+    def test_a_cold_manifest_without_a_revision_or_with_a_changed_target_exports_nothing(self):
+        import blueprint
+        for man in ({**self.man, "generation": {"model": prover.MODEL}},
+                    {**self.man, "target_sha256": {self.KEY: "0" * 64}}):
+            with self.assertRaises(SystemExit):
+                blueprint.kaggle_work(man, 3, read=lambda s, t: TARGET)
+
+    def test_first_accept_solves_and_the_assembled_whole_proof_is_judged(self):
+        seen = []
+        def judge_text(text):
+            seen.append(text)
+            return {"verdict": "accept" if "rfl" in text and "sorry" not in text else "reject", "reason": "", "output": "error"}
+        bad = "```lean4\ntheorem sb_goal (x : ℝ) : x = x := by\n  simp_bad\n```"
+        good = "```lean4\ntheorem sb_goal (x : ℝ) : x = x := by\n  rfl\n```"
+        (row,) = self.judge(self.answers([bad, good, good]), judge_text)
+        self.assertEqual((row["arm"], row["try_mode"]), ("cold", "guided-cold-control"))
+        self.assertEqual(row["final"], "accept")
+        self.assertEqual(row["closed_by"], {"1": prover.BACKEND})
+        self.assertEqual((row["generated"], row["unread"]), ({"1": 3}, 1))
+        self.assertEqual(row["generation"]["revision"], self.REV)
+        self.assertIn("accepted_sha", row)
+        self.assertTrue(any("have bp_1 : x = x" in t and "exact bp_1" in t for t in seen), "the whole proof was assembled")
+
+    def test_all_rejected_is_a_failed_hole_and_no_solve(self):
+        (row,) = self.judge(self.answers(["```lean4\ntheorem sb_goal (x : ℝ) : x = x := by\n  nope\n```"] * 3),
+                            lambda text: {"verdict": "reject", "reason": "", "output": "error"})
+        self.assertEqual(row["failed"], [1])
+        self.assertNotIn("accepted_sha", row)
+        self.assertFalse(row["truncated"])
+
+    def test_the_kernel_loads_the_frozen_revision_for_a_cold_batch_and_none_for_an_unfrozen_one(self):
+        import ast
+        tree = ast.parse((Path(prover.ROOT) / "tools" / "prover_kernel.py").read_text())
+        names = lambda n: {t.id for t in getattr(n, "targets", []) if isinstance(t, ast.Name)}
+        start = next(i for i, n in enumerate(tree.body) if "paired" in names(n))
+        stop = next(i for i, n in enumerate(tree.body) if "llm" in names(n))
+        block = compile(ast.Module(body=tree.body[start:stop + 1], type_ignores=[]), "pin", "exec")
+        for problems, want in ((self.work, {"revision": self.REV}),
+                               ([{k: v for k, v in self.work[0].items() if k != "guided"}], {})):
+            got = {}
+            exec(block, {"PROBLEMS": problems, "MODEL": prover.MODEL, "MAX_TOKENS": 16000,
+                         "LLM": lambda **kw: got.update(kw)})
+            self.assertEqual({k: got[k] for k in ("revision",) if k in got}, want)
+
+    def test_answers_generated_on_another_revision_judge_nothing(self):
+        (row,) = self.judge(self.answers(["x"], rev="e" * 40), lambda text: {"verdict": "accept", "reason": "", "output": ""})
+        self.assertIn("not the manifest's", row["note"])
+        self.assertNotIn("final", row)
+
+
 class BatchTimingTests(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()

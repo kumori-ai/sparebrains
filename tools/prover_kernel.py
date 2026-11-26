@@ -87,15 +87,16 @@ import cutlass
 from vllm import LLM, SamplingParams
 
 paired = any(p.get("guided", {}).get("hint_arm") for p in PROBLEMS)
+frozen = [p.get("guided", {}).get("generation") for p in PROBLEMS]
+pinned = paired or any(frozen)          # a hint pair or a cold control (#712) loads the one revision its manifest froze
 revision = None
-if paired:
-    frozen = [p.get("guided", {}).get("generation") for p in PROBLEMS]
+if pinned:
     if (not frozen[0] or any(g != frozen[0] for g in frozen)
             or frozen[0].get("model") != MODEL or not frozen[0].get("revision")):
-        raise RuntimeError("hint experiment requires one frozen model revision for every item")
+        raise RuntimeError("a pinned batch requires one frozen model revision for every item")
     revision = frozen[0]["revision"]
 llm = LLM(model=MODEL, dtype="half", tensor_parallel_size=2, max_model_len=MAX_TOKENS + 2048,
-          gpu_memory_utilization=0.92, trust_remote_code=True, **({"revision": revision} if paired else {}))
+          gpu_memory_utilization=0.92, trust_remote_code=True, **({"revision": revision} if pinned else {}))
 tok = llm.get_tokenizer()
 print(json.dumps({"batch": BATCH, "problems": len(PROBLEMS), "load_s": round(time.time() - t0, 1)}), flush=True)
 stamp(loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), load_s=round(time.time() - t0, 1))
@@ -140,7 +141,7 @@ with open(OUT, "a") as out:
                                       "seconds": round(secs * len(o.token_ids) / max(n_tokens, 1), 1),
                                        "config": {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,
                                                   "top_p": TOP_P, "dtype": "half", "gpus": "T4 x2",
-                                                  **({"revision": revision, "vllm": __import__("vllm").__version__} if paired else {})}}) + "\n")
+                                                  **({"revision": revision, "vllm": __import__("vllm").__version__} if pinned else {})}}) + "\n")
         out.flush()
         print(json.dumps({"chunk": i // CHUNK, "problems": [p["target"] for p in chunk], "seconds": round(secs, 1),
                           "tokens": n_tokens, "tok_per_s": round(n_tokens / secs, 1)}), flush=True)

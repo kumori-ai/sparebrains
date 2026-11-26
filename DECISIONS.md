@@ -5,6 +5,22 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-25
 
+- **The guided pilots' cold control runs the whole theorem as a one-hole blueprint, at the guided arm's sample count,
+  on a pinned revision (#712).** Before any comparative read of pilot-guided-kaggle-held-2026-11-21a and -21b, the
+  same prover tries each whole theorem with no blueprint: 48 samples on amc12a_2008_p25 and 40 on
+  numbertheory_exk2powkeqapb2mulbpa2_aeq1, the guided arms' generated totals (manifest
+  `ledger/stall/pilot-cold-kaggle-held-2026-11-25.json`). The theorem's conclusion is the one statement
+  (`blueprint.cold_doc`), so the cold arm meets the same lemma-file prompt, Lean's recipes first, the free chain on every
+  reject and the same judge, and differs only in the split. Not chosen: the plain prover batch, which chains at most 6
+  rejects and runs no recipes, so the arms would also differ in tools. Earlier cold tries (32 samples each, 0 accepts)
+  are context only: unpinned revision, a capped chain, and a TPU for one. The kernel now pins the revision any guided
+  manifest freezes (dfd02e62, the Hub's main since 2025-08-09), and the judge refuses answers from another revision.
+  That the guided arms loaded the same revision is inferred from the Hub's history, not recorded. The read is set in
+  the manifest beforehand. A cold accept on amc12a_2008_p25 removes the guided solve as evidence of a solve advantage.
+  A cold miss there is consistent with help on one problem, and supports no rate or tool-lift claim. Truncation is
+  inconclusive. Codex 20261126T031314924868Z AGREE on the design; 20261126T031946844277Z DISAGREE only on the
+  dispatch (the schedule sends no canary), so the GPU canary is dispatched by hand.
+
 - **Held proof text is kept in three private copies, and the public ledger hashes are its commitments (#712).** As of
   2026-11-25 the held text (the guided runs' holes files, the hint proofs and the accepted `amc12a_2008_p25` proof,
   7 files, 68,489 bytes) lived only in Actions artifacts that expire 2027-02-14 to 02-20. It stays private, by the

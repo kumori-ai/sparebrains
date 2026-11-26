@@ -332,6 +332,8 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
     numbers from the problem's blueprint down), each with the lemma's binders and the earlier statements as
     hypotheses. A hole with a blueprint is never also sampled whole, and a blueprint whose statements would be named
     like its lemma's hypotheses is refused (next_stem)."""
+    if man.get("control") == "cold":
+        return cold_work(man, read)
     if "hint_pairs" in man:
         from guided_hints import validate_manifest
         validate_manifest(man, n)
@@ -363,6 +365,36 @@ def kaggle_work(man, n, read, find=latest_gated, rel=lambda path: str(path.relat
     if "hint_pairs" in man:
         from guided_hints import paired_work
         return paired_work(out, man["hint_pairs"])
+    return out
+
+
+def cold_doc(prefix):
+    """The cold control's blueprint (#712, 2026-11-25): the target's own conclusion as its one statement, closed by
+    `exact bp_1`. Never gated (it is the target, so the gate's duplicate check would refuse it): it exists so the cold
+    arm meets the guided arm's prompt shape, Lean's recipes, free chain and judge, and differs only in the split."""
+    return {"statements": [split_signature(prefix)[1]], "final": f"exact {STEM}_1"}
+
+
+def cold_work(man, read):
+    """A cold-control manifest's problems as prover-batch entries: each whole theorem as hole 1 of 1 (cold_doc),
+    `samples[key]` samples each (the guided arm's generated total), the target frozen by hash and the model by
+    revision: the kernel loads exactly that revision and every answer says so (Codex 20261126T031314924868Z f1)."""
+    gen = man.get("generation") or {}
+    if not gen.get("model") or not gen.get("revision"):
+        raise SystemExit(f"{man['id']}: a cold control needs generation.model and generation.revision")
+    out = []
+    for key in man["problems"]:
+        tset, name = key.rsplit("/", 1)
+        text = read(tset, name)
+        sha = hashlib.sha256(text.encode()).hexdigest()
+        if sha != (man.get("target_sha256") or {}).get(key):
+            raise SystemExit(f"{man['id']}: {key}'s target is not what the manifest froze: nothing exported")
+        prefix, n = goal_closer.prefix_of(text), man["samples"][key]
+        doc = cold_doc(prefix)
+        out.append({"target_set": tset, "target": name, "n": n,
+                    "statement": subgoals.lemma_file(prefix, lemma_text(prefix, doc["statements"], 0), "  sorry\n"),
+                    "guided": {"manifest": man["id"], "n": n, "target_sha": sha, "control": "cold", "hole": 1, "holes": 1,
+                               "generation": {k: gen[k] for k in ("model", "revision")}}})
     return out
 
 
