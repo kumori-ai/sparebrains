@@ -1,0 +1,1 @@
+{"run_id": "45775204343", "run_attempt": "1", "ts": "2026-11-26T07:27:34+00:00", "problem": "minif2f/test/amc12a_2021_p25", "calls": 45, "accepts": 0, "relay_rows": 28, "woken_by": {"kind": "model", "model": "Sao10K/L3-8B-Stheno-v3.2"}, "backed_off": true}
