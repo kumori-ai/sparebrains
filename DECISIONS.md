@@ -5,6 +5,23 @@ Everything NOT here is open and lives in `PLAN.md` §6.
 
 ## 2026-11-25
 
+- **Held proof text is kept in three private copies, and the public ledger hashes are its commitments (#712).** As of
+  2026-11-25 the held text (the guided runs' holes files, the hint proofs and the accepted `amc12a_2008_p25` proof,
+  7 files, 68,489 bytes) lived only in Actions artifacts that expire 2027-02-14 to 02-20. It stays private, by the
+  2026-11-21 entry. This follows the 3-2-1 backup practice: the maintainer's checkout (`.lake/guided/artifacts/`,
+  untracked), a private repository in the org, and a private bucket in the kumori project. The bucket has uniform
+  access, public access prevention, versioning and a 365-day retention policy, left unlocked because locking is
+  irreversible. Its project-viewer and project-editor convenience bindings were removed before any upload, so the
+  bucket policy shows owner bindings only (the project has no parent org or folder). The org has one member and no
+  outside collaborators. Each copy carries `SHA256SUMS` and a `MANIFEST.json` naming the source run, the artifact
+  and the ledger file holding each hash: six of the seven are committed in `ledger/stall`, and the hint-proofs file
+  has per-sample hashes only. The bucket copy also carries `GENERATIONS.txt`. Checked: fresh downloads from both
+  remotes pass `shasum -c` 7/7, and an appended byte fails it. Deleting a live object only makes it noncurrent
+  (seen, then restored byte-identical), and deleting a generation is refused until 2027-11-25. That makes this
+  protection against accidents, not WORM storage that an admin cannot remove. Codex 20261126T030134726234Z DISAGREE:
+  its f1 (one file wrongly listed as unhashed) and f2 (inherited bucket readers) were both taken. Round 2
+  20261126T030322949421Z UNSURE: no new defect, and the IAM audit it could not run was done here.
+
 - **The 32B loads a mounted Kaggle mirror, hash-checked, and never downloads onto the TPU VM's disk (#534).** As of
   2026-11-25 every 32B batch with an error on record died reading the vllm-tpu venv in /tmp after the 65 GB download
   landed on the same overlay disk: 20261101T1916 `libstdc++.so.6: failed to map segment`, 20261117T2047 `No module
