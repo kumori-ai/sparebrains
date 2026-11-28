@@ -298,6 +298,10 @@ def rungs(ledger, rows, now, since):
     # idle 18.1 days with runs on 11-05 and 11-06 there)
     runs = [_ts(r) for r in _load_jsonl(Path(ledger) / "decompose")]
     last["decompose"] = max([last.get("decompose", "")] + runs) or None
+    # the prover station is the 8B, the 32B (mode prover-32b) and every finished Kaggle batch, guided and smoke ones
+    # included (2026-11-28: "prover idle 19.8 days" while the 32B smoke and the guided cold control ran on 11-26)
+    done = [b["finished_at"] for b in _load_jsonl(Path(ledger) / "prover-batches.jsonl") if b.get("finished_at")]
+    last["prover"] = max([last.get("prover", ""), last.get("prover-32b", "")] + done) or None
     out = [{"rung": "competition math (ladder)", "last": last.get("ladder-x3"), "idle_days": _days(now, last.get("ladder-x3"))},
            {"rung": "relay", "last": last.get("relay"), "idle_days": _days(now, last.get("relay"))},
            {"rung": "prover", "last": last.get("prover"), "idle_days": _days(now, last.get("prover"))},

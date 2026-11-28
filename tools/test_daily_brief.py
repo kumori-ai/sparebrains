@@ -112,9 +112,22 @@ class Brief(unittest.TestCase):
         fixes = " | ".join(brief()["fixes"])
         self.assertNotIn("goal batches", fixes, "retired on purpose is not a fix (DECISIONS.md, 2026-11-02)")
         self.assertFalse(any("goal batches" in x for x in brief()["losses"] + brief()["wins"]), "nor a daily loss line")
-        self.assertIn("decompose idle 14.9 days", fixes, "a tool stopped by accident still is one")
+        self.assertNotIn("decompose", fixes, "by hand only and parked (2026-11-28): no schedule stalled, nothing to restart")
+        self.assertIn("openproblems.bio", fixes, "a rung not parked still reports")
         self.assertIn("138 crashed beside 144 scored (49% of rounds)", fixes)   # disjoint sets in rungs(): errors vs rmse rows
         self.assertNotIn("competition math", fixes)           # 0.1 days idle is running
+
+    def test_a_parked_rung_is_quiet_and_an_unparked_one_still_alarms(self):
+        t = copy.deepcopy(TODAY)
+        t["rungs"] = [{"rung": "decompose", "idle_days": 30.0}, {"rung": "formal-conjectures", "idle_days": 30.0, "accepts_ever": 0},
+                      {"rung": "prover", "idle_days": 9.0}]
+        fixes = " | ".join(daily_brief.brief(t, [])["fixes"])
+        self.assertNotIn("decompose", fixes)
+        self.assertNotIn("formal-conjectures", fixes)
+        self.assertIn("prover idle 9.0 days", fixes, "a scheduled station idle past the bar is still a fix")
+        for name, why in daily_brief.PARKED.items():
+            self.assertRegex(why, r"20\d\d-\d\d-\d\d", f"{name}: a parked line carries its date")
+            self.assertIn("reopens", why, f"{name}: and the condition that brings it back")
 
     def test_lift_regression_is_a_loss_and_refusals_become_an_idea(self):
         b = brief()

@@ -227,6 +227,18 @@ class DailyReport(unittest.TestCase):
         self.assertEqual(r["goal batches (GPU)"]["last"], "2026-10-28T06:00:00+00:00")
         self.assertEqual(r["decompose"]["last"], "2026-10-27T06:00:00+00:00", "its own rung: idle stays visible")
 
+    def test_the_prover_rung_counts_the_32b_and_finished_batches(self):
+        # 2026-11-28: the brief said "prover idle 19.8 days" while the 32B's smoke batch ran 11-26 (32 judged rows, mode
+        # prover-32b) and the guided pilots finished batches the same day; the rung read only mode == "prover" rows
+        write(self.ledger / "minif2f" / "test" / "4.jsonl", [row("2026-10-20T06:00:00+00:00", "hard", "reject", mode="prover"),
+                                                             row("2026-10-28T05:00:00+00:00", "hard", "reject", mode="prover-32b")])
+        r = {x["rung"]: x for x in daily_report.build(self.ledger, NOW)["rungs"]}
+        self.assertEqual(r["prover"]["last"], "2026-10-28T05:00:00+00:00", "a 32B row is the prover at work")
+        write(self.ledger / "prover-batches.jsonl", [{"batch": "guided-x", "finished_at": "2026-10-28T08:00:00+00:00"},
+                                                     {"batch": "never-finished", "finished_at": None}])
+        r = {x["rung"]: x for x in daily_report.build(self.ledger, NOW)["rungs"]}
+        self.assertEqual(r["prover"]["last"], "2026-10-28T08:00:00+00:00", "a finished batch (guided, smoke) is too")
+
     def test_a_decompose_run_that_wrote_no_try_rows_still_counts_as_activity(self):
         # 2026-11-08: the retro showed "decompose idle 18.1 days" while ledger/decompose/ held runs on 11-05 and 11-06
         # (42061251877, 42124394793): a run whose goals all failed writes run rows there and no try row

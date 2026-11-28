@@ -21,6 +21,9 @@ on:
       memory_canary:
         description: "measure the kernel memory limits on the judge's Lean runs (#683), by hand only. true, or every (one proof of every problem, the judge's own limits)"
         default: "false"
+      rejudge:
+        description: "re-judge published proofs from a clean build, by hand: a path glob under verified/, e.g. verified/minif2f/test/amc12a_2008_p25/*.lean"
+        default: ""
 
 permissions:
   contents: read
@@ -88,6 +91,33 @@ jobs:
 
       - name: accept suite
         run: python3 tools/check.py --expect accept checks/accept/*.lean
+
+      # By hand only (2026-11-28): a published proof judged again from this clean build, kernel + axioms + no sorry,
+      # and its statement byte-for-byte the target's up to `:= by`. Zero files matched is an error, never a pass.
+      - name: re-judge published proofs
+        if: inputs.rejudge != ''
+        env:
+          REJUDGE: ${{ inputs.rejudge }}
+        run: |
+          case "$REJUDGE" in verified/*) ;; *) echo "rejudge must be a glob under verified/"; exit 1;; esac
+          printf '%s' "$REJUDGE" | grep -Eq '^[A-Za-z0-9_./*-]+$' || { echo "rejudge glob has characters outside [A-Za-z0-9_./*-]"; exit 1; }
+          files=$(compgen -G "$REJUDGE" || true)
+          [ -n "$files" ] || { echo "no files matched $REJUDGE; verdict meaningless"; exit 1; }
+          python3 - $files <<'PY'
+          import re, sys
+          from pathlib import Path
+          bad = 0
+          for f in sys.argv[1:]:
+              p = Path(f).parts                      # verified/<set...>/<target>/<lane>.lean
+              target = Path("targets", *p[1:-1]).with_suffix(".lean")
+              t = target.read_text()
+              prefix = t[:re.search(r":=\s*by\b", t).end()]
+              ok = Path(f).read_text().startswith(prefix)
+              bad += not ok
+              print(f"{'statement matches' if ok else 'STATEMENT DIFFERS'}: {f} vs {target}")
+          sys.exit(1 if bad else 0)
+          PY
+          python3 tools/check.py --expect accept --verbose $files
 
       - name: contract test environment
         run: |

@@ -26,6 +26,11 @@ HISTORY_DAYS = 7
 # Rungs stopped on purpose: never a fix to restart, never a daily line. Take one off this list when it runs again.
 RETIRED = {"goal batches (GPU)": "retired 2026-11-02: its bar (3 first-time solves in 7 days) was missed with 1, and the Kaggle "
                           "GPU went back to whole problems (DECISIONS.md, kumori #461)"}
+# Stations that run by hand only (workflow_dispatch, no schedule): idle is not a stall, so never a fix to restart.
+# Each carries its date and what reopens it; take one off when that condition is met (Codex 20261128T162024081952Z).
+PARKED = {"decompose": "parked 2026-11-28, by hand only: reopens when the 32B experiment on the open problems shows "
+                       "whether splitting a problem beats the whole proof (#712)",
+          "formal-conjectures": "parked 2026-11-28, by hand only: reopens with its first upstream contribution (#478)"}
 HEADLINE_MAX = 70        # kumori prefixes "sparebrAIns: "; past this the optional parts drop, least important first
 
 
@@ -144,7 +149,7 @@ def brief(d, history):
                 fixes.append(f"The ladder has been idle {idle} days.")
                 problems.append((1, f"ladder idle {idle}d"))
             continue
-        if r["rung"] in RETIRED:                         # the details table still lists it; the brief stays quiet
+        if r["rung"] in RETIRED or r["rung"] in PARKED:  # the details table still lists it; the brief stays quiet
             continue
         source_down = bool(r.get("source")) and not r["source"]["ok"]   # it cannot be restarted: the cause below is the fix
         if idle is not None and idle > IDLE_FIX_DAYS and not source_down:
