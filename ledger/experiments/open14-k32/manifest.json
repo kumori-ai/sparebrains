@@ -1,0 +1,110 @@
+{
+ "frozen_at": "2026-11-28T17:05:03+00:00",
+ "n": 32,
+ "arms": {
+  "32b": {
+   "model": "Goedel-LM/Goedel-Prover-V2-32B",
+   "revision": "851bf85d329b0f819e1a44db30e05d16e07d15c0"
+  },
+  "8b": {
+   "model": "Goedel-LM/Goedel-Prover-V2-8B",
+   "revision": "dfd02e6271a58375dfbf3ece0175277cf6b6a89a"
+  }
+ },
+ "hardware": "Kaggle TPU v5e-8, vLLM bf16 tensor_parallel 8 (tools/prover_kernel_tpu.py)",
+ "sampling": {
+  "max_tokens": 16000,
+  "temperature": 1.0,
+  "top_p": 0.95
+ },
+ "prompt": "the TPU kernel's PROMPT",
+ "repair": "tools/toolscore.py run_chain (Lean-only) on every raw reject, raw accepts kept",
+ "cohort": "open on the site when frozen; never filtered by openness after (Codex f4)",
+ "read": "per arm: problems with a chain accept at k=32 (primary), raw separately, unbiased pass@k k=1,8,32; tokens, generation and Lean seconds beside; no lift claim",
+ "problems": [
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p25",
+   "rung": "amc12",
+   "statement_sha": "5d7a73734a34421bea0afd97b96de2de982e71c3b0e386b16cf26a4a8ffc3612"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p9",
+   "rung": "amc12",
+   "statement_sha": "9a61f2aaa03e3f365c5cb249e456e4a4c06566d1009842e41eefc97e320f78a6"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12b_2021_p13",
+   "rung": "amc12",
+   "statement_sha": "6b0f433d75ba4e01fccf72bb122f631df336d63c6bd7295742905be2e332b15b"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2021_p12",
+   "rung": "amc12",
+   "statement_sha": "383eb2940838099e2eef9dc012f7ac25aca63dde936234fa82ea9736911b3920"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "amc12a_2020_p25",
+   "rung": "amc12",
+   "statement_sha": "079734f7172190256876af315f17b2c8247976b91dcd74c647b9db20511179db"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "algebra_apbmpcneq0_aeq0anbeq0anceq0",
+   "rung": "custom",
+   "statement_sha": "f8e46359a92d9c2370871fbef94f45a9eb36526bb0fc42bf8657e98fae3d2652"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "numbertheory_exk2powkeqapb2mulbpa2_aeq1",
+   "rung": "custom",
+   "statement_sha": "927c0c0e13cb869309d2e08e92269419b4112f811d69f6776ea850337ca471d5"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1984_p6",
+   "rung": "imo",
+   "statement_sha": "213318a6db6253aab4e60861d94fd1b1e4ec84059311dfbcd1954f93a883adb5"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_2001_p6",
+   "rung": "imo",
+   "statement_sha": "44416c727a0f2fbb80d608f0b242729bdd249feea1af55218c1e30287ac44e06"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1985_p6",
+   "rung": "imo",
+   "statement_sha": "f8790ad26c96c65615658a755ef662b61b42718380eb084518d1d9e5a2e3dd95"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1977_p6",
+   "rung": "imo",
+   "statement_sha": "9637c398444f9287abcb0390299e2556597c235d407540c34881a2e149c0d8ed"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1992_p1",
+   "rung": "imo",
+   "statement_sha": "9ff1c0ad5b22ea6dd6592f464eb62741f0a84a1df351754bcd5b502a0bbf36d2"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imo_1997_p5",
+   "rung": "imo",
+   "statement_sha": "b14f282f022addcf793e6d7984e3247a1bf6776c760b53f279270e9d89c11d8a"
+  },
+  {
+   "target_set": "minif2f/test",
+   "target": "imoshortlist_2007_algebra_p6",
+   "rung": "imo",
+   "statement_sha": "8411401397c6556cc47378955b090d9b2dc4736ffbbf034727354093e7d2204d"
+  }
+ ]
+}
