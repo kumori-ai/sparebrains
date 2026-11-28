@@ -149,5 +149,86 @@ class Pilot(unittest.TestCase):
         self.assertIn('"n": 8', src)
 
 
+class Open14(unittest.TestCase):
+    """The 14-open-problem 32B vs 8B run (#534, Codex 20261128T164538306418Z f4-f6): one cohort frozen before either
+    arm, per-arm slots, the TPU kernel under its own id, every answer judged, pass@k per arm."""
+    OPEN = [{"target_set": "minif2f/test", "target": NAME, "order": 1},
+            {"target_set": "minif2f/test", "target": "amc12a_2020_p9", "order": 2}]
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(pp.select, "prover-4b-pilot")
+        pp.select("open14")
+        self.man = pp.manifest_open(self.OPEN, out=self.tmp / "manifest.json")
+
+    def ans(self, sample, arm, target=NAME, batch=None):
+        a = answer(sample, batch=batch or f"open14-{arm}-b1", target=target)
+        a["config"] = {"model": self.man["arms"][arm]["model"]}
+        return a
+
+    def test_the_cohort_is_frozen_once_with_both_arms_pinned(self):
+        import hf_prefetch
+        self.assertEqual([p["target"] for p in self.man["problems"]], [NAME, "amc12a_2020_p9"])
+        self.assertEqual(self.man["n"], 32)
+        self.assertEqual({a: v["revision"] for a, v in self.man["arms"].items()},
+                         {a: hf_prefetch.PINS[v["model"]] for a, v in self.man["arms"].items()})
+        self.assertEqual(set(self.man["arms"]), {"32b", "8b"})
+        with self.assertRaises(SystemExit):
+            pp.manifest_open(self.OPEN, out=self.tmp / "manifest.json")
+
+    def test_a_first_arm_solve_never_removes_the_problem_from_the_other_arm(self):
+        """f4: the 32B solving a problem first leaves the 8B owing its 32 on it."""
+        rows = [{"batch": "open14-32b-b1", "target_set": "minif2f/test", "target": NAME, "sample": k,
+                 "model": self.man["arms"]["32b"]["model"], "raw": "accept", "chain": "accept"} for k in range(32)]
+        self.assertEqual(pp.missing(self.man, rows, arm="32b"), {("minif2f/test", "amc12a_2020_p9"): 32})
+        self.assertEqual(pp.missing(self.man, rows, arm="8b"), {("minif2f/test", NAME): 32, ("minif2f/test", "amc12a_2020_p9"): 32})
+
+    def test_the_tpu_kernel_runs_the_arm_under_its_own_id_and_refuses_a_moved_pin(self):
+        d = self.tmp / "k"
+        n, samples = pp.build(d, self.man, [], "open14-32b-test", 8.0, arm="32b")
+        meta = json.loads((d / "kernel-metadata.json").read_text())
+        src = (d / "prover_kernel.py").read_text()
+        self.assertEqual((n, samples, meta["id"], meta["machine_shape"]), (2, 64, pp.KERNEL_ID, "TpuV5E8"))
+        self.assertNotEqual(pp.KERNEL_ID, "kumoriai/sparebrains-prover-tpu", "never the production lane's kernel")
+        self.assertIn('MODEL = "Goedel-LM/Goedel-Prover-V2-32B"', src)
+        self.assertTrue(meta["model_sources"], "the 32B mounts its mirror")
+        moved = json.loads(json.dumps(self.man))
+        moved["arms"]["32b"]["revision"] = "0" * 40
+        with self.assertRaises(SystemExit):
+            pp.build(self.tmp / "k2", moved, [], "open14-32b-test2", 8.0, arm="32b")
+        drift = json.loads(json.dumps(self.man))
+        drift["problems"][0]["statement_sha"] = "0" * 64
+        with self.assertRaises(SystemExit, msg="Codex f7: refused before any generation"):
+            pp.build(self.tmp / "k3", drift, [], "open14-32b-test3", 8.0, arm="32b")
+
+    def test_an_answer_from_a_model_outside_the_arms_is_refused(self):
+        a = answer(0)
+        a["config"] = {"model": "someone/else"}
+        with self.assertRaises(SystemExit):
+            pp.judge([a], self.man, [], lambda t: {"verdict": "reject"}, lambda *x: {"c_verdict": "reject"},
+                     out=self.tmp / "j.jsonl")
+
+    def test_every_sample_judged_and_rows_carry_their_arm(self):
+        judge = lambda text: {"verdict": "accept", "output": ""}
+        w = pp.judge([self.ans(k, "32b") for k in range(3)] + [self.ans(0, "8b")], self.man, [], judge,
+                     lambda *x: {"c_verdict": "reject"}, out=self.tmp / "j.jsonl")
+        self.assertEqual([r["arm"] for r in w], ["32b"] * 3 + ["8b"])
+
+    def test_the_read_is_per_arm_with_unbiased_pass_at_k(self):
+        row = lambda arm, t, k, ok: {"batch": f"open14-{arm}-b", "target_set": "minif2f/test", "target": t, "sample": k,
+                                     "arm": arm, "raw": "reject", "chain": "accept" if ok else "reject", "tokens": 10}
+        full = [row(a, p["target"], k, a == "32b" and p["target"] == NAME and k < 2)
+                for a in ("32b", "8b") for p in self.man["problems"] for k in range(32)]
+        r = pp.read(self.man, full)
+        self.assertEqual((r["32b"]["complete"], r["32b"]["solved_chain"], r["8b"]["solved_chain"]), (True, 1, 0))
+        self.assertAlmostEqual(r["32b"]["pass_at"]["chain"]["1"], (2 / 32) / 2, places=6)     # mean over 2 problems
+        self.assertEqual(r["32b"]["pass_at"]["chain"]["32"], 0.5)
+        self.assertEqual(r["32b"]["tokens"], 640)
+        self.assertNotIn("lift", r["32b"]["read"])
+        self.assertTrue(r["32b"]["provisional"] and "PROVISIONAL" in r["32b"]["read"], "Codex f8")
+        self.assertFalse(r["8b"]["provisional"])
+        self.assertIn("inconclusive", pp.read(self.man, full[:-1])["8b"]["read"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,20 @@
 Dated, with receipts. Re-open one only with new evidence; otherwise it stands.
 Everything NOT here is open and lives in `PLAN.md` §6.
 
+## 2026-11-28
+
+- **open14: Goedel-Prover-V2-32B against its 8B on the open problems, pre-registered (#534).** The 32B's only open
+  reachable problem (amc12a_2008_p25) fell on 2026-11-26 (run 46146645143, re-judged clean on check run 46165787223),
+  so `reachable.json` holds nothing open to serve. Design (Codex 20261128T162024081952Z, T164538306418Z DISAGREE f4-f6,
+  T165834111177Z AGREE): the 14 problems open when `ledger/experiments/open14-k32/manifest.json` freezes (no matching
+  proof in the two archives `tools/reachable.py` checked, as of 2026-10-21), 32 samples per arm, both arms on Kaggle's
+  TPU v5e-8 at the smoke's settings (16,000 tokens, T 1.0, top_p 0.95), revisions pinned in `hf_prefetch.PINS`. The
+  cohort is never filtered by openness after the freeze. Every answer judged raw and through the Lean-only chain.
+  Primary: per arm, problems with a chain accept at equal samples; raw separately; unbiased pass@k (1, 8, 32); tokens
+  and seconds beside. No lift claim at n = 14 near a zero base rate, and every accept is provisional until re-judged by
+  check.yml's rejudge input. Run by `prover_pilot.yml exp=open14`, 32B first. Estimate (from the 11-25 smoke's 51 s an
+  answer): 32B about 6.4 h of TPU, 8B unmeasured on this kernel.
+
 ## 2026-11-25
 
 - **The guided pilots' cold control runs the whole theorem as a one-hole blueprint, at the guided arm's sample count,
